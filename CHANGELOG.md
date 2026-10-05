@@ -5,7 +5,7 @@ All notable changes to the Stratix Python SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**Latest version:** [1.11.0](https://github.com/LayerLens/stratix-python/releases/tag/v1.11.0) — 2026-08-10
+**Latest version:** [2.0.0](https://github.com/LayerLens/stratix-python/releases/tag/v2.0.0) — 2026-10-05
 
 ## [Unreleased]
 
@@ -20,6 +20,26 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 ### Deprecated
 
 ### Removed
+
+## [2.0.0] - 2026-10-05
+
+Removes the evaluation spaces client surface. **This is the only breaking change:
+if your code does not reference `client.evaluation_spaces`, the `space` CLI command
+or the evaluation space models, upgrading from 1.11.0 requires no changes.**
+
+### Removed
+
+- **Breaking: evaluation spaces.** The feature has been retired from Stratix, and
+  the API routes behind it are gone, so the client surface for it has been removed
+  rather than left to return errors:
+  - `client.evaluation_spaces` and `async_client.evaluation_spaces`
+  - the `stratix space` / `layerlens space` CLI command group
+  - the `EvaluationSpace`, `EvaluationSpaceFilters`, `EvaluationSpaceModelFilter`,
+    `EvaluationSpaceDatasetFilter` and `EvaluationSpacesResponse` models
+
+  Existing evaluation space documents are retained in Stratix and are not deleted;
+  they are simply no longer reachable through the API or this SDK. Code calling any
+  of the above should be removed. Nothing else in the client is affected.
 
 ## [1.11.0] - 2026-08-10
 
@@ -283,7 +303,8 @@ The instrumentation release: `layerlens.instrument` captures agent traces from t
 - `evaluations`, `results`, `models`, and `benchmarks` resources
 - Typed exception hierarchy for API errors
 
-[Unreleased]: https://github.com/LayerLens/stratix-python/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/LayerLens/stratix-python/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/LayerLens/stratix-python/compare/v1.11.0...v2.0.0
 [1.9.0]: https://github.com/LayerLens/stratix-python/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/LayerLens/stratix-python/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/LayerLens/stratix-python/compare/v1.6.1...v1.7.0

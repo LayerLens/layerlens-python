@@ -12,7 +12,6 @@ from .benchmark import Benchmark
 from .evaluation import Result, Evaluation
 from .integration import Integration
 from .organization import Organization
-from .evaluation_space import EvaluationSpace
 from .trace_evaluation import TraceEvaluation, TraceEvaluationResult
 from .judge_optimization import JudgeOptimizationRun
 
@@ -174,11 +173,5 @@ class TestIntegrationResponse(BaseModel):
 
 class ScorersResponse(BaseModel):
     scorers: List[Scorer]
-    count: int
-    total_count: int
-
-
-class EvaluationSpacesResponse(BaseModel):
-    evaluation_spaces: List[EvaluationSpace]
     count: int
     total_count: int

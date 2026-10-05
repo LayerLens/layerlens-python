@@ -7,7 +7,6 @@ from .commands.ci import ci
 from .commands.auth import login, logout, whoami
 from .commands.bulk import bulk
 from .commands.judge import judge
-from .commands.space import space
 from .commands.trace import trace
 from .commands.replay import replay
 from .commands.scorer import scorer
@@ -78,7 +77,6 @@ cli.add_command(integration)
 
 # Additional commands
 cli.add_command(scorer)
-cli.add_command(space)
 cli.add_command(bulk)
 cli.add_command(ci)
 

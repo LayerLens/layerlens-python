@@ -19,7 +19,6 @@ from .api import (
     OrganizationResponse,
     CreateBenchmarkResponse,
     TestIntegrationResponse,
-    EvaluationSpacesResponse,
     TraceEvaluationsResponse,
     CreateEvaluationsResponse,
     OrganizationsListResponse,
@@ -61,12 +60,6 @@ from .evaluation import (
 )
 from .integration import Integration
 from .organization import Project, Organization
-from .evaluation_space import (
-    EvaluationSpace,
-    EvaluationSpaceFilters,
-    EvaluationSpaceModelFilter,
-    EvaluationSpaceDatasetFilter,
-)
 from .trace_evaluation import (
     JudgeSnapshot,
     TraceEvaluation,
@@ -100,11 +93,6 @@ __all__ = [
     "CustomModel",
     "DeleteJudgeResponse",
     "EstimateJudgeOptimizationCostResponse",
-    "EvaluationSpace",
-    "EvaluationSpaceDatasetFilter",
-    "EvaluationSpaceFilters",
-    "EvaluationSpaceModelFilter",
-    "EvaluationSpacesResponse",
     "Integration",
     "IntegrationsResponse",
     "TestIntegrationResponse",

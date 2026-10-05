@@ -405,27 +405,6 @@ class TestScorerCommands:
         client.scorers.delete.assert_called_once_with("s-1")
 
 
-class TestSpaceCommands:
-    """Test space CLI commands."""
-
-    @pytest.fixture
-    def runner(self):
-        return _make_runner()
-
-    @patch("layerlens.cli.commands.space.get_client")
-    def test_space_create_dry_run(self, mock_get_client, runner):
-        """space create --dry-run previews without executing."""
-        result = runner.invoke(
-            cli,
-            ["space", "create", "--name", "Test Space", "--dry-run"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
-        )
-
-        assert result.exit_code == 0
-        assert "[dry-run]" in result.output
-        mock_get_client.assert_not_called()
-
-
 class TestBulkCommands:
     """Test bulk CLI commands."""
 
@@ -581,7 +560,6 @@ class TestGlobalOptions:
             "evaluate",
             "integration",
             "scorer",
-            "space",
             "bulk",
             "ci",
         ]:

@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from .resources.benchmarks import Benchmarks, AsyncBenchmarks
     from .resources.evaluations import Evaluations, AsyncEvaluations
     from .resources.integrations import Integrations, AsyncIntegrations
-    from .resources.evaluation_spaces import EvaluationSpaces, AsyncEvaluationSpaces
     from .resources.trace_evaluations import TraceEvaluations, AsyncTraceEvaluations
     from .resources.judge_optimizations import (
         JudgeOptimizations,
@@ -158,12 +157,6 @@ class Stratix(BaseClient):
         from .resources.scorers import Scorers
 
         return Scorers(self)
-
-    @cached_property
-    def evaluation_spaces(self) -> EvaluationSpaces:
-        from .resources.evaluation_spaces import EvaluationSpaces
-
-        return EvaluationSpaces(self)
 
     @cached_property
     def public(self) -> PublicClient:
@@ -388,12 +381,6 @@ class AsyncStratix(BaseAsyncClient):
         from .resources.scorers import AsyncScorers
 
         return AsyncScorers(self)
-
-    @cached_property
-    def evaluation_spaces(self) -> AsyncEvaluationSpaces:
-        from .resources.evaluation_spaces import AsyncEvaluationSpaces
-
-        return AsyncEvaluationSpaces(self)
 
     @cached_property
     def public(self) -> AsyncPublicClient:
