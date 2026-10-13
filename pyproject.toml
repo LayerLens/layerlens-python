@@ -134,10 +134,11 @@ Repository = "https://github.com/LayerLens/stratix-python"
 layerlens = "layerlens.cli:main"
 stratix = "layerlens.cli:main"
 
-[tool.rye]
-managed = true
-# version pins are in requirements-dev.lock
-dev-dependencies = [
+# Development tooling. Versions are pinned in uv.lock together with every extra above;
+# CI installs exactly that lock (see CONTRIBUTING.md > "Dependencies and the lock").
+# The scripts in scripts/ (lint, format, test, ...) replace the old rye scripts.
+[dependency-groups]
+dev = [
     "mypy",
     "pytest",
     "pyright==1.1.399",
@@ -153,38 +154,25 @@ dev-dependencies = [
     "anthropic>=0.94.0",
     "langchain-core>=0.3.84",
 ]
+# Mutation testing for the bite-check and nightly mutation workflows. Not a default
+# group: install it with `uv sync --all-extras --group mutation`.
+mutation = ["mutmut==2.5.1"]
 
-[tool.rye.scripts]
-format = { chain = [
-  "format:ruff",
-  "fix:ruff",
-  # run formatting again to fix any inconsistencies when imports are stripped
-  "format:ruff",
-] }
-"format:ruff" = "ruff format"
-
-"lint" = { chain = ["check:ruff", "typecheck:src", "check:importable"] }
-"lint:all" = { chain = ["check:ruff", "typecheck", "check:importable"] }
-"check:ruff" = "ruff check ."
-"fix:ruff" = "ruff check --fix ."
-
-"check:importable" = "python -c 'import layerlens'"
-
-# Core-scoped coverage gate (LAY-3614 / W3): enforces a floor on the shared core
-# machinery only (see tests/coverage-core.ini). fail_under lives in that config.
-"test:cov-core" = "pytest tests/ --cov=src/layerlens --cov-config=tests/coverage-core.ini --cov-report=term-missing --tb=short"
-
-# Type checking for production code only (excludes tests)
-"typecheck:src" = { chain = ["typecheck:pyright:src", "typecheck:mypy:src"] }
-
-# Type checking for all code including tests
-typecheck = { chain = ["typecheck:pyright", "typecheck:mypy"] }
-
-"typecheck:pyright" = "pyright"
-"typecheck:pyright:src" = "pyright src"
-"typecheck:verify-types" = "pyright --verifytypes layerlens --ignoreexternal"
-"typecheck:mypy" = "mypy ."
-"typecheck:mypy:src" = "mypy src"
+[tool.uv]
+# CI pins this exact uv (.github/actions/setup-locked-env); older uv may write the lock
+# differently, so the floor keeps local locks consistent with CI's `uv lock --check`.
+required-version = ">=0.12.23"
+# The environments uv.lock is resolved for: what CI tests (CPython 3.9-3.12 on Linux
+# x86_64) plus where the team develops (Linux aarch64, macOS). This bounds the dev
+# lock only; it does not change requires-python or what customers can install.
+# Machines are listed explicitly because uv otherwise also resolves forks such as
+# Linux ppc64le, where wheel-only dependencies (onnxruntime) have nothing to install.
+environments = [
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 
 [tool.ruff]
 line-length = 120
