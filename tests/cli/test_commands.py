@@ -43,7 +43,7 @@ class TestTraceCommands:
         client.traces.get_many.return_value = resp
         mock_get_client.return_value = client
 
-        result = runner.invoke(cli, ["trace", "list"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["trace", "list"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code == 0
         assert "trace-123" in result.output
@@ -55,7 +55,7 @@ class TestTraceCommands:
         client.traces.get_many.return_value = Mock(traces=[])
         mock_get_client.return_value = client
 
-        result = runner.invoke(cli, ["trace", "list"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["trace", "list"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code == 0
         assert "No traces found" in result.output
@@ -70,7 +70,7 @@ class TestTraceCommands:
         result = runner.invoke(
             cli,
             ["trace", "get", "trace-123"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -86,7 +86,7 @@ class TestTraceCommands:
         result = runner.invoke(
             cli,
             ["trace", "get", "nonexistent"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code != 0
@@ -101,7 +101,7 @@ class TestTraceCommands:
             cli,
             ["trace", "delete", "trace-123"],
             input="y\n",
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         client.traces.delete.assert_called_once()
@@ -116,7 +116,7 @@ class TestTraceCommands:
         result = runner.invoke(
             cli,
             ["trace", "delete", "trace-123", "--yes"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -149,7 +149,7 @@ class TestJudgeCommands:
         client.judges.get_many.return_value = resp
         mock_get_client.return_value = client
 
-        result = runner.invoke(cli, ["judge", "list"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["judge", "list"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code == 0
         assert "Quality" in result.output
@@ -174,7 +174,7 @@ class TestJudgeCommands:
                 "--goal",
                 "Evaluate accuracy and completeness",
             ],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -198,7 +198,7 @@ class TestJudgeCommands:
         result = runner.invoke(
             cli,
             ["judge", "test", "--judge-id", "j-1", "--trace-id", "t-1"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -229,7 +229,7 @@ class TestJudgeCommands:
         result = runner.invoke(
             cli,
             ["judge", "result", "te-1"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -250,7 +250,7 @@ class TestJudgeCommands:
         result = runner.invoke(
             cli,
             ["judge", "result", "te-1"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -267,7 +267,7 @@ class TestJudgeCommands:
         result = runner.invoke(
             cli,
             ["judge", "result", "missing"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 1
@@ -300,7 +300,7 @@ class TestEvaluateCommands:
         client.evaluations.get_many.return_value = resp
         mock_get_client.return_value = client
 
-        result = runner.invoke(cli, ["evaluate", "list"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["evaluate", "list"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code == 0
         assert "GPT-4" in result.output
@@ -324,7 +324,7 @@ class TestEvaluateCommands:
         result = runner.invoke(
             cli,
             ["evaluate", "get", "te-1"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 1
@@ -358,7 +358,7 @@ class TestScorerCommands:
         client.scorers.get_many.return_value = resp
         mock_get_client.return_value = client
 
-        result = runner.invoke(cli, ["scorer", "list"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["scorer", "list"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code == 0
         assert "Quality" in result.output
@@ -381,7 +381,7 @@ class TestScorerCommands:
                 "Rate quality",
                 "--dry-run",
             ],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -398,7 +398,7 @@ class TestScorerCommands:
         result = runner.invoke(
             cli,
             ["scorer", "delete", "s-1", "--yes"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -427,7 +427,7 @@ class TestBulkCommands:
             result = runner.invoke(
                 cli,
                 ["bulk", "eval", "--file", jobs_path, "--dry-run"],
-                env={"LAYERLENS_STRATIX_API_KEY": "test"},
+                env={"LAYERLENS_API_KEY": "test"},
             )
 
             assert result.exit_code == 0, f"stdout={result.output!r} stderr={result.stderr!r}"
@@ -438,7 +438,7 @@ class TestBulkCommands:
 
     def test_bulk_eval_no_args(self, runner):
         """bulk eval with no arguments shows error."""
-        result = runner.invoke(cli, ["bulk", "eval"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["bulk", "eval"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code != 0
 
@@ -459,7 +459,7 @@ class TestBulkCommands:
                 str(traces_file),
                 "--dry-run",
             ],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -478,7 +478,7 @@ class TestCiCommands:
         result = runner.invoke(
             cli,
             ["ci", "report", "--dry-run"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -501,7 +501,7 @@ class TestCiCommands:
         client.evaluations.get_many.return_value = resp
         mock_get_client.return_value = client
 
-        result = runner.invoke(cli, ["ci", "report"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
+        result = runner.invoke(cli, ["ci", "report"], env={"LAYERLENS_API_KEY": "test"})
 
         assert result.exit_code == 0
         assert "# LayerLens Evaluation Report" in result.output
@@ -528,7 +528,7 @@ class TestCiCommands:
         result = runner.invoke(
             cli,
             ["ci", "report", "-o", str(out_file)],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0
@@ -577,7 +577,7 @@ class TestGlobalOptions:
         result = runner.invoke(
             cli,
             ["--format", "json", "trace", "get", "t-1"],
-            env={"LAYERLENS_STRATIX_API_KEY": "test"},
+            env={"LAYERLENS_API_KEY": "test"},
         )
 
         assert result.exit_code == 0

@@ -19,9 +19,9 @@ from .commands.integration import integration
 @click.group()
 @click.option(
     "--api-key",
-    envvar="LAYERLENS_STRATIX_API_KEY",
+    envvar="LAYERLENS_API_KEY",
     default=None,
-    help="API key for authentication.",
+    help="API key for authentication (default: $LAYERLENS_API_KEY).",
 )
 @click.option("--host", default=None, help="API host (e.g. api.layerlens.ai).")
 @click.option("--port", default=None, type=int, help="API port.")
@@ -55,6 +55,9 @@ def cli(
 
     ctx.ensure_object(dict)
     ctx.obj["api_key"] = api_key
+    # Where the key came from, so `whoami` can say so.
+    from_env = ctx.get_parameter_source("api_key") is click.core.ParameterSource.ENVIRONMENT
+    ctx.obj["api_key_source"] = "LAYERLENS_API_KEY" if from_env else "--api-key"
     ctx.obj["output_format"] = output_format
     ctx.obj["verbose"] = verbose
 
@@ -98,14 +101,14 @@ def completion(shell: str) -> None:
 
     \b
     Examples:
-      stratix completion bash
-      stratix completion zsh
-      stratix completion fish
-      stratix completion powershell
+      layerlens completion bash
+      layerlens completion zsh
+      layerlens completion fish
+      layerlens completion powershell
     """
     import os
 
-    # Detect which command name was used to invoke the CLI
+    # Detect which command name was used to invoke the CLI (`stratix` is the deprecated alias)
     prog = os.path.basename(os.environ.get("_", "layerlens"))
     if prog not in ("layerlens", "stratix"):
         prog = "layerlens"

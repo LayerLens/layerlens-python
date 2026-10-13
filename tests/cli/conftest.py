@@ -24,7 +24,25 @@ def runner():
     return _make_runner()
 
 
+@pytest.fixture(autouse=True)
+def _no_credentials_from_the_environment(monkeypatch):
+    """Keep a developer's real LayerLens key out of the CLI tests.
+
+    The CLI reads its API key and base URL from the environment, so an exported
+    key would otherwise reach a real API. Tests that need one set it explicitly.
+    """
+    for name in (
+        "LAYERLENS_API_KEY",
+        "LAYERLENS_BASE_URL",
+        "LAYERLENS_STRATIX_API_KEY",
+        "LAYERLENS_STRATIX_BASE_URL",
+        "LAYERLENS_ATLAS_API_KEY",
+        "LAYERLENS_ATLAS_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def cli_env():
     """Environment variables for CLI tests."""
-    return {"LAYERLENS_STRATIX_API_KEY": "test-key-123"}
+    return {"LAYERLENS_API_KEY": "test-key-123"}

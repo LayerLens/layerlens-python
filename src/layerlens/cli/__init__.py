@@ -8,7 +8,7 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-v"):
         from .._version import __version__
 
-        print(f"stratix {__version__}")  # noqa: T201
+        print(f"layerlens {__version__}")  # noqa: T201
         sys.exit(0)
 
     try:
@@ -24,4 +24,15 @@ def main() -> None:
     cli()
 
 
-__all__ = ["main"]
+
+def legacy_main() -> None:
+    """Entry point for the deprecated ``stratix`` command (LAY-4220).
+
+    Identical to ``layerlens``; the notice goes to stderr so scripts that parse
+    stdout (``--format json``, ``ci report >> $GITHUB_STEP_SUMMARY``) are unaffected.
+    """
+    print("warning: the 'stratix' command is deprecated; use 'layerlens' instead", file=sys.stderr)  # noqa: T201
+    main()
+
+
+__all__ = ["main", "legacy_main"]

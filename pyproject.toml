@@ -9,7 +9,7 @@ pattern = '__version__ = "(?P<version>[^"]+)"'
 [project]
 name = "layerlens"
 dynamic = ["version"]
-description = "The official Python library for the LayerLens Stratix API"
+description = "The official Python library for the LayerLens API"
 license = "Apache-2.0"
 authors = [{ name = "LayerLens", email = "support@layerlens.ai" }]
 dependencies = ["httpx>=0.23.0, <1", "pydantic>=1.9.0, <3"]
@@ -132,7 +132,7 @@ Repository = "https://github.com/LayerLens/stratix-python"
 
 [project.scripts]
 layerlens = "layerlens.cli:main"
-stratix = "layerlens.cli:main"
+stratix = "layerlens.cli:legacy_main"
 
 # Development tooling. Versions are pinned in uv.lock together with every extra above;
 # CI installs exactly that lock (see CONTRIBUTING.md > "Dependencies and the lock").

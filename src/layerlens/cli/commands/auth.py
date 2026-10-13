@@ -54,20 +54,25 @@ def logout() -> None:
 
 
 @click.command()
-def whoami() -> None:
-    """Display the currently authenticated user."""
-    import os
-
+@click.pass_context
+def whoami(ctx: click.Context) -> None:
+    """Display the currently authenticated user or API key."""
     from .._auth import (
         get_user_info,
         get_valid_token,
         load_credentials,
     )
+    from .._client import build_client, resolve_api_key
 
-    # Check env-var API key first
-    env_key = os.environ.get("LAYERLENS_API_KEY")
-    if env_key:
-        click.echo("Authenticated via LAYERLENS_API_KEY environment variable.", err=True)
+    # An API key (--api-key / LAYERLENS_API_KEY / a legacy name) takes precedence,
+    # exactly as in every other command. Building the client fetches the key's
+    # organization, so a rejected key fails here instead of being reported as valid.
+    resolved = resolve_api_key(ctx)
+    if resolved is not None:
+        client = build_client(ctx, resolved.value, use_bearer_auth=False)
+        click.echo(f"Authenticated with an API key from {resolved.source}.", err=True)
+        click.echo(f"  Organization: {client.organization_id}")
+        click.echo(f"  Project:      {client.project_id}")
         return
 
     creds = load_credentials()

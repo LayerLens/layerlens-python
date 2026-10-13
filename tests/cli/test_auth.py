@@ -241,11 +241,13 @@ class TestTokenRefresh:
 
 
 class TestGetValidToken:
-    def test_env_var_takes_precedence(self, creds_dir, monkeypatch):
+    def test_never_returns_the_api_key_env_var(self, creds_dir, monkeypatch):
+        """An API key is not a login token. Returned here it went out as Bearer to the
+        login router, which rejects it (LAY-4220); the CLI sends it as x-api-key instead."""
         from layerlens.cli._auth import get_valid_token
 
         monkeypatch.setenv("LAYERLENS_API_KEY", "env-key-123")
-        assert get_valid_token() == "env-key-123"
+        assert get_valid_token() is None
 
     def test_returns_stored_token(self, creds_dir, sample_creds, monkeypatch):
         from layerlens.cli._auth import get_valid_token
@@ -405,12 +407,7 @@ class TestLogoutCommand:
 
 
 class TestWhoamiCommand:
-    def test_whoami_with_env_var(self, runner, monkeypatch):
-        monkeypatch.setenv("LAYERLENS_API_KEY", "env-key")
-        result = runner.invoke(cli, ["whoami"])
-        assert result.exit_code == 0
-        combined = _combined(result)
-        assert "LAYERLENS_API_KEY" in combined
+    # API-key whoami (verified against the API) is covered in test_rename_cli.py::TestWhoami.
 
     def test_whoami_not_logged_in(self, runner, creds_dir, monkeypatch):
         monkeypatch.delenv("LAYERLENS_API_KEY", raising=False)

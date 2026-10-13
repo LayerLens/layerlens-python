@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import json
 import time
 from typing import Any, Dict, Optional
@@ -10,6 +9,7 @@ from pathlib import Path
 
 import httpx
 
+from .._env import find_base_url
 from .._constants import DEFAULT_BASE_URL, AUTH_CLI_LOGIN_PATH, AUTH_CLI_CONFIG_PATH
 
 CREDENTIALS_DIR = Path.home() / ".layerlens"
@@ -65,9 +65,8 @@ _cached_auth_config: Optional[Dict[str, str]] = None
 
 
 def _get_base_url() -> str:
-    return (
-        os.environ.get("LAYERLENS_STRATIX_BASE_URL") or os.environ.get("LAYERLENS_ATLAS_BASE_URL") or DEFAULT_BASE_URL
-    )
+    found = find_base_url()
+    return found.value if found is not None else DEFAULT_BASE_URL
 
 
 def fetch_auth_config(base_url: Optional[str] = None) -> Dict[str, str]:
@@ -164,13 +163,10 @@ def get_valid_token() -> Optional[str]:
     The backend JWT middleware expects claims (email, cognito:groups) that are
     present in the Cognito **ID token**, not the access token.
 
-    Falls back to ``LAYERLENS_API_KEY`` env-var for CI/CD.
+    Only tokens from ``layerlens login`` are returned. An API key (from
+    ``LAYERLENS_API_KEY``) is not a token: sent as Bearer to the login router it
+    is rejected, so the CLI sends it as ``x-api-key`` instead (see ``_client.get_client``).
     """
-    # 1. Env-var fallback (CI/CD)
-    env_key = os.environ.get("LAYERLENS_API_KEY")
-    if env_key:
-        return env_key
-
     creds = load_credentials()
     if creds is None:
         return None
