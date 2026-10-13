@@ -18,9 +18,9 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **The client is now `LayerLens`.** `Stratix` → `LayerLens`, `AsyncStratix` →
   `AsyncLayerLens`, `StratixError` → `LayerLensError`, and the CLI command is
   `layerlens`. The client is configured by `LAYERLENS_API_KEY` and
-  `LAYERLENS_BASE_URL`. **Nothing breaks:** every old name, variable and the
-  `stratix` command keep working (see `Deprecated`). The README, docs and every
-  sample use the new names, and
+  `LAYERLENS_BASE_URL`. **Existing code keeps working:** every old name,
+  variable and the `stratix` command still work (see `Deprecated` for the one
+  star-import caveat). The README, docs and every sample use the new names, and
   [docs/migrating-from-stratix.md](docs/migrating-from-stratix.md) maps each one.
 
   | Before | Now |
@@ -54,7 +54,9 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   `AtlasError`. Each resolves to the *same object* as its replacement, so
   `isinstance` checks and `except StratixError:` behave exactly as before, and
   each use emits a `DeprecationWarning` naming the replacement. They are no
-  longer listed in `layerlens.__all__`.
+  longer listed in `layerlens.__all__`, so `from layerlens import *` no longer
+  brings them in; code that star-imports and then uses `Stratix` must import it
+  explicitly.
 - `LAYERLENS_STRATIX_API_KEY` / `LAYERLENS_STRATIX_BASE_URL` and the older
   `LAYERLENS_ATLAS_*` variables. They are still read, with a warning, when the
   `LAYERLENS_*` variable is not set. When both are set, the new one wins.

@@ -62,9 +62,13 @@ def _mask(value: Optional[str]) -> str:
 
 def build_real_client():
     """Construct a native ``LayerLens()`` (LayerLens-key-only), or return None."""
-    if not os.environ.get("LAYERLENS_API_KEY"):
+    # The SDK's own lookup, so a sourced tests/e2e/live/.env with the pre-rename
+    # LAYERLENS_STRATIX_* names keeps working.
+    from layerlens._env import find_api_key, find_base_url
+
+    if find_api_key() is None:
         return None, "LAYERLENS_API_KEY not set"
-    if not os.environ.get("LAYERLENS_BASE_URL"):
+    if find_base_url() is None:
         return None, "LAYERLENS_BASE_URL not set (refusing the prod default)"
     try:
         from layerlens import LayerLens

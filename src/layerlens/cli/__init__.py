@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -30,7 +31,9 @@ def legacy_main() -> None:
     Identical to ``layerlens``; the notice goes to stderr so scripts that parse
     stdout (``--format json``, ``ci report >> $GITHUB_STEP_SUMMARY``) are unaffected.
     """
-    print("warning: the 'stratix' command is deprecated; use 'layerlens' instead", file=sys.stderr)  # noqa: T201
+    # Shell completion calls the program on every TAB; a notice there would land in the prompt.
+    if "_STRATIX_COMPLETE" not in os.environ:
+        print("warning: the 'stratix' command is deprecated; use 'layerlens' instead", file=sys.stderr)  # noqa: T201
     main()
 
 

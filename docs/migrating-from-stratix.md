@@ -1,6 +1,6 @@
 # Migrating from Stratix
 
-The SDK's client has been renamed from Stratix to LayerLens. **You don't have to change anything to upgrade:** every old name, environment variable and the `stratix` command keep working exactly as before. Each one now tells you its replacement, and they will be removed in a future major release, so it's worth updating when convenient.
+The SDK's client has been renamed from Stratix to LayerLens. **For almost everyone, upgrading needs no changes:** every old name, environment variable and the `stratix` command keep working exactly as before. The one exception is a `from layerlens import *` that relies on the old names (see below). Each one now tells you its replacement, and they will be removed in a future major release, so it's worth updating when convenient.
 
 ## What was renamed
 
@@ -22,6 +22,7 @@ Nothing else changed: the package is still `layerlens`, `Client` and `AsyncClien
 - **They are the same objects.** `Stratix is LayerLens`, so `isinstance(client, Stratix)` and `except StratixError:` around SDK calls behave exactly as before.
 - **Each use raises a `DeprecationWarning`** that names the replacement and points at your line of code.
 - **Environment variables:** if `LAYERLENS_API_KEY` is set, it is used and the old variables are ignored. Otherwise the old variable is used, with a warning.
+- **`from layerlens import *` no longer brings in the old names.** They are not in `__all__`, so star-imports stay free of warnings. If you star-import and then call `Stratix()`, import it explicitly (`from layerlens import Stratix`) or switch to `LayerLens`.
 - **The `stratix` command** runs the same CLI and prints a one-line notice to stderr. Its stdout is identical to `layerlens`, so scripts that parse output (`--format json`, `ci report >> $GITHUB_STEP_SUMMARY`) are unaffected.
 
 ## Finding what to update

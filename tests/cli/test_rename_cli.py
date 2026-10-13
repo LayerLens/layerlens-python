@@ -32,6 +32,13 @@ from .conftest import _make_runner
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ORG = {"id": "org-1", "name": "Acme", "projects": [{"id": "proj-1", "name": "Default"}]}
+TRACE = {
+    "id": "trace-1",
+    "organization_id": "org-1",
+    "project_id": "proj-1",
+    "created_at": "2026-10-12T00:00:00Z",
+    "filename": "run.jsonl",
+}
 
 ALL_ENV_VARS = (
     "LAYERLENS_API_KEY",
@@ -87,7 +94,7 @@ def stored_login(creds_dir: Path) -> None:
 @pytest.fixture
 def server(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """A fake LayerLens API that records every request the CLI sends."""
-    state = SimpleNamespace(requests=[], status=200)
+    state = SimpleNamespace(requests=[], status=200, with_trace=False)
 
     def send(self: httpx.Client, request: httpx.Request, **kwargs: Any) -> httpx.Response:
         state.requests.append(request)
@@ -99,7 +106,15 @@ def server(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             body = {"data": [ORG]} if "/dgklmnr/" in path else {"data": ORG}
             return httpx.Response(200, json=body, request=request)
         if path.endswith("/traces"):
-            return httpx.Response(200, json={"data": {"traces": [], "count": 0, "total_count": 0}}, request=request)
+            traces = [TRACE] if state.with_trace else []
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {"traces": traces, "count": len(traces), "total_count": len(traces)},
+                },
+                request=request,
+            )
         return httpx.Response(404, json={"error": f"unexpected path {path}"}, request=request)
 
     monkeypatch.setattr(httpx.Client, "send", send)
@@ -143,8 +158,9 @@ class TestApiKeyCredentials:
         _assert_sent_as_api_key(server.requests, "old-key")
         assert f"warning: {legacy} is deprecated" in _stderr(result)
         assert "LAYERLENS_API_KEY" in _stderr(result)
-        # The notice never pollutes stdout, which scripts parse.
-        assert "deprecated" not in result.output
+        # The notice never pollutes stdout, which scripts parse. (``result.output``
+        # also contains stderr from click 8.2 on, so check stdout explicitly.)
+        assert "deprecated" not in result.stdout
 
     def test_api_key_wins_over_a_stored_login_token(self, runner, clean_env, stored_login, server) -> None:
         clean_env.setenv("LAYERLENS_API_KEY", "key-123")
@@ -221,8 +237,11 @@ class TestWhoami:
         assert "warning: LAYERLENS_STRATIX_API_KEY is deprecated" in _stderr(result)
 
 
-def _run_entry_point(entry: str, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_entry_point(
+    entry: str, *args: str, extra_env: "dict[str, str] | None" = None
+) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in ALL_ENV_VARS}
+    env.update(extra_env or {})
     code = f"import sys; sys.argv = ['prog', *{list(args)!r}]; from layerlens.cli import {entry}; {entry}()"
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=60)
 
@@ -246,6 +265,16 @@ class TestCommandName:
         assert "warning: the 'stratix' command is deprecated; use 'layerlens' instead" in old.stderr
         assert "deprecated" not in new.stderr
 
+    def test_stratix_shell_completion_is_not_interrupted_by_the_notice(self) -> None:
+        # The shell calls the program on every TAB; a notice there lands in the prompt.
+        completion = {"_STRATIX_COMPLETE": "bash_complete", "COMP_WORDS": "stratix tr", "COMP_CWORD": "1"}
+
+        proc = _run_entry_point("legacy_main", extra_env=completion)
+
+        assert proc.returncode == 0, proc.stderr
+        assert "trace" in proc.stdout
+        assert proc.stderr == ""
+
     def test_console_scripts_point_at_the_right_entry_points(self) -> None:
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         scripts = pyproject.split("[project.scripts]", 1)[1].split("\n[", 1)[0]
@@ -260,6 +289,48 @@ class TestCommandName:
 
         assert old_art_first_line not in text
         assert "v9.9.9" in text
+
+
+def _run_in_process(entry: Any, argv: List[str], capsys: pytest.CaptureFixture[str]) -> "tuple[Any, str, str]":
+    capsys.readouterr()
+    old_argv = sys.argv
+    sys.argv = ["prog", *argv]
+    try:
+        with pytest.raises(SystemExit) as exc:
+            entry()
+    finally:
+        sys.argv = old_argv
+    out, err = capsys.readouterr()
+    return exc.value.code, out, err
+
+
+def test_stratix_in_ci_with_the_legacy_key_prints_byte_identical_output(
+    clean_env: pytest.MonkeyPatch, creds_dir: Path, server: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CI case: `stratix --format json ...` with LAYERLENS_STRATIX_API_KEY exported.
+
+    A job that parses stdout must get exactly what `layerlens` prints with the new
+    variable; the deprecation notices may only appear on stderr.
+    """
+    from layerlens.cli import main, legacy_main
+
+    server.with_trace = True
+    argv = ["--format", "json", "trace", "list"]
+
+    clean_env.setenv("LAYERLENS_API_KEY", "key-123")
+    new_code, new_out, new_err = _run_in_process(main, argv, capsys)
+
+    clean_env.delenv("LAYERLENS_API_KEY")
+    clean_env.setenv("LAYERLENS_STRATIX_API_KEY", "key-123")
+    old_code, old_out, old_err = _run_in_process(legacy_main, argv, capsys)
+
+    assert new_code == old_code == 0, new_err + old_err
+    assert '"trace-1"' in new_out
+    assert old_out == new_out
+    assert "deprecated" not in new_err
+    assert "warning: the 'stratix' command is deprecated" in old_err
+    assert "warning: LAYERLENS_STRATIX_API_KEY is deprecated" in old_err
+    _assert_sent_as_api_key(server.requests, "key-123")
 
 
 def _all_command_paths(group: click.Group, prefix: tuple = ()) -> List[tuple]:

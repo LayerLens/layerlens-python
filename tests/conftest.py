@@ -72,3 +72,23 @@ def mock_env_vars():
         },
     ):
         yield
+
+
+@pytest.fixture
+def live_api_key(request: pytest.FixtureRequest) -> str:
+    """A real LayerLens API key for an opt-in live test, or skip.
+
+    Live tests talk to a real API (production, unless a base URL is set), so they
+    need two explicit opt-ins: selecting them with ``-m live`` *and* a key in the
+    environment, under the canonical or a legacy name. A key exported for everyday
+    use (the CLI and the VS Code extension read ``LAYERLENS_API_KEY``) must never
+    turn a plain ``pytest`` run into API traffic.
+    """
+    from layerlens._env import find_api_key
+
+    if "live" not in (request.config.getoption("markexpr") or ""):
+        pytest.skip("live API test: select it with -m live")
+    found = find_api_key()
+    if found is None:
+        pytest.skip("LAYERLENS_API_KEY not set")
+    return found.value

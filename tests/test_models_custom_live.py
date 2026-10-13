@@ -3,7 +3,7 @@
 Exercises the customer's exact workflow against a real LayerLens API:
 create_custom → update_custom (repoint api_url) → delete_custom → verify gone.
 
-Skipped unless ``LAYERLENS_API_KEY`` is set. Run with::
+Skipped unless selected with ``-m live`` and ``LAYERLENS_API_KEY`` is set. Run with::
 
     pytest tests/test_models_custom_live.py -m live
 """
@@ -19,13 +19,8 @@ from layerlens import LayerLens
 
 
 @pytest.mark.live
-def test_custom_model_lifecycle_live() -> None:
-    from layerlens._env import find_api_key
-
-    if find_api_key() is None:
-        pytest.skip("LAYERLENS_API_KEY not set")
-
-    client = LayerLens()
+def test_custom_model_lifecycle_live(live_api_key: str) -> None:
+    client = LayerLens(api_key=live_api_key)
 
     # Use a unique key per run so the test can re-run cleanly.
     suffix = uuid.uuid4().hex[:8]

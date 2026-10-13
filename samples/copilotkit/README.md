@@ -60,7 +60,7 @@ export OPENAI_MODEL=gpt-4o-mini
 
 | Package | Pin |
 |---|---|
-| `layerlens` | `>=1.6.0` |
+| `layerlens` | `>=2.0.0` |
 | `copilotkit` (Python SDK) | `==0.1.87` |
 | `langchain` | `==1.2.15` |
 | `langchain-openai` | `>=1.1.0,<2.0.0` |
@@ -96,29 +96,29 @@ export OPENAI_MODEL=gpt-4o-mini
                 |
                 v
 +-- FastAPI backend (samples/copilotkit/app/backend/server.py) ---+
-|                                                               |
-| POST /evaluator                                               |
-| ag_ui_langgraph.add_langgraph_fastapi_endpoint                |
-| wraps the graph in build_agui_agent (recursion_limit=200)     |
-|                                                               |
-| GET  /evaluations/{id}                                        |
-| Out-of-band polling endpoint — returns the current verdict    |
-| (status / passed / score / reasoning / trace_id / judge_id).  |
-|                                                               |
-| langchain.agents.create_agent (state_schema=EvaluatorState)   |
-| - model: ChatOpenAI (OpenAI-compatible)                       |
-| - tools (async, return Command(update={...})):                |
-| list_recent_traces                                            |
-| list_judges                                                   |
-| run_trace_evaluation                                          |
-| get_evaluation_result                                         |
-| - middleware: [CopilotKitMiddleware]                          |
-| - confirm_judge bridged in from the frontend (no-arg HITL)    |
-|                                                               |
-| Tools call copilotkit_emit_state to push state mid-run so the |
-| canvas updates while the agent works.                         |
-|                                                               |
-| layerlens.LayerLens client                                    |
+|                                                                 |
+|  POST /evaluator                                                |
+|    ag_ui_langgraph.add_langgraph_fastapi_endpoint               |
+|        wraps the graph in build_agui_agent (recursion_limit=200)|
+|                                                                 |
+|  GET  /evaluations/{id}                                         |
+|    Out-of-band polling endpoint — returns the current verdict   |
+|    (status / passed / score / reasoning / trace_id / judge_id). |
+|                                                                 |
+|  langchain.agents.create_agent (state_schema=EvaluatorState)    |
+|    - model: ChatOpenAI (OpenAI-compatible)                      |
+|    - tools (async, return Command(update={...})):               |
+|        list_recent_traces                                       |
+|        list_judges                                              |
+|        run_trace_evaluation                                     |
+|        get_evaluation_result                                    |
+|    - middleware: [CopilotKitMiddleware]                         |
+|    - confirm_judge bridged in from the frontend (no-arg HITL)   |
+|                                                                 |
+|  Tools call copilotkit_emit_state to push state mid-run so the  |
+|  canvas updates while the agent works.                          |
+|                                                                 |
+|  layerlens.LayerLens client                                     |
 +-----------------------------------------------------------------+
 ```
 

@@ -263,7 +263,7 @@ layerlens/
   _client.py          # LayerLens / Client (premium) + AsyncLayerLens
   _public_client.py   # PublicClient (open data) + AsyncPublicClient
   cli/                # Click-based CLI
-    commands/         # trace, judge, evaluate, evaluations, scorer, space,
+    commands/         # trace, judge, evaluate, evaluations, scorer,
                       # bulk, ci, replay, synthetic, integration, auth
   resources/          # API resource implementations
   models/             # Pydantic response models

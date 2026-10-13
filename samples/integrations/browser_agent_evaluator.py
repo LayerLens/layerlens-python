@@ -623,7 +623,7 @@ def _render_report(
     lines.append("")
     lines.append(f"{_BOLD}{'=' * w}{_RESET}")
     lines.append(f"{_BOLD}  BROWSER AGENT RELIABILITY REPORT{_RESET}")
-    lines.append(f"{_BOLD}  Powered by LayerLens (LayerLens){_RESET}")
+    lines.append(f"{_BOLD}  Powered by LayerLens{_RESET}")
     lines.append(f"{_BOLD}{'=' * w}{_RESET}")
     lines.append("")
 

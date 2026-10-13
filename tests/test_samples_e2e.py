@@ -897,14 +897,7 @@ def _run_openclaw_demo(
     # values on top. Scrubbing only in the no-override branch meant a caller
     # passing env_override inherited the developer's key and base URL, so the
     # same test could talk to a different backend locally than it does in CI.
-    for _var in (
-        "LAYERLENS_API_KEY",
-        "LAYERLENS_BASE_URL",
-        "LAYERLENS_STRATIX_API_KEY",
-        "LAYERLENS_STRATIX_BASE_URL",
-        "LAYERLENS_ATLAS_API_KEY",
-        "LAYERLENS_ATLAS_BASE_URL",
-    ):
+    for _var in _LAYERLENS_CONFIG_VARS:
         env.pop(_var, None)
     if env_override:
         env.update(env_override)
@@ -922,14 +915,36 @@ def _run_openclaw_demo(
             os.unlink(script_path)
 
 
+# Every variable that configures a LayerLens client, canonical and legacy (LAY-4220).
+_LAYERLENS_CONFIG_VARS = (
+    "LAYERLENS_API_KEY",
+    "LAYERLENS_BASE_URL",
+    "LAYERLENS_STRATIX_API_KEY",
+    "LAYERLENS_STRATIX_BASE_URL",
+    "LAYERLENS_ATLAS_API_KEY",
+    "LAYERLENS_ATLAS_BASE_URL",
+)
+
+
+def _env_without_layerlens_config() -> dict[str, str]:
+    """``os.environ`` minus every LayerLens credential, so a sample runs with none."""
+    return {k: v for k, v in os.environ.items() if k not in _LAYERLENS_CONFIG_VARS}
+
+
 def _run_live(
     sample_path: str,
     args: list[str] | None = None,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess:
     """Run a sample against the real API via subprocess."""
+    from layerlens._env import find_api_key, find_base_url
+
     cmd = [sys.executable, sample_path] + (args or [])
     env = dict(os.environ)
+    # Samples read the canonical names; carry a legacy-only configuration over to them.
+    for found, name in ((find_api_key(), "LAYERLENS_API_KEY"), (find_base_url(), "LAYERLENS_BASE_URL")):
+        if found is not None:
+            env[name] = found.value
     return subprocess.run(
         cmd,
         capture_output=True,
@@ -1270,8 +1285,8 @@ class TestAllSamplesWithMockedSDK:
             demo,
             extra_args=["--json"],
             env_override={
-                "LAYERLENS_STRATIX_API_KEY": "fake-test-key-12345",
-                "LAYERLENS_STRATIX_BASE_URL": _UNREACHABLE_BASE_URL,
+                "LAYERLENS_API_KEY": "fake-test-key-12345",
+                "LAYERLENS_BASE_URL": _UNREACHABLE_BASE_URL,
             },
         )
         assert result.returncode == 0, (
@@ -1447,7 +1462,7 @@ class TestAllSamplesWithMockedSDK:
             with patch.dict(
                 "os.environ",
                 {
-                    "LAYERLENS_STRATIX_API_KEY": "test-key",
+                    "LAYERLENS_API_KEY": "test-key",
                     "OPENAI_API_KEY": "test-openai",
                 },
             ):
@@ -1755,12 +1770,9 @@ class TestAllSamplesWithMockedSDK:
 
 
 @pytest.fixture
-def api_key():
-    """Get real API key or skip."""
-    key = os.environ.get("LAYERLENS_STRATIX_API_KEY")
-    if not key:
-        pytest.skip("LAYERLENS_STRATIX_API_KEY not set")
-    return key
+def api_key(live_api_key: str) -> str:
+    """A real API key; skips unless selected with ``-m live`` (see ``tests/conftest.py``)."""
+    return live_api_key
 
 
 # Live test args per sample path
@@ -1785,7 +1797,7 @@ _LIVE_SKIP: set[str] = {
 class TestAllSamplesLiveAPI:
     """Run every sample against the real LayerLens API.
 
-    Requires LAYERLENS_STRATIX_API_KEY to be set.
+    Requires LAYERLENS_API_KEY to be set.
     Run with: pytest tests/test_samples_e2e.py -m live
     """
 
@@ -1953,9 +1965,7 @@ class TestOpenClawOfflineMode:
             "scripts",
             "evaluate.py",
         )
-        env = dict(os.environ)
-        env.pop("LAYERLENS_STRATIX_API_KEY", None)
-        env.pop("LAYERLENS_ATLAS_API_KEY", None)
+        env = _env_without_layerlens_config()
         result = subprocess.run(
             [
                 sys.executable,
@@ -2001,9 +2011,7 @@ class TestWithoutAPIKey:
     def test_no_api_key(self, sample_path):
         """Samples should exit non-zero without API key (or succeed for offline-capable ones)."""
         full_path = os.path.join(SAMPLES_DIR, sample_path)
-        env = dict(os.environ)
-        env.pop("LAYERLENS_STRATIX_API_KEY", None)
-        env.pop("LAYERLENS_ATLAS_API_KEY", None)
+        env = _env_without_layerlens_config()
 
         # OpenClaw skill evaluate.py needs args
         args = []
@@ -2044,9 +2052,7 @@ class TestWithoutAPIKey:
     def test_copilotkit_no_key(self, name):
         """CopilotKit agents should print usage even without API key."""
         full_path = os.path.join(SAMPLES_DIR, "copilotkit", "agents", f"{name}.py")
-        env = dict(os.environ)
-        env.pop("LAYERLENS_STRATIX_API_KEY", None)
-        env.pop("LAYERLENS_ATLAS_API_KEY", None)
+        env = _env_without_layerlens_config()
 
         result = subprocess.run(
             [sys.executable, full_path],
@@ -2092,7 +2098,7 @@ class TestMissingDependencies:
         self._assert_exits_without_fake_work(
             "integrations/openai_traced.py",
             mock_layerlens,
-            {"LAYERLENS_STRATIX_API_KEY": "test-key", "OPENAI_API_KEY": ""},
+            {"LAYERLENS_API_KEY": "test-key", "OPENAI_API_KEY": ""},
         )
 
     def test_anthropic_traced_without_anthropic_key(self, mock_layerlens):
@@ -2100,7 +2106,7 @@ class TestMissingDependencies:
         self._assert_exits_without_fake_work(
             "integrations/anthropic_traced.py",
             mock_layerlens,
-            {"LAYERLENS_STRATIX_API_KEY": "test-key", "ANTHROPIC_API_KEY": ""},
+            {"LAYERLENS_API_KEY": "test-key", "ANTHROPIC_API_KEY": ""},
         )
 
     def test_openclaw_demos_without_openclaw(self):

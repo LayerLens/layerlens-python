@@ -27,6 +27,7 @@ import tempfile
 from typing import Any, Optional, Generator
 from contextlib import contextmanager
 
+from layerlens._env import find_api_key
 from layerlens.instrument._context import _pop_span, _push_span, _current_collector
 from layerlens.instrument._collector import TraceCollector
 from layerlens.instrument._capture_config import CaptureConfig
@@ -40,8 +41,12 @@ class _StubClient:
 
 
 def _build_client() -> Optional[Any]:
-    """Return a real LayerLens client iff credentials are configured, else ``None``."""
-    if not (os.environ.get("LAYERLENS_API_KEY") or os.environ.get("LAYERLENS_API_KEY")):
+    """Return a real LayerLens client iff credentials are configured, else ``None``.
+
+    ``find_api_key`` applies the SDK's own lookup, so a key set under the
+    pre-rename variable name still enables the upload.
+    """
+    if find_api_key() is None:
         return None
     try:
         from layerlens import LayerLens

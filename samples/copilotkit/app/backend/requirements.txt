@@ -21,4 +21,5 @@ pydantic>=2.0.0,<3.0.0
 # The LayerLens SDK itself; the patch in server.py replaces
 # ``layerlens.LayerLens`` with a MagicMock before the evaluator is
 # imported, so no real API key is required for the browser test.
-layerlens>=1.6.0
+# 2.0.0 is the first release with the `LayerLens` client and LAYERLENS_API_KEY (LAY-4220).
+layerlens>=2.0.0
