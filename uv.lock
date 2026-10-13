@@ -58,6 +58,20 @@ supported-markers = [
     "python_full_version >= '3.9' and python_full_version < '3.13' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'darwin'",
 ]
 
+[manifest]
+build-constraints = [
+    { name = "hatchling", marker = "python_full_version < '3.10'", specifier = "==1.27.0" },
+    { name = "hatchling", marker = "python_full_version >= '3.10'", specifier = "==1.32.4" },
+    { name = "packaging", specifier = "==25.0" },
+    { name = "pathspec", specifier = "==0.12.1" },
+    { name = "pluggy", specifier = "==1.6.0" },
+    { name = "setuptools", marker = "python_full_version < '3.10'", specifier = "==82.0.1" },
+    { name = "setuptools", marker = "python_full_version >= '3.10'", specifier = "==84.0.0" },
+    { name = "tomli", specifier = "==2.2.1" },
+    { name = "tomlkit", specifier = "==0.15.1" },
+    { name = "trove-classifiers", specifier = "==2026.9.21.13" },
+]
+
 [[package]]
 name = "a2a-sdk"
 version = "1.2.2"

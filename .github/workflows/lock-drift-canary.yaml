@@ -11,8 +11,9 @@
 # A red row means a customer installing `layerlens[<extra>]` today may hit the
 # failure. Triage it, fix real breaks test-first, then move uv.lock forward in a
 # deliberate PR (CONTRIBUTING.md > "Dependencies and the lock"). Failures never
-# block PRs or redden main: the suite step is continue-on-error and this
-# workflow has no PR trigger. Read the verdicts in the run's step summary.
+# block PRs or redden main: the re-lock, install and suite steps are
+# continue-on-error, each reports its own verdict, and this workflow has no PR
+# trigger. Read the verdicts in the run's step summary.
 
 name: Lock Drift Canary
 
@@ -27,6 +28,8 @@ permissions:
 jobs:
   relock:
     runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.relock.outcome }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,23 +40,44 @@ jobs:
           resolution-strategy: lowest
 
       - name: Re-lock to the latest releases
+        id: relock
+        continue-on-error: true # advisory: an unresolvable upgrade is reported, not raised
         run: |
           set -o pipefail
           uv lock --upgrade 2>&1 | tee "$RUNNER_TEMP/relock.log"
-          {
-            echo "### Versions that moved from the committed uv.lock"
-            echo '```'
-            grep -E '^Updated|^Added|^Removed' "$RUNNER_TEMP/relock.log" || echo "(none)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report the re-lock
+        if: always()
+        env:
+          OUTCOME: ${{ steps.relock.outcome }}
+        run: |
+          touch "$RUNNER_TEMP/relock.log"
+          if [ "$OUTCOME" = "success" ]; then
+            {
+              echo "### Versions that moved from the committed uv.lock"
+              echo '```'
+              grep -E '^(Updated|Added|Removed) ' "$RUNNER_TEMP/relock.log" || echo "(none)"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Upstream drift: re-lock failed::The latest releases can't be resolved together (uv lock --upgrade failed), so no suite ran. See this job's log."
+            {
+              echo "### Re-lock FAILED: the latest releases can't be resolved together, so no suite ran"
+              echo '```'
+              tail -n 40 "$RUNNER_TEMP/relock.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@v4
+        if: steps.relock.outcome == 'success'
         with:
           name: uv-lock-latest
           path: uv.lock
 
   suite:
     needs: relock
+    if: needs.relock.outputs.outcome == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -75,10 +99,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install the upgraded lock
+        id: install
+        continue-on-error: true # advisory: reported as its own verdict below
         run: uv sync --locked --all-extras
 
       - name: Run the full suite against the latest releases
         id: suite
+        if: steps.install.outcome == 'success'
         continue-on-error: true # advisory: a red canary never blocks anything
         env:
           UV_NO_SYNC: "1"
@@ -87,10 +114,14 @@ jobs:
       - name: Verdict
         if: always()
         env:
-          OUTCOME: ${{ steps.suite.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          SUITE: ${{ steps.suite.outcome }}
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          if [ "$OUTCOME" = "success" ]; then
+          if [ "$INSTALL" != "success" ]; then
+            echo "::warning title=Upstream drift on Python ${PYTHON_VERSION}::The upgraded lock doesn't install (no wheel, failed build, ...), so the suite didn't run."
+            echo "Python ${PYTHON_VERSION}: upgraded lock does NOT INSTALL, suite not run (see the job log)" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$SUITE" = "success" ]; then
             echo "Python ${PYTHON_VERSION}: suite green on the latest releases" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=Upstream drift on Python ${PYTHON_VERSION}::The suite fails against the latest releases. Triage before moving uv.lock forward."

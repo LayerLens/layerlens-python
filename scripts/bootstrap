@@ -11,6 +11,7 @@ fi
 
 echo "==> Installing Python dependencies from uv.lock…"
 
-# Installs the Python from .python-version, then uv.lock: every extra plus the dev
-# group. See CONTRIBUTING.md > "Dependencies and the lock".
-uv sync --all-extras
+# Installs the Python from .python-version, then exactly uv.lock: every extra plus
+# the dev group. --locked fails instead of re-locking when uv.lock is stale against
+# pyproject.toml (run `uv lock` first). See CONTRIBUTING.md > "Dependencies and the lock".
+uv sync --locked --all-extras

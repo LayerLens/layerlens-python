@@ -26,7 +26,7 @@ The project uses [uv](https://docs.astral.sh/uv/) to manage Python and dependenc
 ```bash
 git clone https://github.com/LayerLens/stratix-python.git
 cd stratix-python
-./scripts/bootstrap        # uv sync --all-extras: the Python in .python-version, then exactly uv.lock
+./scripts/bootstrap        # uv sync --locked --all-extras: the Python in .python-version, then exactly uv.lock
 source .venv/bin/activate
 ```
 
@@ -65,13 +65,13 @@ Run them locally before pushing.
 
 `uv.lock` pins every package of the dev and CI environment: the runtime dependencies, every extra in `[project.optional-dependencies]`, and the `dev` and `mutation` dependency groups. It is one universal lock, resolved for CPython 3.9–3.12 on Linux (x86_64, aarch64) and macOS (`[tool.uv] environments`). The lock bounds only our own environment. Customers still install the ranges declared in `[project]`, so never add an upper bound there just to make CI green.
 
-**CI installs exactly the lock and never resolves.** Every job sets up its environment with `.github/actions/setup-locked-env`, which:
+**CI installs exactly the lock and never resolves.** Every job that needs the dev environment (tests, coverage, invariants, lint, format, bite-check, mutation) sets it up with `.github/actions/setup-locked-env`, which:
 
 1. installs the uv version in `[tool.uv] required-version` and a uv-managed CPython;
 2. runs `uv sync --locked --all-extras`, which installs the lock and fails if it is stale instead of re-locking;
 3. runs `uv sync --check` to prove the environment matches the lock exactly, and logs the installed versions.
 
-An upstream release can't change what CI installs: a new version reaches CI only through a PR that changes `uv.lock`. The **Check Lock** workflow (`uv lock --check`) fails when `pyproject.toml` changed without re-locking.
+Build backends are resolved in isolated build environments, outside the lock, so `[tool.uv] build-constraint-dependencies` pins the ones CI uses (hatchling for this package, setuptools for the locked sdist-only packages); `uv.lock` records those pins too. An upstream release can't change what CI installs: a new version reaches CI only through a PR that changes `uv.lock`. The **Check Lock** workflow (`uv lock --check`) fails when `pyproject.toml` changed without re-locking.
 
 **Changing a dependency.** Edit `pyproject.toml` (or use `uv add` / `uv remove`), run `uv lock`, and commit `uv.lock` with the change. `uv lock` keeps every existing pin it can and resolves only what your change needs.
 
@@ -90,9 +90,11 @@ uv lock --upgrade                     # everything
 Then run the suite on every CI Python version and fix what breaks in the same PR:
 
 ```bash
+failed=""
 for v in 3.9 3.10 3.11 3.12; do
-  UV_PROJECT_ENVIRONMENT=.venv-$v uv run --python "$v" --all-extras pytest || echo "FAILED on $v"
+  UV_PROJECT_ENVIRONMENT=.venv-$v uv run --python "$v" --all-extras pytest || failed="$failed $v"
 done
+[ -z "$failed" ] || { echo "FAILED on:$failed"; false; }
 ```
 
 To upgrade only as far as a known date, add `--exclude-newer 2026-10-05T10:09:00Z` to the `uv lock --upgrade…` command. The cutoff is recorded in `uv.lock` (and Check Lock fails while it is), so run a plain `uv lock` afterwards: it drops the cutoff and keeps every pin.
@@ -100,6 +102,8 @@ To upgrade only as far as a known date, add `--exclude-newer 2026-10-05T10:09:00
 A few rules keep the lock trustworthy:
 
 - Never hand-edit `uv.lock`.
+- If `./scripts/bootstrap` or a CI job fails with a stale-lock error, run `uv lock` and commit `uv.lock`.
+- A new sdist-only dependency whose build backend isn't in `[tool.uv] build-constraint-dependencies` needs that backend pinned there.
 - To test a new Python version or platform in CI, extend the `run-tests.yaml` matrix and `[tool.uv] environments` in the same PR, then re-lock.
 - Bump `[tool.uv] required-version` only on purpose: CI installs exactly that uv, and a newer uv can write `uv.lock` differently.
 - The adapter matrix is separate: `tests/matrix/frameworks.toml` pins framework versions for isolated per-framework venvs, not this lock.

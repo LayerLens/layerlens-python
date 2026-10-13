@@ -173,6 +173,23 @@ environments = [
     "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'darwin' and platform_machine == 'arm64'",
     "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
+# Build backends are resolved in isolated build environments, outside uv.lock. Pin
+# the ones CI uses: hatchling for this project (every `uv sync` builds it editable,
+# and `uv build`), setuptools for the locked sdist-only packages (mutmut, pybars4,
+# pymeta3). hatchling >= 1.29 and setuptools 84 need Python 3.10+. A new sdist-only
+# dependency with another backend needs its backend added here.
+build-constraint-dependencies = [
+    "hatchling==1.27.0; python_version < '3.10'",
+    "hatchling==1.32.4; python_version >= '3.10'",
+    "setuptools==82.0.1; python_version < '3.10'",
+    "setuptools==84.0.0; python_version >= '3.10'",
+    "packaging==25.0",
+    "pathspec==0.12.1",
+    "pluggy==1.6.0",
+    "tomli==2.2.1",
+    "tomlkit==0.15.1",
+    "trove-classifiers==2026.9.21.13",
+]
 
 [tool.ruff]
 line-length = 120

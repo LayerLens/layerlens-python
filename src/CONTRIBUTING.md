@@ -15,7 +15,7 @@ $ ./scripts/bootstrap
 or, equivalently:
 
 ```sh
-$ uv sync --all-extras
+$ uv sync --locked --all-extras
 ```
 
 You can then run scripts using `uv run python script.py` or by activating the virtual environment:
