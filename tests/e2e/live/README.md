@@ -277,11 +277,12 @@ set -a; source tests/e2e/live/.env; set +a   # LAYERLENS_LIVE=1, base .../api/v1
   routes them to `run_self_flushing_case` (it drains the background upload queue). Framework
   adapters gate content on their **own** `capture_config`, so the redaction variant constructs the
   adapter with `capture_content=False`.
-- **Apple Silicon arch.** If your base interpreter is x86_64 (e.g. a Rosetta `rye` 3.9) but the
+- **Apple Silicon arch.** If your base interpreter is x86_64 (e.g. a Rosetta Python 3.9) but the
   per-adapter venvs are arm64, launch them with `arch -arm64 <venv>/bin/python …` (or run from a
   native-arm64 interpreter) — otherwise native extensions fail with `incompatible architecture`.
-- **`rye sync` toolchain floor.** Building the dev lock compiles `temporalio` from source (via
-  `pydantic-ai-slim`) → needs Rust ≥1.85 (`rustup update stable`) and `protoc`.
+- **`uv sync` toolchain floor.** On macOS x86_64 with Python 3.9, the locked `temporalio` (via
+  `pydantic-ai-slim`) has no wheel and compiles from source → needs Rust ≥1.85
+  (`rustup update stable`) and `protoc`.
 
 ### Troubleshooting (beyond §5)
 

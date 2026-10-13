@@ -5,4 +5,4 @@ set -e
 cd "$(dirname "$0")/.."
 
 echo "==> Running tests"
-rye run pytest tests/ --cov=src/layerlens --cov-report=term --tb=no
+uv run --all-extras pytest tests/ --cov=src/layerlens --cov-report=term --tb=no

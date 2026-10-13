@@ -7,7 +7,7 @@ the live creds in ``tests/e2e/live/.env`` and writes scrubbed fixtures under
 adapter so spend stays controlled and one-at-a-time:
 
     set -a; . tests/e2e/live/.env; set +a
-    LAYERLENS_RECORD=1 rye run python tests/fixtures/record_corpus.py openai anthropic ...
+    LAYERLENS_RECORD=1 uv run python tests/fixtures/record_corpus.py openai anthropic ...
 
 It records UPSTREAM of the parser — the raw provider transport response — so the
 committed fixture is the thing we do not control. The replay tests in CI assert

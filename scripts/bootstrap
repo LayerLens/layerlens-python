@@ -4,9 +4,13 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-echo "==> Installing Python dependencies…"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is required: https://docs.astral.sh/uv/getting-started/installation/" >&2
+  exit 1
+fi
 
-# experimental uv support makes installations significantly faster
-rye config --set-bool behavior.use-uv=true
+echo "==> Installing Python dependencies from uv.lock…"
 
-rye sync
+# Installs the Python from .python-version, then uv.lock: every extra plus the dev
+# group. See CONTRIBUTING.md > "Dependencies and the lock".
+uv sync --all-extras

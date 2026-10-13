@@ -47,7 +47,7 @@ guarded oracle is SDK-generic; and each served graph is FE-renderable (label +
 The whole `tests/e2e/live` tree is skipped unless `LAYERLENS_LIVE=1`. Then:
 ```
 set -a; source tests/e2e/live/.env; set +a
-LAYERLENS_LIVE=1 rye run pytest tests/e2e/live/graph_contract/
+LAYERLENS_LIVE=1 uv run pytest tests/e2e/live/graph_contract/
 ```
 It is **base-URL-driven**: point `LAYERLENS_STRATIX_BASE_URL` at a local `:8080`
 stack **or** a dev deploy — whichever carries the engine and a valid key.
