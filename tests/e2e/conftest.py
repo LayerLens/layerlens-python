@@ -18,7 +18,7 @@ import pytest
 
 @pytest.fixture
 def client_and_uploads():
-    """A mock Stratix client that captures every trace upload as a parsed dict.
+    """A mock LayerLens client that captures every trace upload as a parsed dict.
 
     Returns ``(client, uploads_list)``. ``uploads_list`` is mutated by the
     ``traces.upload(path)`` side-effect to contain the full trace payload

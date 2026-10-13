@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Union, Mapping
 from functools import cached_property
@@ -9,6 +8,7 @@ from typing_extensions import Self, override
 import httpx
 
 from . import _exceptions
+from ._env import env_api_key, env_base_url
 from ._utils import is_mapping
 from ._constants import DEFAULT_TIMEOUT, DEFAULT_BASE_URL
 from ._exceptions import APIStatusError
@@ -71,15 +71,15 @@ class PublicClient(BaseClient):
         timeout: Union[float, httpx.Timeout, None] = DEFAULT_TIMEOUT,
     ) -> None:
         if api_key is None:
-            api_key = os.environ.get("LAYERLENS_STRATIX_API_KEY")
+            api_key = env_api_key(stacklevel=2)
         if api_key is None or api_key == "":
-            raise _exceptions.StratixError(
-                "The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_STRATIX_API_KEY environment variable",
+            raise _exceptions.LayerLensError(
+                "The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_API_KEY environment variable",
             )
         self.api_key = api_key
 
         if base_url is None:
-            base_url = os.environ.get("LAYERLENS_STRATIX_BASE_URL") or os.environ.get("LAYERLENS_ATLAS_BASE_URL")
+            base_url = env_base_url(stacklevel=2)
         if base_url is None:
             base_url = DEFAULT_BASE_URL
 
@@ -155,15 +155,15 @@ class AsyncPublicClient(BaseAsyncClient):
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> None:
         if api_key is None:
-            api_key = os.environ.get("LAYERLENS_STRATIX_API_KEY")
+            api_key = env_api_key(stacklevel=2)
         if api_key is None or api_key == "":
-            raise _exceptions.StratixError(
-                "The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_STRATIX_API_KEY environment variable",
+            raise _exceptions.LayerLensError(
+                "The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_API_KEY environment variable",
             )
         self.api_key = api_key
 
         if base_url is None:
-            base_url = os.environ.get("LAYERLENS_STRATIX_BASE_URL") or os.environ.get("LAYERLENS_ATLAS_BASE_URL")
+            base_url = env_base_url(stacklevel=2)
         if base_url is None:
             base_url = DEFAULT_BASE_URL
 

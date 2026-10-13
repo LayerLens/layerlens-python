@@ -833,7 +833,7 @@ class TestDisconnectLeaveNoTrace:
 
 
 class TestHonestGraphContract:
-    """The Stratix app builds the trace's agent GRAPH from producer-DECLARED
+    """The LayerLens app builds the trace's agent GRAPH from producer-DECLARED
     honest identity (``payload.agent_name``) and ``agent.handoff`` edges.
 
     Strands stamps every unnamed agent with the framework default

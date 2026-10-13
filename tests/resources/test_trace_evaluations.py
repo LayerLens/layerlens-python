@@ -19,7 +19,7 @@ class TestTraceEvaluations:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -333,7 +333,7 @@ class TestTraceEvaluationsErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -397,7 +397,7 @@ class TestTraceEvaluationsURLConstruction:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "custom-org"
         client.project_id = "custom-proj"

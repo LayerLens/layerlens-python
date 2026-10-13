@@ -6,9 +6,9 @@ import click
 
 
 def _get_client_silent(ctx: click.Context) -> Any:
-    """Try to create a Stratix client for autocompletion, returning None on failure."""
+    """Try to create a LayerLens client for autocompletion, returning None on failure."""
     try:
-        from .._client import Stratix
+        from .._client import LayerLens
 
         api_key = ctx.params.get("api_key") or None
         base_url = None
@@ -21,7 +21,7 @@ def _get_client_silent(ctx: click.Context) -> Any:
             else:
                 base_url = f"{scheme}://{host}/api/v1"
 
-        return Stratix(api_key=api_key, base_url=base_url)
+        return LayerLens(api_key=api_key, base_url=base_url)
     except Exception:
         return None
 

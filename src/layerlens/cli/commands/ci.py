@@ -85,7 +85,7 @@ def ci_report(ctx: click.Context, output_file: str | None, limit: int, dry_run: 
 
 def _build_markdown_report(evaluations: list) -> str:
     lines = []
-    lines.append("# Stratix Evaluation Report")
+    lines.append("# LayerLens Evaluation Report")
     lines.append("")
     lines.append(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("")

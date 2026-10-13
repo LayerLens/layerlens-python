@@ -9,7 +9,7 @@ from ..._wire import json_object, parse_model
 from ...models import Result, Evaluation, ResultsResponse
 from ..._resource import SyncAPIResource, AsyncAPIResource
 from ..._constants import DEFAULT_TIMEOUT
-from ..._exceptions import StratixError
+from ..._exceptions import LayerLensError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
@@ -155,7 +155,7 @@ class Results(SyncAPIResource):
 
         Raises:
             APIResponseValidationError: a page did not match the documented shape.
-            StratixError: the server's row count and its pages disagree, so no
+            LayerLensError: the server's row count and its pages disagree, so no
                 complete list can be returned.
 
         Never returns a short list silently. Both conditions above used to break
@@ -177,7 +177,7 @@ class Results(SyncAPIResource):
             # declared type still permits it. Treating None as end-of-pages is the
             # exact bug being fixed, so refuse instead.
             if resp is None:
-                raise StratixError(
+                raise LayerLensError(
                     f"/results page {current_page} for evaluation {evaluation_id} returned no "
                     f"usable body after {len(all_results)} results; refusing to return a "
                     "partial list as if it were complete"
@@ -192,7 +192,7 @@ class Results(SyncAPIResource):
             # disagree. Breaking here is what silently truncated the list; there is
             # no honest way to call the result complete.
             if not resp.results:
-                raise StratixError(
+                raise LayerLensError(
                     f"/results page {current_page} of {resp.pagination.total_pages} for evaluation "
                     f"{evaluation_id} returned 0 rows, but the server reports "
                     f"{resp.pagination.total_count} results in total and only "
@@ -338,7 +338,7 @@ class AsyncResults(AsyncAPIResource):
 
         Raises:
             APIResponseValidationError: a page did not match the documented shape.
-            StratixError: the server's row count and its pages disagree.
+            LayerLensError: the server's row count and its pages disagree.
 
         Never returns a short list silently — see the sync twin.
         """
@@ -354,7 +354,7 @@ class AsyncResults(AsyncAPIResource):
             )
 
             if resp is None:
-                raise StratixError(
+                raise LayerLensError(
                     f"/results page {current_page} for evaluation {evaluation_id} returned no "
                     f"usable body after {len(all_results)} results; refusing to return a "
                     "partial list as if it were complete"
@@ -366,7 +366,7 @@ class AsyncResults(AsyncAPIResource):
                 break
 
             if not resp.results:
-                raise StratixError(
+                raise LayerLensError(
                     f"/results page {current_page} of {resp.pagination.total_pages} for evaluation "
                     f"{evaluation_id} returned 0 rows, but the server reports "
                     f"{resp.pagination.total_count} results in total and only "

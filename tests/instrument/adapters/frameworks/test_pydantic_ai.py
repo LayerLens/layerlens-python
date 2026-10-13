@@ -607,7 +607,7 @@ class TestEventStructure:
 class TestHonestGraphContract:
     """Lever A honest-graph contract for pydantic-ai.
 
-    The Stratix app renders a trace as an agent GRAPH: the server builds nodes
+    The LayerLens app renders a trace as an agent GRAPH: the server builds nodes
     from the first HONEST producer-declared agent identity found across the
     trace's events (``payload.agent_name`` among them) and edges from
     ``agent.handoff``. For pydantic-ai the honest node identity is the DECLARED

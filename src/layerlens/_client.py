@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Union, Mapping, Optional
 from functools import cached_property
@@ -9,12 +8,14 @@ from typing_extensions import Self, override
 import httpx
 
 from . import _exceptions
+from ._env import env_api_key, env_base_url
 from ._ssrf import resolve_trusted_upload_hosts
 from ._utils import is_mapping
 from .models import Organization, OrganizationResponse, OrganizationsListResponse
 from ._constants import DEFAULT_TIMEOUT, DEFAULT_BASE_URL, DIRTY_ROUTER_PREFIX
-from ._exceptions import StratixError, APIStatusError
+from ._exceptions import APIStatusError, LayerLensError
 from ._base_client import BaseClient, BaseAsyncClient
+from ._deprecation import module_getattr
 
 if TYPE_CHECKING:
     from ._public_client import PublicClient, AsyncPublicClient
@@ -33,10 +34,10 @@ if TYPE_CHECKING:
     )
 
 
-__all__ = ["Stratix", "Client"]
+__all__ = ["LayerLens", "AsyncLayerLens", "Client", "AsyncClient"]
 
 
-class Stratix(BaseClient):
+class LayerLens(BaseClient):
     api_key: str
     organization_id: str | None
     project_id: str | None
@@ -52,10 +53,11 @@ class Stratix(BaseClient):
         use_bearer_auth: bool = False,
         trusted_upload_hosts: list[str] | None = None,
     ) -> None:
-        """Construct a new synchronous Stratix client instance.
+        """Construct a new synchronous LayerLens client instance.
 
         This automatically infers the following arguments from their corresponding environment variables if they are not provided:
-        - `api_key` from `LAYERLENS_STRATIX_API_KEY`
+        - `api_key` from `LAYERLENS_API_KEY`
+        - `base_url` from `LAYERLENS_BASE_URL`
 
         ``trusted_upload_hosts`` (also read from ``LAYERLENS_TRUSTED_UPLOAD_HOSTS``,
         comma-separated) allowlists hosts the SDK may PUT presigned uploads to in
@@ -63,17 +65,17 @@ class Stratix(BaseClient):
         MinIO endpoint here to permit http + private-IP uploads.
         """
         if api_key is None:
-            api_key = os.environ.get("LAYERLENS_STRATIX_API_KEY") or os.environ.get("LAYERLENS_ATLAS_API_KEY")
+            api_key = env_api_key(stacklevel=2)
         if api_key is None or api_key == "":
-            raise StratixError(
-                "The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_STRATIX_API_KEY environment variable"
+            raise LayerLensError(
+                "The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_API_KEY environment variable"
             )
         self.api_key = api_key
         self._use_bearer_auth = use_bearer_auth
         self.trusted_upload_hosts = resolve_trusted_upload_hosts(trusted_upload_hosts)
 
         if base_url is None:
-            base_url = os.environ.get("LAYERLENS_STRATIX_BASE_URL") or os.environ.get("LAYERLENS_ATLAS_BASE_URL")
+            base_url = env_base_url(stacklevel=2)
         if base_url is None:
             base_url = DEFAULT_BASE_URL
 
@@ -89,12 +91,12 @@ class Stratix(BaseClient):
 
         organization = self._get_organization()
         if organization is None:
-            raise StratixError(f"Organization could not be fetched. Please contact LayerLens Stratix support.")
+            raise LayerLensError("Organization could not be fetched. Please contact LayerLens support.")
         self.organization_id = organization.id
 
         if organization.projects is None or len(organization.projects) == 0:
-            raise StratixError(
-                f"Organization {self.organization_id} is missing project. Please contact LayerLens Stratix support."
+            raise LayerLensError(
+                f"Organization {self.organization_id} is missing project. Please contact LayerLens support."
             )
         self.project_id = organization.projects[0].id
 
@@ -264,7 +266,7 @@ class Stratix(BaseClient):
         return organization.data if isinstance(organization, OrganizationResponse) else None
 
 
-class AsyncStratix(BaseAsyncClient):
+class AsyncLayerLens(BaseAsyncClient):
     api_key: str
     organization_id: str | None
     project_id: str | None
@@ -280,10 +282,11 @@ class AsyncStratix(BaseAsyncClient):
         use_bearer_auth: bool = False,
         trusted_upload_hosts: list[str] | None = None,
     ) -> None:
-        """Construct a new asynchronous Stratix client instance.
+        """Construct a new asynchronous LayerLens client instance.
 
         This automatically infers the following arguments from their corresponding environment variables if they are not provided:
-        - `api_key` from `LAYERLENS_STRATIX_API_KEY`
+        - `api_key` from `LAYERLENS_API_KEY`
+        - `base_url` from `LAYERLENS_BASE_URL`
 
         ``trusted_upload_hosts`` (also read from ``LAYERLENS_TRUSTED_UPLOAD_HOSTS``,
         comma-separated) allowlists presigned-upload hosts beyond the default
@@ -291,18 +294,18 @@ class AsyncStratix(BaseAsyncClient):
         http + private-IP uploads.
         """
         if api_key is None:
-            api_key = os.environ.get("LAYERLENS_STRATIX_API_KEY") or os.environ.get("LAYERLENS_ATLAS_API_KEY")
+            api_key = env_api_key(stacklevel=2)
         if api_key is None or api_key == "":
-            raise StratixError(
+            raise LayerLensError(
                 "The api_key client option must be set either by passing api_key to the client "
-                "or by setting the LAYERLENS_STRATIX_API_KEY environment variable"
+                "or by setting the LAYERLENS_API_KEY environment variable"
             )
         self.api_key = api_key
         self._use_bearer_auth = use_bearer_auth
         self.trusted_upload_hosts = resolve_trusted_upload_hosts(trusted_upload_hosts)
 
         if base_url is None:
-            base_url = os.environ.get("LAYERLENS_STRATIX_BASE_URL") or os.environ.get("LAYERLENS_ATLAS_BASE_URL")
+            base_url = env_base_url(stacklevel=2)
         if base_url is None:
             base_url = DEFAULT_BASE_URL
 
@@ -313,12 +316,12 @@ class AsyncStratix(BaseAsyncClient):
 
         organization = self._get_organization()
         if organization is None:
-            raise StratixError(f"Organization could not be fetched. Please contact LayerLens Stratix support.")
+            raise LayerLensError("Organization could not be fetched. Please contact LayerLens support.")
         self.organization_id = organization.id
 
         if organization.projects is None or len(organization.projects) == 0:
-            raise StratixError(
-                f"Organization {self.organization_id} is missing project. Please contact LayerLens Stratix support."
+            raise LayerLensError(
+                f"Organization {self.organization_id} is missing project. Please contact LayerLens support."
             )
         self.project_id = organization.projects[0].id
 
@@ -474,9 +477,24 @@ class AsyncStratix(BaseAsyncClient):
         return organization.data if isinstance(organization, OrganizationResponse) else None
 
 
-Client = Stratix
-AsyncClient = AsyncStratix
 
-# Backward-compatibility aliases
-Atlas = Stratix
-AsyncAtlas = AsyncStratix
+Client = LayerLens
+AsyncClient = AsyncLayerLens
+
+# Deprecated names (LAY-4220): the same classes as ``LayerLens`` / ``AsyncLayerLens``.
+if TYPE_CHECKING:
+    Stratix = LayerLens
+    AsyncStratix = AsyncLayerLens
+    Atlas = LayerLens
+    AsyncAtlas = AsyncLayerLens
+else:
+    __getattr__ = module_getattr(
+        __name__,
+        {
+            "Stratix": ("LayerLens", "layerlens.LayerLens"),
+            "AsyncStratix": ("AsyncLayerLens", "layerlens.AsyncLayerLens"),
+            "Atlas": ("LayerLens", "layerlens.LayerLens"),
+            "AsyncAtlas": ("AsyncLayerLens", "layerlens.AsyncLayerLens"),
+        },
+        globals(),
+    )

@@ -13,7 +13,7 @@ Honest sources, in priority order (all are values a producer explicitly set):
      ms_agent_framework/strands/smolagents/google_adk), EXCLUDING the model-as-
      agent anti-pattern (pydantic-ai stuffs the model into agent_name).
   3. ``node``           — the entered graph node (langgraph ``agent.node.enter``).
-  4. ``name``           — the @stratix.trace name (only on ``agent.input`` /
+  4. ``name``           — the @trace name (only on ``agent.input`` /
      ``agent.output`` / ``agent.error`` — the decorator's own events), EXCLUDING
      a model name or an API-method label (``openai.chat.completions.create``).
   5. ``from_agent``     — the delegating agent of an ``agent.handoff``.
@@ -35,7 +35,7 @@ from ._events import AGENT_IDENTITY
 # ``finance_agent``, ``researcher`` — none match this.)
 _API_METHOD_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$")
 
-# Events whose ``payload.name`` is the @stratix.trace decorator's own name. Other
+# Events whose ``payload.name`` is the @trace decorator's own name. Other
 # event types put an API method / class / node label in ``name`` — not an agent.
 _DECORATOR_NAME_TYPES = frozenset({"agent.input", "agent.output", "agent.error"})
 
@@ -253,7 +253,7 @@ def honest_agent_identity(events: List[Dict[str, Any]]) -> Optional[Dict[str, An
         if name and _honest(name):
             return _hit(e, name, "framework")
 
-    # Tier 4 — the @stratix.trace name, only on the decorator's own events.
+    # Tier 4 — the @trace name, only on the decorator's own events.
     # (_honest already rejects a model name and an API-method label.)
     for e in events:
         if e.get("event_type") not in _DECORATOR_NAME_TYPES:

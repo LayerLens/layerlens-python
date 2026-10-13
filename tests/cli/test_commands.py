@@ -504,7 +504,7 @@ class TestCiCommands:
         result = runner.invoke(cli, ["ci", "report"], env={"LAYERLENS_STRATIX_API_KEY": "test"})
 
         assert result.exit_code == 0
-        assert "# Stratix Evaluation Report" in result.output
+        assert "# LayerLens Evaluation Report" in result.output
         assert "GPT-4" in result.output
 
     @patch("layerlens.cli.commands.ci.get_client")
@@ -534,7 +534,7 @@ class TestCiCommands:
         assert result.exit_code == 0
         assert out_file.exists()
         content = out_file.read_text()
-        assert "Stratix Evaluation Report" in content
+        assert "LayerLens Evaluation Report" in content
 
 
 class TestGlobalOptions:

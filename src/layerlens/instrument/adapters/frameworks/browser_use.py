@@ -772,7 +772,7 @@ def instrument_browser_use(
 
     Args:
         agent: A BrowserUse ``Agent`` with an async ``.run()``.
-        client: The ``layerlens.Stratix`` instance events are uploaded through.
+        client: The ``layerlens.LayerLens`` instance events are uploaded through.
         capture_config: Optional ``CaptureConfig``; defaults to ``standard()``.
         agent_name: Agent identity stamped on every event. A real browser-use
             Agent declares no name, so without this the Agent column stays

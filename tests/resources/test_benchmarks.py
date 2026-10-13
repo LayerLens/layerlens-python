@@ -13,7 +13,7 @@ from layerlens.models import (
     CreateBenchmarkResponse,
 )
 from layerlens._constants import DEFAULT_TIMEOUT
-from layerlens._exceptions import StratixError
+from layerlens._exceptions import LayerLensError
 from layerlens.resources.benchmarks.benchmarks import Benchmarks
 
 
@@ -22,7 +22,7 @@ class TestBenchmarks:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -308,7 +308,7 @@ class TestBenchmarksErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -376,7 +376,7 @@ class TestBenchmarksTyping:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -943,7 +943,7 @@ class TestBenchmarksUploadFile:
     def test_upload_file_rejects_ssrf_presign(self, mock_put, benchmarks_resource, tmp_jsonl):
         """_upload_file refuses an internal/untrusted presign host before PUT."""
         benchmarks_resource._post.return_value = {"url": "http://10.0.0.1/steal"}
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             benchmarks_resource._upload_file(tmp_jsonl, "my-bench", DEFAULT_TIMEOUT)
         mock_put.assert_not_called()
 

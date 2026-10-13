@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from .models import (
     Judge,
     Trace,
@@ -22,25 +24,22 @@ from .models import (
     PublicModelsListResponse,
     PublicBenchmarksListResponse,
 )
-from ._client import Atlas, Client, Stratix, AsyncAtlas, AsyncClient, AsyncStratix
+from ._client import Client, LayerLens, AsyncClient, AsyncLayerLens
 from ._exceptions import (
     APIError,
-    AtlasError,
-    StratixError,
     NotFoundError,
+    LayerLensError,
     BadRequestError,
     AuthenticationError,
 )
+from ._deprecation import module_getattr
 from ._public_client import PublicClient, AsyncPublicClient
 
 __all__ = [
     "APIError",
-    "AsyncAtlas",
     "AsyncClient",
+    "AsyncLayerLens",
     "AsyncPublicClient",
-    "AsyncStratix",
-    "Atlas",
-    "AtlasError",
     "AuthenticationError",
     "BadRequestError",
     "BenchmarkPrompt",
@@ -53,6 +52,8 @@ __all__ = [
     "JudgeOptimizationRun",
     "JudgeSnapshot",
     "JudgeVersion",
+    "LayerLens",
+    "LayerLensError",
     "NotFoundError",
     "OptimizationBudget",
     "OptimizationRunStatus",
@@ -61,8 +62,6 @@ __all__ = [
     "PublicClient",
     "PublicModelDetail",
     "PublicModelsListResponse",
-    "Stratix",
-    "StratixError",
     "Trace",
     "TraceEvaluation",
     "TraceEvaluationResult",
@@ -71,3 +70,25 @@ __all__ = [
     "TraceEvaluationSummary",
     "TraceWithEvaluations",
 ]
+
+# Deprecated names (LAY-4220): the same objects as their replacements.
+if TYPE_CHECKING:
+    Stratix = LayerLens
+    AsyncStratix = AsyncLayerLens
+    Atlas = LayerLens
+    AsyncAtlas = AsyncLayerLens
+    StratixError = LayerLensError
+    AtlasError = LayerLensError
+else:
+    __getattr__ = module_getattr(
+        __name__,
+        {
+            "Stratix": ("LayerLens", "layerlens.LayerLens"),
+            "AsyncStratix": ("AsyncLayerLens", "layerlens.AsyncLayerLens"),
+            "Atlas": ("LayerLens", "layerlens.LayerLens"),
+            "AsyncAtlas": ("AsyncLayerLens", "layerlens.AsyncLayerLens"),
+            "StratixError": ("LayerLensError", "layerlens.LayerLensError"),
+            "AtlasError": ("LayerLensError", "layerlens.LayerLensError"),
+        },
+        globals(),
+    )

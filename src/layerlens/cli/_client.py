@@ -8,16 +8,16 @@ from typing import Any, Callable
 
 import click
 
-from .._client import Stratix
-from .._exceptions import StratixError, NotFoundError, AuthenticationError
+from .._client import LayerLens
+from .._exceptions import NotFoundError, LayerLensError, AuthenticationError
 
 
-def get_client(ctx: click.Context) -> Stratix:
-    """Create a Stratix client from CLI context options.
+def get_client(ctx: click.Context) -> LayerLens:
+    """Create a LayerLens client from CLI context options.
 
     Resolution order for the API key:
     1. ``--api-key`` CLI option
-    2. ``LAYERLENS_STRATIX_API_KEY`` / ``LAYERLENS_ATLAS_API_KEY`` env vars (handled by Stratix)
+    2. ``LAYERLENS_STRATIX_API_KEY`` / ``LAYERLENS_ATLAS_API_KEY`` env vars (handled by LayerLens)
     3. ``LAYERLENS_API_KEY`` env var
     4. Stored OAuth token from ``layerlens login``
     """
@@ -40,12 +40,12 @@ def get_client(ctx: click.Context) -> Stratix:
             use_bearer_auth = True
 
     try:
-        return Stratix(
+        return LayerLens(
             api_key=api_key,
             base_url=ctx.obj.get("base_url"),
             use_bearer_auth=use_bearer_auth,
         )
-    except StratixError as e:
+    except LayerLensError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -64,7 +64,7 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
         except NotFoundError as e:
             click.echo(f"Error: Resource not found. {e}", err=True)
             sys.exit(1)
-        except StratixError as e:
+        except LayerLensError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
         except click.exceptions.Exit:
@@ -85,7 +85,7 @@ def _is_uuid(value: str) -> bool:
     return bool(_UUID_RE.match(value))
 
 
-def resolve_model(client: Stratix, identifier: str) -> Any:
+def resolve_model(client: LayerLens, identifier: str) -> Any:
     """Resolve a model by ID, key, or name."""
     # Try by ID first if it looks like a UUID
     if _is_uuid(identifier):
@@ -106,7 +106,7 @@ def resolve_model(client: Stratix, identifier: str) -> Any:
     return None
 
 
-def resolve_benchmark(client: Stratix, identifier: str) -> Any:
+def resolve_benchmark(client: LayerLens, identifier: str) -> Any:
     """Resolve a benchmark by ID, key, or name."""
     # Try by ID first if it looks like a UUID
     if _is_uuid(identifier):

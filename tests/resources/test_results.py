@@ -18,7 +18,7 @@ import pytest
 from layerlens._wire import json_object
 from layerlens.models import Result, Pagination, ResultMetrics, ResultsResponse
 from layerlens._constants import DEFAULT_TIMEOUT
-from layerlens._exceptions import StratixError, APIResponseValidationError
+from layerlens._exceptions import LayerLensError, APIResponseValidationError
 from layerlens.resources.results.results import Results
 
 REQUEST = httpx.Request("GET", "https://api.test.invalid/api/v1/results")
@@ -44,7 +44,7 @@ class TestResults:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.get_cast = Mock()
         return client
@@ -297,7 +297,7 @@ class TestResultsErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.get_cast = Mock()
         return client
@@ -438,7 +438,7 @@ class TestResultsSchemaFailures:
         assert caught.value.body["results"] == "not-a-list"
         assert caught.value.body["evaluation_id"] == body["evaluation_id"]
         assert caught.value.body["pagination"]["page"] == 1
-        assert isinstance(caught.value, StratixError), "must be catchable as a layerlens error"
+        assert isinstance(caught.value, LayerLensError), "must be catchable as a layerlens error"
 
     def test_json_object_helper_rejects_a_json_array(self):
         """Direct unit cover for the decode helper's own contract."""

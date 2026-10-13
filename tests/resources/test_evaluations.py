@@ -42,7 +42,7 @@ class TestEvaluations:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -346,7 +346,7 @@ class TestEvaluationsErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -806,9 +806,9 @@ class TestWaitForCompletionPropagation:
         import asyncio
         from unittest.mock import AsyncMock
 
-        from layerlens._client import AsyncStratix
+        from layerlens._client import AsyncLayerLens
 
-        mock_client = Mock(spec=AsyncStratix)
+        mock_client = Mock(spec=AsyncLayerLens)
         mock_client.evaluations.wait_for_completion = AsyncMock(return_value=fresh_evaluation)
         stale_evaluation.attach_client(mock_client)
 

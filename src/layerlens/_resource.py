@@ -5,14 +5,14 @@ import asyncio
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ._client import Stratix, AsyncStratix
+    from ._client import LayerLens, AsyncLayerLens
     from ._public_client import PublicClient, AsyncPublicClient
 
 
 class SyncAPIResource:
-    _client: Stratix
+    _client: LayerLens
 
-    def __init__(self, client: Stratix) -> None:
+    def __init__(self, client: LayerLens) -> None:
         self._client = client
         self._get = client.get_cast
         self._post = client.post_cast
@@ -24,9 +24,9 @@ class SyncAPIResource:
 
 
 class AsyncAPIResource:
-    _client: AsyncStratix
+    _client: AsyncLayerLens
 
-    def __init__(self, client: AsyncStratix) -> None:
+    def __init__(self, client: AsyncLayerLens) -> None:
         self._client = client
         self._get = client.get_cast
         self._post = client.post_cast

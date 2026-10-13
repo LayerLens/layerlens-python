@@ -38,7 +38,12 @@ def pytest_configure(config):
 def env_vars():
     """Clean environment variables for testing."""
     env_keys = [
+        "LAYERLENS_API_KEY",
+        "LAYERLENS_BASE_URL",
         "LAYERLENS_STRATIX_API_KEY",
+        "LAYERLENS_STRATIX_BASE_URL",
+        "LAYERLENS_ATLAS_API_KEY",
+        "LAYERLENS_ATLAS_BASE_URL",
     ]
     original_values = {key: os.environ.get(key) for key in env_keys}
 
@@ -63,7 +68,7 @@ def mock_env_vars():
     with mock.patch.dict(
         os.environ,
         {
-            "LAYERLENS_STRATIX_API_KEY": "test-api-key",
+            "LAYERLENS_API_KEY": "test-api-key",
         },
     ):
         yield

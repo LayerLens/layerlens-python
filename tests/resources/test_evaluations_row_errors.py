@@ -19,8 +19,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from layerlens import Stratix
-from layerlens._exceptions import StratixError, APIResponseValidationError
+from layerlens import LayerLens
+from layerlens._exceptions import LayerLensError, APIResponseValidationError
 from layerlens._public_client import PublicClient
 
 CORPUS = Path(__file__).resolve().parents[1] / "contract" / "corpus"
@@ -49,10 +49,10 @@ def _handler(evaluations_body: Any) -> Callable[[httpx.Request], httpx.Response]
     return handle
 
 
-def _client(evaluations_body: Any) -> Stratix:
+def _client(evaluations_body: Any) -> LayerLens:
     transport = httpx.MockTransport(_handler(evaluations_body))
 
-    class _MockTransportStratix(Stratix):
+    class _MockTransportStratix(LayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
             return transport
 
@@ -88,7 +88,7 @@ def test_bad_row_raises_a_layerlens_error_naming_the_row_and_field() -> None:
     message = str(caught.value)
     assert "evaluations[1]" in message, "the error must name which row failed"
     assert "status" in message, "the error must name the offending field"
-    assert isinstance(caught.value, StratixError), "must be catchable as a layerlens error"
+    assert isinstance(caught.value, LayerLensError), "must be catchable as a layerlens error"
 
 
 def test_bad_row_does_not_return_an_empty_page() -> None:

@@ -446,7 +446,7 @@ class TraceCollector:
         canonical ``agent.identity`` event. Caller holds ``self._lock``; runs at
         flush before sealing.
 
-        The honest name a producer already declared (a @stratix.trace name, a
+        The honest name a producer already declared (a @trace name, a
         crew/agent name, a langgraph node) lives scattered across per-adapter
         payload keys the server never reads. :func:`honest_agent_identity`
         resolves the ONE honest name (or None), and this appends a single

@@ -62,13 +62,13 @@ def test_agui_lifecycle_state_events_are_suppressible(agui_type: str) -> None:
     """AG-UI run/state events must NOT ride the ALWAYS-ENABLED agent.state.change
     (which no layer toggle can suppress). After the remap they map to L6b types
     that minimal()/l6b-off actually suppresses (LAY-3578)."""
-    from layerlens.instrument.adapters.protocols.agui.event_mapper import map_agui_to_stratix
+    from layerlens.instrument.adapters.protocols.agui.event_mapper import map_agui_to_layerlens
 
-    stratix_event = map_agui_to_stratix(agui_type)["stratix_event"]
-    assert stratix_event not in _ALWAYS_ENABLED, f"{agui_type} -> {stratix_event} is un-suppressible (always-enabled)"
+    event_name = map_agui_to_layerlens(agui_type)["layerlens_event"]
+    assert event_name not in _ALWAYS_ENABLED, f"{agui_type} -> {event_name} is un-suppressible (always-enabled)"
     collector = TraceCollector(object(), CaptureConfig.minimal())
-    collector.emit(stratix_event, {"marker": 1}, span_id="s")
-    assert not collector.events, f"{agui_type} -> {stratix_event} not suppressed by minimal()"
+    collector.emit(event_name, {"marker": 1}, span_id="s")
+    assert not collector.events, f"{agui_type} -> {event_name} not suppressed by minimal()"
 
 
 def test_agui_run_error_is_always_surfaced_not_suppressible() -> None:
@@ -76,19 +76,19 @@ def test_agui_run_error_is_always_surfaced_not_suppressible() -> None:
     agent.error (always-enabled) so no layer toggle / minimal() can hide a
     failure. Complements (does not weaken) the suppressibility guarantee above —
     errors are the deliberate exception to L6b suppression."""
-    from layerlens.instrument.adapters.protocols.agui.event_mapper import map_agui_to_stratix
+    from layerlens.instrument.adapters.protocols.agui.event_mapper import map_agui_to_layerlens
 
-    stratix_event = map_agui_to_stratix("RUN_ERROR")["stratix_event"]
-    assert stratix_event == "agent.error", f"RUN_ERROR must map to agent.error, got {stratix_event}"
-    assert stratix_event in _ALWAYS_ENABLED, "agent.error must be always-enabled so failures are never suppressed"
+    event_name = map_agui_to_layerlens("RUN_ERROR")["layerlens_event"]
+    assert event_name == "agent.error", f"RUN_ERROR must map to agent.error, got {event_name}"
+    assert event_name in _ALWAYS_ENABLED, "agent.error must be always-enabled so failures are never suppressed"
     collector = TraceCollector(object(), CaptureConfig.minimal())
-    collector.emit(stratix_event, {"marker": 1, "status": "error", "error_type": "X"}, span_id="s")
+    collector.emit(event_name, {"marker": 1, "status": "error", "error_type": "X"}, span_id="s")
     assert collector.events, "minimal() must NOT suppress a run failure (agent.error)"
 
 
 def test_agui_state_snapshot_same_type_on_both_paths() -> None:
     """Dual-path reconciliation: a STATE_SNAPSHOT wire event yields the SAME
-    stratix type via wrap_stream (adapter) and the ASGI/WSGI middleware."""
+    event type via wrap_stream (adapter) and the ASGI/WSGI middleware."""
     from layerlens.instrument._context import _current_collector
     from layerlens.instrument.adapters.protocols.agui.adapter import AGUIProtocolAdapter
     from layerlens.instrument.adapters.protocols.agui.middleware import _process_sse_chunk

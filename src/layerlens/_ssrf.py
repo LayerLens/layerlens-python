@@ -20,7 +20,7 @@ import ipaddress
 from typing import List, Union, Iterable, Optional
 from urllib.parse import urlparse
 
-from ._exceptions import StratixError
+from ._exceptions import LayerLensError
 
 # Endpoints that are never a legitimate upload target — blocked even if a caller
 # (mis)configures them as trusted.
@@ -66,7 +66,7 @@ def _parse_ip(host: str) -> Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6
 
 
 def ensure_safe_upload_url(url: str, trusted_hosts: Optional[Iterable[str]] = None) -> None:
-    """Raise ``StratixError`` if ``url`` is an unsafe presigned-upload target.
+    """Raise ``LayerLensError`` if ``url`` is an unsafe presigned-upload target.
 
     ``trusted_hosts`` is the resolved allowlist; anything that is not a
     list/tuple/set is treated as empty (defensive — never crash the upload path).
@@ -80,11 +80,11 @@ def ensure_safe_upload_url(url: str, trusted_hosts: Optional[Iterable[str]] = No
     scheme = (parsed.scheme or "").lower()
 
     if not host:
-        raise StratixError(f"refusing upload: presigned URL has no host ({url!r})")
+        raise LayerLensError(f"refusing upload: presigned URL has no host ({url!r})")
 
     # 1. Cloud-metadata endpoints are never a legitimate upload target.
     if host in _ALWAYS_BLOCKED_HOSTS:
-        raise StratixError(f"refusing upload to cloud-metadata endpoint {host!r}")
+        raise LayerLensError(f"refusing upload to cloud-metadata endpoint {host!r}")
 
     # 2. Explicitly trusted hosts bypass the default scheme/IP policy
     #    (this is how self-hosted / MinIO http+private endpoints opt back in).
@@ -93,14 +93,14 @@ def ensure_safe_upload_url(url: str, trusted_hosts: Optional[Iterable[str]] = No
 
     # 3. Default policy for untrusted hosts.
     if scheme != "https":
-        raise StratixError(
+        raise LayerLensError(
             f"refusing non-https upload to untrusted host {host!r} (scheme {scheme!r}); "
             f"add it to trusted_upload_hosts / {ENV_TRUSTED_UPLOAD_HOSTS} to allow self-hosted/MinIO"
         )
     if host in _LOCAL_HOSTNAMES:
-        raise StratixError(f"refusing upload to local hostname {host!r}; add it to trusted_upload_hosts to allow")
+        raise LayerLensError(f"refusing upload to local hostname {host!r}; add it to trusted_upload_hosts to allow")
     ip = _parse_ip(host)
     if ip is not None and (
         ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified or ip.is_multicast
     ):
-        raise StratixError(f"refusing upload to non-public address {host!r}; add it to trusted_upload_hosts to allow")
+        raise LayerLensError(f"refusing upload to non-public address {host!r}; add it to trusted_upload_hosts to allow")

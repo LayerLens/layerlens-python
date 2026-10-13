@@ -7,16 +7,18 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 
+from ._deprecation import module_getattr
 
-class StratixError(Exception):
+
+class LayerLensError(Exception):
     pass
 
 
-class APIError(StratixError):
+class APIError(LayerLensError):
     message: str
     request: httpx.Request
 
@@ -114,5 +116,17 @@ class InternalServerError(APIStatusError):
     pass
 
 
-# Backward-compatibility alias
-AtlasError = StratixError
+
+# Deprecated names (LAY-4220): the same class as ``LayerLensError``.
+if TYPE_CHECKING:
+    StratixError = LayerLensError
+    AtlasError = LayerLensError
+else:
+    __getattr__ = module_getattr(
+        __name__,
+        {
+            "StratixError": ("LayerLensError", "layerlens.LayerLensError"),
+            "AtlasError": ("LayerLensError", "layerlens.LayerLensError"),
+        },
+        globals(),
+    )

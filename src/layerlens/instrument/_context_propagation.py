@@ -35,7 +35,7 @@ def trace_context(
     The collector is flushed automatically when the context exits.
 
     Args:
-        client: A :class:`~layerlens.Stratix` (or compatible) client used
+        client: A :class:`~layerlens.LayerLens` (or compatible) client used
             for uploading the trace on flush.
         capture_config: Optional capture configuration.  Falls back to
             :meth:`CaptureConfig.standard` if not provided.

@@ -10,7 +10,7 @@ from pydantic import Field, BaseModel, ConfigDict, BeforeValidator
 
 if TYPE_CHECKING:
     from .api import ResultsResponse
-    from .._client import Stratix, AsyncStratix
+    from .._client import LayerLens, AsyncLayerLens
 
 
 class EvaluationStatus(str, Enum):
@@ -120,9 +120,9 @@ class Evaluation(BaseModel):
     avg_output_tokens_per_prompt: Optional[float] = None
     summary: Optional[EvaluationSummary] = None
 
-    _client: "Optional[Stratix | AsyncStratix]" = None
+    _client: "Optional[LayerLens | AsyncLayerLens]" = None
 
-    def attach_client(self, client: "Stratix | AsyncStratix") -> "Evaluation":
+    def attach_client(self, client: "LayerLens | AsyncLayerLens") -> "Evaluation":
         self._client = client
         return self
 
@@ -148,11 +148,11 @@ class Evaluation(BaseModel):
         timeout: float | httpx.Timeout | None = None,
     ) -> Optional[ResultsResponse]:
         """Fetch results synchronously if a sync client is attached."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if isinstance(self._client, AsyncStratix):
+        if isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `await get_results_async()` with an async client")
 
         return self._client.results.get(evaluation=self, page=page, page_size=page_size, timeout=timeout)
@@ -163,11 +163,11 @@ class Evaluation(BaseModel):
         timeout: float | httpx.Timeout | None = None,
     ) -> List[Result]:
         """Fetch results synchronously if a sync client is attached."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if isinstance(self._client, AsyncStratix):
+        if isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `await get_results_async()` with an async client")
 
         return self._client.results.get_all(evaluation=self, timeout=timeout)
@@ -180,11 +180,11 @@ class Evaluation(BaseModel):
         timeout: float | httpx.Timeout | None = None,
     ) -> Optional[ResultsResponse]:
         """Fetch results asynchronously if an async client is attached."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if not isinstance(self._client, AsyncStratix):
+        if not isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `get_results()` with a sync client")
 
         return await self._client.results.get(evaluation=self, page=page, page_size=page_size, timeout=timeout)
@@ -195,11 +195,11 @@ class Evaluation(BaseModel):
         timeout: float | httpx.Timeout | None = None,
     ) -> List[Result]:
         """Fetch results asynchronously if an async client is attached."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if not isinstance(self._client, AsyncStratix):
+        if not isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `get_results()` with a sync client")
 
         return await self._client.results.get_all(evaluation=self, timeout=timeout)
@@ -208,11 +208,11 @@ class Evaluation(BaseModel):
         self, *, interval_seconds: int = 30, timeout_seconds: Optional[int] = None
     ) -> Optional["Evaluation"]:
         """Sync polling using a sync client."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if isinstance(self._client, AsyncStratix):
+        if isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `wait_for_completion_async()` with an async client")
 
         evaluation = self._client.evaluations.wait_for_completion(
@@ -240,11 +240,11 @@ class Evaluation(BaseModel):
         self, *, interval_seconds: int = 30, timeout_seconds: Optional[int] = None
     ) -> Optional["Evaluation"]:
         """Async polling using an async client."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if not isinstance(self._client, AsyncStratix):
+        if not isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `wait_for_completion()` with a sync client")
 
         evaluation = await self._client.evaluations.wait_for_completion(

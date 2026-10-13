@@ -45,7 +45,7 @@ def cli(
     verbose: bool,
     quiet: bool,
 ) -> None:
-    """LayerLens Stratix CLI — manage traces, judges, evaluations, integrations, and more."""
+    """LayerLens CLI — manage traces, judges, evaluations, integrations, and more."""
     import sys
 
     if not quiet and sys.stderr.isatty():

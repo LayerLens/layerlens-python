@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import httpx
 import pytest
 
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.models import (
     Model,
     Result,
@@ -15,13 +15,13 @@ from layerlens.models import (
 )
 
 
-class TestStratixIntegration:
-    """Integration tests for full Stratix API workflows."""
+class TestLayerLensIntegration:
+    """Integration tests for full LayerLens API workflows."""
 
     @pytest.fixture
     def stratix_client(self):
-        """Create Stratix client with mocked dependencies."""
-        return Stratix(api_key="test-api-key")
+        """Create LayerLens client with mocked dependencies."""
+        return LayerLens(api_key="test-api-key")
 
     @pytest.fixture
     def sample_model_data(self):
@@ -99,13 +99,13 @@ class TestCompleteEvaluationWorkflow:
 
     @pytest.fixture
     def stratix_client(self):
-        """Stratix client for workflow testing."""
+        """LayerLens client for workflow testing."""
         mock_org = Mock()
         mock_org.id = "org-123"
         mock_org.projects = [Mock(id="proj-456")]
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org):
-            return Stratix(api_key="workflow-test-key")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
+            return LayerLens(api_key="workflow-test-key")
 
     def test_complete_evaluation_workflow(self, stratix_client):
         """Test complete workflow: get models/benchmarks -> create evaluation -> get results."""
@@ -197,7 +197,7 @@ class TestCompleteEvaluationWorkflow:
             )
             mock_post.return_value = evaluations_response  # Create evaluation
 
-            # Step 1: Create evaluation directly (Stratix client doesn't expose models/benchmarks resources)
+            # Step 1: Create evaluation directly (LayerLens client doesn't expose models/benchmarks resources)
             created_evaluation = stratix_client.evaluations.create(model=model, benchmark=benchmark)
             assert created_evaluation.id == "eval-789"
             assert created_evaluation.status == EvaluationStatus.SUCCESS
@@ -283,13 +283,13 @@ class TestResourceInteraction:
 
     @pytest.fixture
     def stratix_client(self):
-        """Stratix client for resource interaction testing."""
+        """LayerLens client for resource interaction testing."""
         mock_org = Mock()
         mock_org.id = "org-123"
         mock_org.projects = [Mock(id="proj-456")]
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org):
-            return Stratix(api_key="interaction-test-key")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
+            return LayerLens(api_key="interaction-test-key")
 
     def test_evaluation_creation_with_model_and_benchmark_objects(self, stratix_client):
         """Test creating evaluation using model and benchmark objects."""
@@ -440,8 +440,8 @@ class TestResourceInteraction:
             assert abs(avg_duration - expected_avg) < 0.01
 
 
-class TestStratixClientProperties:
-    """Test Stratix client resource properties and access."""
+class TestLayerLensClientProperties:
+    """Test LayerLens client resource properties and access."""
 
     @pytest.fixture
     def mock_org(self):
@@ -451,9 +451,9 @@ class TestStratixClientProperties:
         return org
 
     def test_client_has_all_resource_properties(self, mock_org):
-        """Stratix client exposes all resource properties."""
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org):
-            client = Stratix(api_key="property-test-key")
+        """LayerLens client exposes all resource properties."""
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
+            client = LayerLens(api_key="property-test-key")
 
         # Verify available resource properties exist
         assert hasattr(client, "evaluations")
@@ -468,8 +468,8 @@ class TestStratixClientProperties:
 
     def test_resource_properties_share_same_client(self, mock_org):
         """All resource properties share the same client instance."""
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org):
-            client = Stratix(api_key="shared-client-test")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
+            client = LayerLens(api_key="shared-client-test")
 
         # Verify all resources use the same client
         assert client.evaluations._client is client
@@ -494,13 +494,13 @@ class TestConcurrentOperations:
         return org
 
     def test_multiple_stratix_clients_independent(self, mock_org1, mock_org2):
-        """Multiple Stratix client instances operate independently."""
+        """Multiple LayerLens client instances operate independently."""
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org1):
-            client1 = Stratix(api_key="client-1-key")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org1):
+            client1 = LayerLens(api_key="client-1-key")
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org2):
-            client2 = Stratix(api_key="client-2-key")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org2):
+            client2 = LayerLens(api_key="client-2-key")
 
         # Verify clients are independent
         assert client1.api_key != client2.api_key
@@ -512,11 +512,11 @@ class TestConcurrentOperations:
     def test_resource_operations_isolated(self, mock_org1, mock_org2):
         """Operations on different client resources are isolated."""
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org1):
-            client1 = Stratix(api_key="iso-test-1")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org1):
+            client1 = LayerLens(api_key="iso-test-1")
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org2):
-            client2 = Stratix(api_key="iso-test-2")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org2):
+            client2 = LayerLens(api_key="iso-test-2")
 
         result_data = {
             "subset": "test",
@@ -630,8 +630,8 @@ class TestErrorPropagation:
         model = Model(**model_data)
         benchmark = Benchmark(**benchmark_data)
 
-        with patch("layerlens.Stratix._get_organization", return_value=mock_org):
-            client = Stratix(api_key="error-test-key")
+        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
+            client = LayerLens(api_key="error-test-key")
 
         mock_response = Mock()
         mock_response.status_code = 500
