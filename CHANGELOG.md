@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Stratix Python SDK will be documented in this file.
+All notable changes to the LayerLens Python SDK (formerly the Stratix Python SDK) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -15,9 +15,54 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Changed
 
+- **The client is now `LayerLens`.** `Stratix` → `LayerLens`, `AsyncStratix` →
+  `AsyncLayerLens`, `StratixError` → `LayerLensError`, and the CLI command is
+  `layerlens`. The client is configured by `LAYERLENS_API_KEY` and
+  `LAYERLENS_BASE_URL`. **Nothing breaks:** every old name, variable and the
+  `stratix` command keep working (see `Deprecated`). The README, docs and every
+  sample use the new names, and
+  [docs/migrating-from-stratix.md](docs/migrating-from-stratix.md) maps each one.
+
+  | Before | Now |
+  | --- | --- |
+  | `Stratix`, `AsyncStratix`, `StratixError` | `LayerLens`, `AsyncLayerLens`, `LayerLensError` |
+  | `LAYERLENS_STRATIX_API_KEY` | `LAYERLENS_API_KEY` |
+  | `LAYERLENS_STRATIX_BASE_URL` | `LAYERLENS_BASE_URL` |
+  | `stratix` (CLI) | `layerlens` |
+  | `map_agui_to_stratix()` → `{"stratix_event": …}` | `map_agui_to_layerlens()` → `{"layerlens_event": …}` |
+
+- `layerlens whoami` checks an API key against the API and prints the
+  organization and project it belongs to. Previously it printed "Authenticated"
+  without checking the key at all, and said "Not logged in" when only
+  `LAYERLENS_STRATIX_API_KEY` was set.
+
 ### Fixed
 
+- **`LAYERLENS_API_KEY` was rejected by every CLI command.** The CLI sent it as a
+  login token (`Authorization: Bearer`) to the login-only router, which returns
+  401 for an API key, so `LAYERLENS_API_KEY=… layerlens trace list` failed unless
+  `LAYERLENS_STRATIX_API_KEY` was also set. An API key is now always sent as
+  `x-api-key`. Tokens from `layerlens login` are still sent as Bearer tokens.
+- `PublicClient` and `AsyncPublicClient` now honour `LAYERLENS_ATLAS_API_KEY`, as
+  the main clients always have. Every client resolves its configuration the same way.
+- The CLI reference, workflow examples, README and `samples/cli/08_spaces.sh` still
+  documented the `space` command, which 2.0.0 removed. They no longer do.
+
 ### Deprecated
+
+- `Stratix`, `AsyncStratix`, `StratixError` and the older `Atlas`, `AsyncAtlas`,
+  `AtlasError`. Each resolves to the *same object* as its replacement, so
+  `isinstance` checks and `except StratixError:` behave exactly as before, and
+  each use emits a `DeprecationWarning` naming the replacement. They are no
+  longer listed in `layerlens.__all__`.
+- `LAYERLENS_STRATIX_API_KEY` / `LAYERLENS_STRATIX_BASE_URL` and the older
+  `LAYERLENS_ATLAS_*` variables. They are still read, with a warning, when the
+  `LAYERLENS_*` variable is not set. When both are set, the new one wins.
+- The `stratix` command. It runs the same CLI and prints a one-line notice to
+  stderr; stdout is unchanged.
+- `map_agui_to_stratix()`, which still returns its old `{"stratix_event", "category"}` shape.
+
+All of these will be removed in a future major release.
 
 ### Removed
 
