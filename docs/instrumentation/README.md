@@ -12,11 +12,11 @@ The `layerlens.instrument` module provides automatic tracing for LLM application
 ## Quick Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace, span
 from layerlens.instrument.adapters.providers.openai import instrument_openai
 
-client = Stratix()
+client = LayerLens()
 
 # Auto-instrument OpenAI — all chat.completions.create calls
 # inside a @trace will generate LLM spans automatically

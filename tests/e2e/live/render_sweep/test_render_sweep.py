@@ -65,14 +65,17 @@ SEALED_STEMS = {
 
 @pytest.fixture(scope="module")
 def live():
-    """Real Stratix client + raw-API creds, or skip. Never the prod default URL."""
-    base = os.environ.get("LAYERLENS_STRATIX_BASE_URL")
-    key = os.environ.get("LAYERLENS_STRATIX_API_KEY")
-    if not base or not key:
-        pytest.skip("LAYERLENS_STRATIX_BASE_URL + LAYERLENS_STRATIX_API_KEY required (never the prod default)")
-    from layerlens import Stratix
+    """Real LayerLens client + raw-API creds, or skip. Never the prod default URL."""
+    from layerlens._env import find_api_key, find_base_url
 
-    return Stratix(), base, key
+    found_base, found_key = find_base_url(), find_api_key()
+    base = found_base.value if found_base else None
+    key = found_key.value if found_key else None
+    if not base or not key:
+        pytest.skip("LAYERLENS_BASE_URL + LAYERLENS_API_KEY required (never the prod default)")
+    from layerlens import LayerLens
+
+    return LayerLens(), base, key
 
 
 @pytest.mark.parametrize("stem", STEMS)

@@ -33,7 +33,7 @@ domain judges -- it runs with ONLY a LayerLens API key.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python salesforce_agentforce_billing_escalation.py
@@ -45,7 +45,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -80,7 +80,7 @@ def main() -> None:
     print("=== LayerLens Industry: Salesforce Agentforce -- Billing Escalation ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

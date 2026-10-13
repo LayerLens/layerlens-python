@@ -52,11 +52,11 @@ def _handler(evaluations_body: Any) -> Callable[[httpx.Request], httpx.Response]
 def _client(evaluations_body: Any) -> LayerLens:
     transport = httpx.MockTransport(_handler(evaluations_body))
 
-    class _MockTransportStratix(LayerLens):
+    class _MockTransportLayerLens(LayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
             return transport
 
-    return _MockTransportStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
 def _public(evaluations_body: Any) -> PublicClient:

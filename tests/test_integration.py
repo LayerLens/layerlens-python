@@ -19,7 +19,7 @@ class TestLayerLensIntegration:
     """Integration tests for full LayerLens API workflows."""
 
     @pytest.fixture
-    def stratix_client(self):
+    def layerlens_client(self):
         """Create LayerLens client with mocked dependencies."""
         return LayerLens(api_key="test-api-key")
 
@@ -98,7 +98,7 @@ class TestCompleteEvaluationWorkflow:
     """Test complete evaluation workflow from start to finish."""
 
     @pytest.fixture
-    def stratix_client(self):
+    def layerlens_client(self):
         """LayerLens client for workflow testing."""
         mock_org = Mock()
         mock_org.id = "org-123"
@@ -107,7 +107,7 @@ class TestCompleteEvaluationWorkflow:
         with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
             return LayerLens(api_key="workflow-test-key")
 
-    def test_complete_evaluation_workflow(self, stratix_client):
+    def test_complete_evaluation_workflow(self, layerlens_client):
         """Test complete workflow: get models/benchmarks -> create evaluation -> get results."""
 
         # Mock data
@@ -174,8 +174,8 @@ class TestCompleteEvaluationWorkflow:
         # Mock responses
         evaluations_response = CreateEvaluationsResponse(data=[evaluation])
 
-        with patch.object(stratix_client, "get_cast") as mock_get, patch.object(
-            stratix_client, "post_cast"
+        with patch.object(layerlens_client, "get_cast") as mock_get, patch.object(
+            layerlens_client, "post_cast"
         ) as mock_post:
             # Configure mocks for the workflow
             # A real HTTP response: the results resource reads the response itself so
@@ -198,12 +198,12 @@ class TestCompleteEvaluationWorkflow:
             mock_post.return_value = evaluations_response  # Create evaluation
 
             # Step 1: Create evaluation directly (LayerLens client doesn't expose models/benchmarks resources)
-            created_evaluation = stratix_client.evaluations.create(model=model, benchmark=benchmark)
+            created_evaluation = layerlens_client.evaluations.create(model=model, benchmark=benchmark)
             assert created_evaluation.id == "eval-789"
             assert created_evaluation.status == EvaluationStatus.SUCCESS
 
             # Step 2: Get evaluation results
-            results = stratix_client.results.get(evaluation=created_evaluation)
+            results = layerlens_client.results.get(evaluation=created_evaluation)
             assert len(results.results) == 1
             assert results.results[0].score == 1.0
             assert results.results[0].subset == "math"
@@ -220,7 +220,7 @@ class TestCompleteEvaluationWorkflow:
             post_call = mock_post.call_args_list[0]
             assert "/evaluations" in post_call[0][0]
 
-    def test_workflow_with_error_handling(self, stratix_client):
+    def test_workflow_with_error_handling(self, layerlens_client):
         """Test workflow handles errors gracefully."""
         from layerlens._exceptions import NotFoundError
 
@@ -228,16 +228,16 @@ class TestCompleteEvaluationWorkflow:
         mock_response.status_code = 404
         mock_response.headers = {}
 
-        with patch.object(stratix_client, "get_cast") as mock_get:
+        with patch.object(layerlens_client, "get_cast") as mock_get:
             # Mock API error when getting results
             api_error = NotFoundError("Results not found", response=mock_response, body=None)
             mock_get.side_effect = api_error
 
             # Verify error is propagated
             with pytest.raises(NotFoundError):
-                stratix_client.results.get_by_id(evaluation_id="test-eval")
+                layerlens_client.results.get_by_id(evaluation_id="test-eval")
 
-    def test_workflow_with_custom_timeouts(self, stratix_client):
+    def test_workflow_with_custom_timeouts(self, layerlens_client):
         """Test workflow respects custom timeout settings."""
         result_data = {
             "subset": "test",
@@ -249,7 +249,7 @@ class TestCompleteEvaluationWorkflow:
             "metrics": {"accuracy": 1.0},
         }
 
-        with patch.object(stratix_client, "get_cast") as mock_get:
+        with patch.object(layerlens_client, "get_cast") as mock_get:
             # A real HTTP response: the results resource reads the response itself.
             mock_get.return_value = httpx.Response(
                 200,
@@ -269,7 +269,7 @@ class TestCompleteEvaluationWorkflow:
 
             # Test with custom timeout
             custom_timeout = httpx.Timeout(30.0)
-            results = stratix_client.results.get_by_id(evaluation_id="test-eval", timeout=custom_timeout)
+            results = layerlens_client.results.get_by_id(evaluation_id="test-eval", timeout=custom_timeout)
 
             assert len(results.results) == 1
 
@@ -282,7 +282,7 @@ class TestResourceInteraction:
     """Test interactions between different resources."""
 
     @pytest.fixture
-    def stratix_client(self):
+    def layerlens_client(self):
         """LayerLens client for resource interaction testing."""
         mock_org = Mock()
         mock_org.id = "org-123"
@@ -291,7 +291,7 @@ class TestResourceInteraction:
         with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
             return LayerLens(api_key="interaction-test-key")
 
-    def test_evaluation_creation_with_model_and_benchmark_objects(self, stratix_client):
+    def test_evaluation_creation_with_model_and_benchmark_objects(self, layerlens_client):
         """Test creating evaluation using model and benchmark objects."""
 
         # Create model and benchmark objects
@@ -345,11 +345,11 @@ class TestResourceInteraction:
 
         evaluations_response = CreateEvaluationsResponse(data=[evaluation])
 
-        with patch.object(stratix_client, "post_cast") as mock_post:
+        with patch.object(layerlens_client, "post_cast") as mock_post:
             mock_post.return_value = evaluations_response
 
             # Create evaluation using model and benchmark keys
-            created_evaluation = stratix_client.evaluations.create(model=model, benchmark=benchmark)
+            created_evaluation = layerlens_client.evaluations.create(model=model, benchmark=benchmark)
 
             assert created_evaluation.id == "eval-interaction"
             assert created_evaluation.model_id == model.id
@@ -361,7 +361,7 @@ class TestResourceInteraction:
             assert body["model_id"] == model.id
             assert body["dataset_id"] == benchmark.id
 
-    def test_results_analysis_workflow(self, stratix_client):
+    def test_results_analysis_workflow(self, layerlens_client):
         """Test analyzing results from multiple evaluations."""
 
         # Create multiple result objects
@@ -397,7 +397,7 @@ class TestResourceInteraction:
 
         results = [Result(**data) for data in results_data]
 
-        with patch.object(stratix_client, "get_cast") as mock_get:
+        with patch.object(layerlens_client, "get_cast") as mock_get:
             # A real HTTP response: the results resource reads the response itself.
             mock_get.return_value = httpx.Response(
                 200,
@@ -416,7 +416,7 @@ class TestResourceInteraction:
             )
 
             # Get results
-            evaluation_results = stratix_client.results.get_by_id(evaluation_id="test-eval")
+            evaluation_results = layerlens_client.results.get_by_id(evaluation_id="test-eval")
 
             # Analyze results
             math_results = [r for r in evaluation_results.results if r.subset == "math"]

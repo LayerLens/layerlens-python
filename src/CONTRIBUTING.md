@@ -99,7 +99,7 @@ $ ./scripts/format
 
 ## Release Process
 
-This section outlines the complete process for releasing a new version of the Stratix Python SDK.
+This section outlines the complete process for releasing a new version of the LayerLens Python SDK.
 
 ### Step-by-Step Release Process
 

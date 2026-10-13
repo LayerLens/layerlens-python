@@ -24,7 +24,7 @@ extraction with domain judges. No provider key is needed -- only a LayerLens key
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python insurance_mirascope_fnol_intake.py
@@ -36,7 +36,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -72,10 +72,10 @@ def main() -> None:
     print("=== LayerLens Industry: Insurance FNOL Intake (Mirascope typed extraction) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
-        print("  Set LAYERLENS_STRATIX_API_KEY to run this sample.")
+        print("  Set LAYERLENS_API_KEY to run this sample.")
         sys.exit(1)
 
     # Upload the recorded extraction trace first (renders a single fnol_intake_agent

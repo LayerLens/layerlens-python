@@ -56,7 +56,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -75,7 +75,7 @@ _CAPTURE = _gf._CAPTURE
 # (companion to atlas-app PR #2042) and the trace renders as ONE clean waterfall
 # rooted at ``trace`` (no fabricated agent — honest empty-state).
 # --------------------------------------------------------------------------
-def _capture_agui_session(client: Stratix, stream: list, tags: list) -> dict:
+def _capture_agui_session(client: LayerLens, stream: list, tags: list) -> dict:
     from layerlens.instrument.adapters.protocols.agui import AGUIProtocolAdapter
     from layerlens.instrument._collector import TraceCollector
     from layerlens.instrument._context import (
@@ -128,7 +128,7 @@ def _summarize(payload: dict) -> str:
 # Single: a CopilotKit retail shopping-assistant SSE session
 # (streamed message + multi-fragment product_lookup tool call).
 # --------------------------------------------------------------------------
-def generate_agui_single(client: Stratix) -> dict:
+def generate_agui_single(client: LayerLens) -> dict:
     """Record a retail shopping-assistant AG-UI session (message + tool call)."""
     stream = [
         {"type": "RUN_STARTED", "threadId": "th-shop-1", "runId": "run-1"},
@@ -175,7 +175,7 @@ def generate_agui_single(client: Stratix) -> dict:
 # — STATE_SNAPSHOT + STATE_DELTA (add/replace/remove) round-trip + a multi-fragment
 # tool call + messages. Still single-agent / empty-state (NOT multi-agent).
 # --------------------------------------------------------------------------
-def generate_agui_multi(client: Stratix) -> dict:
+def generate_agui_multi(client: LayerLens) -> dict:
     """Record a cart-management AG-UI session: STATE snapshot + delta round-trip,
     a multi-fragment add_to_cart tool call, and streamed messages."""
     stream = [
@@ -250,6 +250,6 @@ def generate_agui_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_agui_single(_client)
     generate_agui_multi(_client)

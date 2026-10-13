@@ -29,7 +29,7 @@ score, and editing the model's answer to look better would be fabrication.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
     No provider key is needed: the browse and the model call already happened
     when the trace was recorded. This sample only uploads and evaluates it.
@@ -44,7 +44,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -91,14 +91,14 @@ def main() -> None:
     # Cred guard: this sample needs ONLY a LayerLens key (no provider key -- the
     # browse and the model call already happened at record time). Report the gap
     # honestly and exit cleanly rather than raising.
-    if not os.environ.get("LAYERLENS_STRATIX_API_KEY"):
-        print("SKIPPED: LAYERLENS_STRATIX_API_KEY is not set.")
+    if not os.environ.get("LAYERLENS_API_KEY"):
+        print("SKIPPED: LAYERLENS_API_KEY is not set.")
         print("  Set it to upload and evaluate the recorded trip-research trace:")
-        print("    export LAYERLENS_STRATIX_API_KEY=your-api-key")
+        print("    export LAYERLENS_API_KEY=your-api-key")
         sys.exit(1)
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

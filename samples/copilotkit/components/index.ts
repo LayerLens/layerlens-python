@@ -1,5 +1,5 @@
 /**
- * CopilotKit component library for LayerLens Stratix.
+ * CopilotKit component library for LayerLens.
  *
  * Re-exports all card components that can be rendered inline
  * inside CopilotKit chat messages or in a side canvas via

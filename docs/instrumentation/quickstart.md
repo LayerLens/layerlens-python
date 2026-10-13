@@ -26,10 +26,10 @@ pip install layerlens[langchain]   # LangChain / LangGraph
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 
-client = Stratix()
+client = LayerLens()
 
 @trace(client)
 def my_agent(query: str):
@@ -44,10 +44,10 @@ my_agent("Hello")
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 from layerlens.instrument import trace
 
-client = AsyncStratix()
+client = AsyncLayerLens()
 
 @trace(client)
 async def my_agent(query: str):

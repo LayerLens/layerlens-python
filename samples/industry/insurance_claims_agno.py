@@ -18,7 +18,7 @@ decision with domain judges.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python insurance_claims_agno.py
@@ -30,7 +30,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -66,7 +66,7 @@ def main() -> None:
     print("=== LayerLens Industry: Insurance Claims Intake (Agno tool-use) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

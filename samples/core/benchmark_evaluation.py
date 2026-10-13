@@ -17,7 +17,7 @@ individual LLM interactions with judges), see ``trace_evaluation.py``.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least one model and one benchmark must be available in your project
   or the public catalog.
 
@@ -25,7 +25,7 @@ Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python benchmark_evaluation.py
     python benchmark_evaluation.py --model gpt-4o --benchmark simpleQA
 """
@@ -37,7 +37,7 @@ import logging
 import argparse
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _find_model(client: Stratix, name: str) -> Any:
+def _find_model(client: LayerLens, name: str) -> Any:
     """Find a model by name, checking project then public catalog."""
     if name:
         models = client.models.get(type="public", name=name)
@@ -99,7 +99,7 @@ def _find_model(client: Stratix, name: str) -> Any:
     sys.exit(1)
 
 
-def _find_benchmark(client: Stratix, name: str) -> Any:
+def _find_benchmark(client: LayerLens, name: str) -> Any:
     """Find a benchmark by name, checking project then public catalog."""
     if name:
         benchmarks = client.benchmarks.get(type="public", name=name)
@@ -129,7 +129,7 @@ def main() -> None:
 
     # --- Initialize client ---
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

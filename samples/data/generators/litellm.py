@@ -52,7 +52,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import (  # noqa: E402
     TraceCollector,
@@ -88,7 +88,7 @@ _SUPPORT_SYSTEM = (
 # the sealed payload gets a synthesized content-free trace.root (span_name
 # "trace") and a finalized attestation chain — an honest empty-state trace.
 # --------------------------------------------------------------------------
-def _capture_litellm(client: Stratix, root_span_name: str, run_fn, tags: list) -> dict:
+def _capture_litellm(client: LayerLens, root_span_name: str, run_fn, tags: list) -> dict:
     import litellm  # noqa: E402
     from layerlens.instrument.adapters.providers.litellm import (
         instrument_litellm,
@@ -141,7 +141,7 @@ def _cost_by_provider(payload: dict) -> dict:
 # --------------------------------------------------------------------------
 # Single: one retail customer-support turn on LiteLLM's default (OpenAI) route.
 # --------------------------------------------------------------------------
-def generate_litellm_single(client: Stratix) -> dict:
+def generate_litellm_single(client: LayerLens) -> dict:
     """Record ONE retail support turn answered through ``litellm.completion``
     (default OpenAI route). Renders an honest empty-state (Agent ``—``,
     Framework ``litellm``) + a waterfall."""
@@ -213,7 +213,7 @@ _GATEWAY_TURNS = [
 ]
 
 
-def generate_litellm_multi(client: Stratix) -> dict:
+def generate_litellm_multi(client: LayerLens) -> dict:
     """Record a LiteLLM multi-provider routing gateway: three real support turns
     routed to OpenAI / Anthropic / Google through one ``litellm.completion``
     seam, each with its own underlying-provider ``cost.record``. A routing LOOP
@@ -262,6 +262,6 @@ def generate_litellm_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_litellm_single(_client)
     generate_litellm_multi(_client)

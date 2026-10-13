@@ -1,6 +1,6 @@
-# LayerLens Stratix Python SDK
+# LayerLens Python SDK
 
-The official Python library for the [LayerLens Stratix](https://stratix.layerlens.ai) evaluation API.
+The official Python library for the [LayerLens](https://app.layerlens.ai) evaluation API.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -16,15 +16,15 @@ pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
 Set your API key as an environment variable:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 ```
 
 Or pass it directly when creating a client:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix(api_key="your-api-key")
+client = LayerLens(api_key="your-api-key")
 ```
 
 ## Quick Start
@@ -33,9 +33,9 @@ client = Stratix(api_key="your-api-key")
 
 ```python
 import os
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix(api_key=os.environ.get("LAYERLENS_STRATIX_API_KEY"))
+client = LayerLens(api_key=os.environ.get("LAYERLENS_API_KEY"))
 
 # Get a model and benchmark by key
 model = client.models.get_by_key("openai/gpt-4o")
@@ -57,10 +57,10 @@ print(f"Accuracy: {result.accuracy}")
 ```python
 import os
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix(api_key=os.environ.get("LAYERLENS_STRATIX_API_KEY"))
+    client = AsyncLayerLens(api_key=os.environ.get("LAYERLENS_API_KEY"))
 
     model = await client.models.get_by_key("openai/gpt-4o")
     benchmark = await client.benchmarks.get_by_key("arc-agi-2")
@@ -82,9 +82,9 @@ Public models, benchmarks, and evaluations are accessible through `client.public
 
 ```python
 import os
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix(api_key=os.environ.get("LAYERLENS_STRATIX_API_KEY"))
+client = LayerLens(api_key=os.environ.get("LAYERLENS_API_KEY"))
 
 # Browse public models
 models = client.public.models.get()
@@ -98,7 +98,7 @@ Or instantiate the public client directly:
 import os
 from layerlens import PublicClient
 
-public = PublicClient(api_key=os.environ.get("LAYERLENS_STRATIX_API_KEY"))
+public = PublicClient(api_key=os.environ.get("LAYERLENS_API_KEY"))
 models = public.models.get()
 ```
 
@@ -118,7 +118,7 @@ The SDK provides access to these resource types:
 | `client.results`             | Retrieve evaluation results                                                   |
 | `client.public`              | Public models, benchmarks, evaluations, and comparisons                       |
 
-Every resource is available in both sync (`Stratix`) and async (`AsyncStratix`) clients.
+Every resource is available in both sync (`LayerLens`) and async (`AsyncLayerLens`) clients.
 
 ## Examples
 
@@ -188,31 +188,29 @@ print(f"Created model: {response.model_id}")
 
 ## Client aliases
 
-For backward compatibility, multiple import names are available:
-
 ```python
-from layerlens import Stratix          # Primary
-from layerlens import AsyncStratix     # Async primary
-from layerlens import Client           # Alias for Stratix
-from layerlens import AsyncClient      # Alias for AsyncStratix
-from layerlens import Atlas            # Legacy alias
-from layerlens import AsyncAtlas       # Legacy alias
-from layerlens import PublicClient     # Public endpoints
+from layerlens import LayerLens          # Primary
+from layerlens import AsyncLayerLens     # Async primary
+from layerlens import Client             # Alias for LayerLens
+from layerlens import AsyncClient        # Alias for AsyncLayerLens
+from layerlens import PublicClient       # Public endpoints
 from layerlens import AsyncPublicClient
 ```
 
+The names from before the rename (`Stratix`, `AsyncStratix`, `StratixError` and the older `Atlas` names) still import, with a deprecation warning. See [Migrating from Stratix](migrating-from-stratix.md).
+
 ## Configuration
 
-| Environment Variable         | Description               | Default                           |
-| ---------------------------- | ------------------------- | --------------------------------- |
-| `LAYERLENS_STRATIX_API_KEY`  | Your API key              | (required)                        |
-| `LAYERLENS_STRATIX_BASE_URL` | Override the API base URL | `https://api.layerlens.ai/api/v1` |
+| Environment Variable | Description               | Default                           |
+| -------------------- | ------------------------- | --------------------------------- |
+| `LAYERLENS_API_KEY`  | Your API key              | (required)                        |
+| `LAYERLENS_BASE_URL` | Override the API base URL | `https://api.layerlens.ai/api/v1` |
 
-> **Note:** `LAYERLENS_STRATIX_BASE_URL` must include the `/api/v1` path prefix, exactly as in
+> **Note:** `LAYERLENS_BASE_URL` must include the `/api/v1` path prefix, exactly as in
 > the default above. A bare host returns `404 page not found` on every endpoint — for a
 > local/self-hosted backend use e.g. `http://localhost:8080/api/v1`.
 
-Legacy env vars (`LAYERLENS_ATLAS_API_KEY`, `LAYERLENS_ATLAS_BASE_URL`) are also supported.
+The variables from before the rename (`LAYERLENS_STRATIX_API_KEY`, `LAYERLENS_STRATIX_BASE_URL`) still work, with a deprecation warning. See [Migrating from Stratix](migrating-from-stratix.md).
 
 ## Error handling
 
@@ -220,9 +218,9 @@ The SDK raises typed exceptions for API errors:
 
 ```python
 import os
-from layerlens import Stratix, StratixError, APIError, BadRequestError, NotFoundError
+from layerlens import LayerLens, LayerLensError, APIError, BadRequestError, NotFoundError
 
-client = Stratix(api_key=os.environ.get("LAYERLENS_STRATIX_API_KEY"))
+client = LayerLens(api_key=os.environ.get("LAYERLENS_API_KEY"))
 
 try:
     result = client.models.get_by_id("nonexistent-id")
@@ -232,13 +230,13 @@ except BadRequestError as e:
     print(f"Bad request: {e.message}")
 except APIError as e:
     print(f"API error: {e.message}")
-except StratixError as e:
+except LayerLensError as e:
     print(f"Client error: {e}")
 ```
 
 Catch the most specific exception first. The hierarchy:
 
-- `StratixError` (base for all SDK errors)
+- `LayerLensError` (base for all SDK errors)
   - `APIError` (base for all API-related errors)
     - `APIConnectionError` (network issues)
       - `APITimeoutError` (request timed out)
@@ -253,7 +251,7 @@ Catch the most specific exception first. The hierarchy:
       - `RateLimitError` (429)
       - `InternalServerError` (500+)
 
-Note: Only `StratixError`, `APIError`, `BadRequestError`, `AuthenticationError`, and `NotFoundError` are exported from the top-level package. For other exception types, import from `layerlens._exceptions`.
+Note: Only `LayerLensError`, `APIError`, `BadRequestError`, `AuthenticationError`, and `NotFoundError` are exported from the top-level package. For other exception types, import from `layerlens._exceptions`.
 
 ## Requirements
 

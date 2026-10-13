@@ -9,7 +9,7 @@ The `PublicClient` (synchronous) and `AsyncPublicClient` (asynchronous) classes 
 ```python
 from layerlens import PublicClient
 
-# Loads API key from the "LAYERLENS_STRATIX_API_KEY" environment variable
+# Loads API key from the "LAYERLENS_API_KEY" environment variable
 client = PublicClient()
 
 # Browse public models
@@ -36,12 +36,12 @@ asyncio.run(main())
 
 ### Accessing from an Authenticated Client
 
-If you already have an authenticated `Stratix` or `AsyncStratix` client, you can access public endpoints through the `.public` property:
+If you already have an authenticated `LayerLens` or `AsyncLayerLens` client, you can access public endpoints through the `.public` property:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()  # requires API key
+client = LayerLens()  # requires API key
 
 # Access public endpoints through the authenticated client
 public_models = client.public.models.get(query="claude")
@@ -51,13 +51,13 @@ public_models = client.public.models.get(query="claude")
 
 ### `PublicClient(api_key, base_url, timeout)` and `AsyncPublicClient(api_key, base_url, timeout)`
 
-| Parameter  | Type                             | Required | Default         | Description                   |
-| ---------- | -------------------------------- | -------- | --------------- | ----------------------------- |
-| `api_key`  | `str \| None`                    | Yes\*    | `None`          | Your LayerLens Stratix API key  |
-| `base_url` | `str \| httpx.URL \| None`       | No       | Stratix API URL | Custom API base URL           |
-| `timeout`  | `float \| httpx.Timeout \| None` | No       | 10 minutes      | Request timeout configuration |
+| Parameter  | Type                             | Required | Default           | Description                   |
+| ---------- | -------------------------------- | -------- | ----------------- | ----------------------------- |
+| `api_key`  | `str \| None`                    | Yes\*    | `None`            | Your LayerLens API key        |
+| `base_url` | `str \| httpx.URL \| None`       | No       | LayerLens API URL | Custom API base URL           |
+| `timeout`  | `float \| httpx.Timeout \| None` | No       | 10 minutes        | Request timeout configuration |
 
-\*Required unless set via the `LAYERLENS_STRATIX_API_KEY` environment variable
+\*Required unless set via the `LAYERLENS_API_KEY` environment variable
 
 ## Public Models
 

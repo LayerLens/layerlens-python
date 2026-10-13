@@ -79,7 +79,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # any function-local framework import always resolves to the installed package.
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -93,7 +93,7 @@ OPENAI_MODEL = _gf.OPENAI_MODEL
 # --------------------------------------------------------------------------
 # Live Langfuse connection + real OpenAI helpers
 # --------------------------------------------------------------------------
-def _connect_adapter(client: Stratix):
+def _connect_adapter(client: LayerLens):
     """Construct + connect a REAL ``LangfuseAdapter`` to the live instance."""
     from layerlens.instrument.adapters.frameworks.langfuse import LangfuseAdapter
 
@@ -211,7 +211,7 @@ def _poll_ready(adapter, trace_id: str, since: str, *, min_obs: int, want_score:
     )
 
 
-def _capture_import(client: Stratix, adapter, trace_id: str) -> dict:
+def _capture_import(client: LayerLens, adapter, trace_id: str) -> dict:
     """Import the one materialized Langfuse trace through the REAL adapter code
     path (``_import_single_trace``, the loop body of ``import_traces``) under the
     capture seam, and return the sealed payload the collector flushed."""
@@ -260,7 +260,7 @@ _POLICY_LOOKUP_OUT = (
 )
 
 
-def generate_langfuse_single(client: Stratix) -> dict:
+def generate_langfuse_single(client: LayerLens) -> dict:
     """Single-observation Langfuse migration: one moderation ``generation``."""
     oai = _openai_client()
     mod = _real_moderation(oai, _POST_SINGLE)
@@ -307,7 +307,7 @@ def generate_langfuse_single(client: Stratix) -> dict:
     return payload
 
 
-def generate_langfuse_multi(client: Stratix) -> dict:
+def generate_langfuse_multi(client: LayerLens) -> dict:
     """Multi-observation Langfuse migration: generation + span + event + a real
     LLM-as-judge score (exercises the ``evaluation.result`` import path)."""
     oai = _openai_client()
@@ -371,6 +371,6 @@ def generate_langfuse_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_langfuse_single(_client)
     generate_langfuse_multi(_client)

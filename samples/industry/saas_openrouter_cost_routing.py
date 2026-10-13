@@ -50,7 +50,7 @@ SEALED FIXTURE -- no OpenRouter credential exists
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     (NO provider key needed -- the trace is already recorded.)
 
 Usage:
@@ -63,7 +63,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -103,15 +103,15 @@ def main() -> None:
 
     # Cred guard: only a LayerLens key is needed (no provider key -- the trace is
     # already recorded). Exit cleanly and say so rather than raising.
-    if not os.environ.get("LAYERLENS_STRATIX_API_KEY"):
-        print("SKIPPED: LAYERLENS_STRATIX_API_KEY is not set.")
+    if not os.environ.get("LAYERLENS_API_KEY"):
+        print("SKIPPED: LAYERLENS_API_KEY is not set.")
         print("  Set it to upload the recorded OpenRouter cost-routing trace:")
-        print("    export LAYERLENS_STRATIX_API_KEY=your-api-key")
+        print("    export LAYERLENS_API_KEY=your-api-key")
         print("  No provider key is required -- the trace is already recorded.")
         sys.exit(1)
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

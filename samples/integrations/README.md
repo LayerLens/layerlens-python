@@ -10,7 +10,7 @@ calls with minimal effort.
 
 ```bash
 pip install layerlens --index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 Each sample requires the corresponding provider SDK and API key:
@@ -37,12 +37,12 @@ post-completion evaluation, and prints the trace ID and evaluation scores.
 
 ## Samples
 
-| File | Scenario | Description |
-|------|----------|-------------|
-| `openai_traced.py` | Teams using OpenAI GPT models in production | Wraps an OpenAI chat completion call with LayerLens tracing, captures the full request/response cycle, and runs a post-completion evaluation with safety and relevance judges. |
-| `anthropic_traced.py` | Teams using Anthropic Claude models in production | Wraps an Anthropic message API call with LayerLens tracing, captures the full request/response cycle, and runs a post-completion evaluation with safety and relevance judges. |
-| `openai_instrumented.py` | Teams adopting auto-instrumentation for OpenAI | Uses `instrument_openai()` and the `@trace` decorator from `layerlens.instrument` to automatically capture all OpenAI calls as spans -- no manual trace upload needed. |
-| `langchain_instrumented.py` | Teams running LangChain LCEL chains | Uses `LangChainCallbackHandler` from `layerlens.instrument` to auto-capture chain execution, LLM calls, and prompt/completion data from LangChain pipelines. |
+| File                        | Scenario                                          | Description                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `openai_traced.py`          | Teams using OpenAI GPT models in production       | Wraps an OpenAI chat completion call with LayerLens tracing, captures the full request/response cycle, and runs a post-completion evaluation with safety and relevance judges. |
+| `anthropic_traced.py`       | Teams using Anthropic Claude models in production | Wraps an Anthropic message API call with LayerLens tracing, captures the full request/response cycle, and runs a post-completion evaluation with safety and relevance judges.  |
+| `openai_instrumented.py`    | Teams adopting auto-instrumentation for OpenAI    | Uses `instrument_openai()` and the `@trace` decorator from `layerlens.instrument` to automatically capture all OpenAI calls as spans -- no manual trace upload needed.         |
+| `langchain_instrumented.py` | Teams running LangChain LCEL chains               | Uses `LangChainCallbackHandler` from `layerlens.instrument` to auto-capture chain execution, LLM calls, and prompt/completion data from LangChain pipelines.                   |
 
 ## Expected Behavior
 

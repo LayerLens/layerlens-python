@@ -106,11 +106,11 @@ def _sync_client(routes: Dict[str, Any]) -> LayerLens:
     """
     transport = httpx.MockTransport(_handler(routes))
 
-    class _MockTransportStratix(LayerLens):
+    class _MockTransportLayerLens(LayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
             return transport
 
-    return _MockTransportStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
 def _async_client(routes: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> AsyncLayerLens:
@@ -135,11 +135,11 @@ def _async_client(routes: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> As
         ),
     )
 
-    class _MockTransportAsyncStratix(AsyncLayerLens):
+    class _MockTransportAsyncLayerLens(AsyncLayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.AsyncBaseTransport:
             return transport
 
-    return _MockTransportAsyncStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportAsyncLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
 def _public_client(routes: Dict[str, Any]) -> PublicClient:

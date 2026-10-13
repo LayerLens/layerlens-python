@@ -28,23 +28,23 @@ python --version
 
 ### Missing API Key
 
-**Error**: `StratixError: The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_STRATIX_API_KEY environment variable`
+**Error**: `LayerLensError: The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_API_KEY environment variable`
 
 Set the environment variable or pass the key explicitly:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 ```
 
 ```python
-client = Stratix(api_key="your-api-key")
+client = LayerLens(api_key="your-api-key")
 ```
 
 ### Organization Not Found
 
 **Error**: `NotFoundError` during client initialization
 
-Your API key may be invalid or expired. Verify it in the [LayerLens dashboard](https://stratix.layerlens.ai).
+Your API key may be invalid or expired. Verify it in the [LayerLens dashboard](https://app.layerlens.ai).
 
 ## Evaluation Issues
 
@@ -87,7 +87,7 @@ The default timeout is 10 minutes. For long-running operations, increase it:
 
 ```python
 # Global timeout
-client = Stratix(timeout=1200.0)  # 20 minutes
+client = LayerLens(timeout=1200.0)  # 20 minutes
 
 # Per-request timeout
 result = client.with_options(timeout=300.0).evaluations.create(

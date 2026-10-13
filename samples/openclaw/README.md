@@ -17,7 +17,7 @@ LayerLens integrates with OpenClaw at two levels:
 
 ```bash
 pip install layerlens --index-url https://sdk.layerlens.ai/package openclaw
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 All samples gracefully fall back to simulated data when OpenClaw is not installed or not running, so you can explore the LayerLens evaluation workflow without a live agent.
@@ -191,11 +191,11 @@ Each sample follows this pattern:
 
 ## SDK Methods Used
 
-| Method | Purpose |
-|--------|---------|
-| `Stratix()` | Initialize the LayerLens client |
-| `client.traces.upload(path)` | Upload a JSONL trace file |
-| `client.judges.create(name=, evaluation_goal=)` | Create an evaluation judge |
-| `client.judges.get_many()` | List existing judges |
-| `client.trace_evaluations.create(trace_id=, judge_id=)` | Start an evaluation |
-| `client.trace_evaluations.get_results(id)` | Retrieve evaluation results |
+| Method                                                  | Purpose                         |
+| ------------------------------------------------------- | ------------------------------- |
+| `LayerLens()`                                           | Initialize the LayerLens client |
+| `client.traces.upload(path)`                            | Upload a JSONL trace file       |
+| `client.judges.create(name=, evaluation_goal=)`         | Create an evaluation judge      |
+| `client.judges.get_many()`                              | List existing judges            |
+| `client.trace_evaluations.create(trace_id=, judge_id=)` | Start an evaluation             |
+| `client.trace_evaluations.get_results(id)`              | Retrieve evaluation results     |

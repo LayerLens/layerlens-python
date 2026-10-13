@@ -57,7 +57,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
         sys.path.insert(0, _p)
 
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 
@@ -140,7 +140,7 @@ _PRESENTATION = (
 )
 
 
-def generate_semantic_kernel_single(client: Stratix) -> None:
+def generate_semantic_kernel_single(client: LayerLens) -> None:
     """SemanticKernel SINGLE (kernel-function + auto-invoked native tool).
 
     A single SK ``Kernel`` intake-triage assistant. A prompt-function
@@ -243,7 +243,7 @@ _CASE = (
 )
 
 
-def generate_semantic_kernel_multi(client: Stratix) -> None:
+def generate_semantic_kernel_multi(client: LayerLens) -> None:
     """SemanticKernel MULTI (genuine multi-agent ``AgentGroupChat``).
 
     Three named ``ChatCompletionAgent``s — ``triage-nurse`` ->
@@ -310,6 +310,6 @@ def generate_semantic_kernel_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_semantic_kernel_single(_client)
     generate_semantic_kernel_multi(_client)

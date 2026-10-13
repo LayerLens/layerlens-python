@@ -13,13 +13,13 @@ import logging
 import tempfile
 from typing import Any, List, Optional
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 logger = logging.getLogger(__name__)
 
 
 def upload_trace_dict(
-    client: Stratix,
+    client: LayerLens,
     *,
     input_text: str,
     output_text: str,
@@ -31,7 +31,7 @@ def upload_trace_dict(
     ``client.traces.upload()`` method.
 
     Args:
-        client: An initialized :class:`Stratix` client.
+        client: An initialized :class:`LayerLens` client.
         input_text: The input/prompt text for the trace.
         output_text: The output/response text for the trace.
         metadata: Optional metadata dict attached to the trace.
@@ -75,7 +75,7 @@ def recorded_trace_path(*parts: str) -> str:
     )
 
 
-def upload_recorded_trace(client: Stratix, fixture_path: str) -> List[str]:
+def upload_recorded_trace(client: LayerLens, fixture_path: str) -> List[str]:
     """Upload a recorded real-trace fixture and return the created trace IDs.
 
     A fixture is a JSONL file where each line is a complete, honestly
@@ -87,7 +87,7 @@ def upload_recorded_trace(client: Stratix, fixture_path: str) -> List[str]:
     back onto the source scenarios to run evaluations.
 
     Args:
-        client: An initialized :class:`Stratix` client.
+        client: An initialized :class:`LayerLens` client.
         fixture_path: Absolute path to the ``.jsonl`` fixture (see
             :func:`recorded_trace_path`).
 
@@ -119,7 +119,7 @@ def upload_recorded_trace(client: Stratix, fixture_path: str) -> List[str]:
 
 
 def trace_call(
-    client: Stratix,
+    client: LayerLens,
     *,
     agent_name: str,
     run_fn: Any,
@@ -139,7 +139,7 @@ def trace_call(
     created trace ID is returned to the caller for running evaluations.
 
     Args:
-        client: An initialized :class:`Stratix` client.
+        client: An initialized :class:`LayerLens` client.
         agent_name: Honest name for the agent being traced (fills the Agent
             column). It is re-verified server-side.
         run_fn: A zero-argument callable that makes the instrumented API call
@@ -203,14 +203,14 @@ def trace_call(
     return result, trace_id
 
 
-def get_default_model_id(client: Stratix) -> str:
+def get_default_model_id(client: LayerLens) -> str:
     """Get a model ID suitable for judge creation.
 
     Checks project models first, then falls back to the public catalog.
     Caches the result for the lifetime of the process.
 
     Args:
-        client: An initialized :class:`Stratix` client.
+        client: An initialized :class:`LayerLens` client.
 
     Returns:
         A model ID string suitable for passing to ``judges.create(model_id=...)``.
@@ -247,7 +247,7 @@ def get_default_model_id(client: Stratix) -> str:
 
 
 def create_judge(
-    client: Stratix,
+    client: LayerLens,
     *,
     name: str,
     evaluation_goal: str,
@@ -257,7 +257,7 @@ def create_judge(
     """Create a judge, automatically resolving model_id if not provided.
 
     Args:
-        client: An initialized :class:`Stratix` client.
+        client: An initialized :class:`LayerLens` client.
         name: Judge display name.
         evaluation_goal: What the judge evaluates (min 10 characters).
         model_id: Explicit model ID. If ``None``, resolves via :func:`get_default_model_id`.
@@ -291,7 +291,7 @@ def create_judge(
 
 
 def poll_evaluation_results(
-    client: Stratix,
+    client: LayerLens,
     evaluation_id: str,
     *,
     max_attempts: int = 60,
@@ -316,7 +316,7 @@ def poll_evaluation_results(
     exhausted.
 
     Args:
-        client: An initialized :class:`Stratix` client.
+        client: An initialized :class:`LayerLens` client.
         evaluation_id: The trace evaluation ID to poll.
         max_attempts: Maximum number of poll attempts (default 60, ~3-4 min total).
         initial_delay: Initial delay in seconds between polls.

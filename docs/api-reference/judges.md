@@ -1,6 +1,6 @@
 # Judges
 
-The `judges` resource on the Stratix client allows you to create and manage LLM-based judges for evaluating traces. Judges define evaluation criteria that can be run against traces to assess quality, correctness, and other properties.
+The `judges` resource on the LayerLens client allows you to create and manage LLM-based judges for evaluating traces. Judges define evaluation criteria that can be run against traces to assess quality, correctness, and other properties.
 
 ## Overview
 
@@ -9,9 +9,9 @@ A judge encapsulates an evaluation goal and is backed by a specific LLM model. O
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Fetch a model to use for the judge
 models = client.models.get(type="public", name="gpt-4o")
@@ -36,10 +36,10 @@ for j in response.judges:
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     judge = await client.judges.create(
         name="Code Quality Judge",
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
 ### `create(name, evaluation_goal, model_id=None, timeout=None)`
 

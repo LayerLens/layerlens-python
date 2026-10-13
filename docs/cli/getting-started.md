@@ -1,6 +1,6 @@
 # CLI — Getting Started
 
-The LayerLens Stratix CLI provides terminal access to all platform features: traces, judges, evaluations, integrations, scorers, evaluation spaces, bulk operations, and CI/CD helpers.
+The LayerLens CLI provides terminal access to all platform features: traces, judges, evaluations, integrations, scorers, evaluation spaces, bulk operations, and CI/CD helpers.
 
 ## Installation
 
@@ -25,23 +25,23 @@ pip install -e ".[cli]"
 Verify the installation:
 
 ```bash
-stratix --version
+layerlens --version
 ```
 
 ## Configuration
 
 ### API key
 
-The CLI requires a LayerLens Stratix API key. Set it as an environment variable (recommended):
+The CLI requires a LayerLens API key. Set it as an environment variable (recommended):
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 ```
 
 Or pass it per-command:
 
 ```bash
-stratix --api-key "your-api-key" trace list
+layerlens --api-key "your-api-key" trace list
 ```
 
 ### Custom host
@@ -49,29 +49,29 @@ stratix --api-key "your-api-key" trace list
 By default the CLI talks to `api.layerlens.ai`. Override with:
 
 ```bash
-stratix --host my-instance.example.com trace list
-stratix --host my-instance.example.com --port 8443 trace list
+layerlens --host my-instance.example.com trace list
+layerlens --host my-instance.example.com --port 8443 trace list
 ```
 
 ## Global options
 
 Every command accepts these options:
 
-| Option | Description |
-| --- | --- |
-| `--api-key` | API key (or set `LAYERLENS_STRATIX_API_KEY`) |
-| `--host` | API host |
-| `--port` | API port |
-| `--format` | Output format: `table` (default) or `json` |
-| `--verbose` / `-v` | Enable debug output |
-| `--version` | Print version and exit |
+| Option             | Description                                |
+| ------------------ | ------------------------------------------ |
+| `--api-key`        | API key (or set `LAYERLENS_API_KEY`)       |
+| `--host`           | API host                                   |
+| `--port`           | API port                                   |
+| `--format`         | Output format: `table` (default) or `json` |
+| `--verbose` / `-v` | Enable debug output                        |
+| `--version`        | Print version and exit                     |
 
 ## Output formats
 
 The default output is a human-readable table:
 
 ```bash
-stratix trace list
+layerlens trace list
 ```
 
 ```
@@ -84,7 +84,7 @@ e5f6a7b8-...                         2026-03-14 09:12     batch_02.json    1
 Switch to JSON for scripting:
 
 ```bash
-stratix --format json trace list
+layerlens --format json trace list
 ```
 
 ```json
@@ -104,10 +104,10 @@ The CLI supports tab-completion for commands, options, and resource IDs.
 
 ```bash
 # Print setup instructions for your shell
-stratix completion bash
-stratix completion zsh
-stratix completion fish
-stratix completion powershell
+layerlens completion bash
+layerlens completion zsh
+layerlens completion fish
+layerlens completion powershell
 ```
 
 Follow the printed instructions to enable completions. After setup, you can tab-complete trace IDs, judge IDs, model names, and more.
@@ -117,31 +117,31 @@ Follow the printed instructions to enable completions. After setup, you can tab-
 ### List your traces
 
 ```bash
-stratix trace list
+layerlens trace list
 ```
 
 ### Run an evaluation
 
 ```bash
-stratix evaluate run --model openai/gpt-4o --benchmark arc-agi-2 --wait
+layerlens evaluate run --model openai/gpt-4o --benchmark arc-agi-2 --wait
 ```
 
 ### Create a judge
 
 ```bash
-stratix judge create --name "Response Quality" --goal "Rate accuracy and completeness" --model-id <MODEL_ID>
+layerlens judge create --name "Response Quality" --goal "Rate accuracy and completeness" --model-id <MODEL_ID>
 ```
 
 ### Check integrations
 
 ```bash
-stratix integration list
+layerlens integration list
 ```
 
 ### Generate a CI report
 
 ```bash
-stratix ci report -o summary.md
+layerlens ci report -o summary.md
 ```
 
 ## Next steps

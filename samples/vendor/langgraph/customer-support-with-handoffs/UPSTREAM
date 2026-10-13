@@ -37,11 +37,11 @@ WHAT WE CHANGED VS UPSTREAM
   3. LayerLens instrumentation. `run_instrumented.py` attaches the
      `LangGraphCallbackHandler` from the `layerlens` SDK non-invasively (a
      `config={"callbacks": [handler]}` on `graph.invoke`), runs REAL conversations,
-     uploads each captured trace with a real `Stratix()` client (LayerLens key
+     uploads each captured trace with a real `LayerLens()` client (LayerLens key
      only), and reads the SERVER-computed agent DAG back — no fabricated success.
 
 INSTRUMENTATION SEAM (non-invasive)
-  from layerlens import Stratix
+  from layerlens import LayerLens
   from layerlens.instrument.adapters.frameworks import LangGraphCallbackHandler
-  handler = LangGraphCallbackHandler(Stratix())
+  handler = LangGraphCallbackHandler(LayerLens())
   graph.invoke(state, config={"callbacks": [handler]})

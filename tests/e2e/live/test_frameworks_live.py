@@ -7,7 +7,7 @@ credentials are present. Platform-side linkage is asserted only when
 green on a machine without a registered audit integration.
 
     LAYERLENS_LIVE=1 \\
-    LAYERLENS_STRATIX_BASE_URL=http://localhost:8080/api/v1 LAYERLENS_STRATIX_API_KEY=... \\
+    LAYERLENS_BASE_URL=http://localhost:8080/api/v1 LAYERLENS_API_KEY=... \\
     LAYERLENS_LIVE_INTEGRATION_ID=<id> OPENAI_API_KEY=... \\
     ./scripts/test tests/e2e/live -k langchain
 """
@@ -55,23 +55,23 @@ def _skip_unless_ready(case) -> None:
 
 @pytest.mark.live
 @pytest.mark.parametrize("case, variant", _CASES, ids=_IDS)
-def test_framework_live(case, variant, stratix_live_client, record_result) -> None:
+def test_framework_live(case, variant, layerlens_live_client, record_result) -> None:
     _skip_unless_ready(case)
-    row = run_framework_case(stratix_live_client, case, variant)
+    row = run_framework_case(layerlens_live_client, case, variant)
     record_result(row)
 
 
 @pytest.mark.live
 @pytest.mark.parametrize("case, variant", _SELF_FLUSH_CASES, ids=_SELF_FLUSH_IDS)
-def test_framework_live_self_flushing(case, variant, stratix_live_client, record_result) -> None:
+def test_framework_live_self_flushing(case, variant, layerlens_live_client, record_result) -> None:
     """Adapters that manage + upload their own trace (e.g. openai_agents)."""
     _skip_unless_ready(case)
-    row = run_self_flushing_case(stratix_live_client, case, variant)
+    row = run_self_flushing_case(layerlens_live_client, case, variant)
     record_result(row)
 
 
 @pytest.mark.live
-def test_bedrock_agents_trace_completeness_live(stratix_live_client, record_result) -> None:
+def test_bedrock_agents_trace_completeness_live(layerlens_live_client, record_result) -> None:
     """LAY-3606: the five trace-completeness members on the REAL wire.
 
     Triple-gated and opt-in: needs the live suite enabled, ``LAYERLENS_LIVE_BEDROCK_FEATURES=1``,
@@ -88,7 +88,7 @@ def test_bedrock_agents_trace_completeness_live(stratix_live_client, record_resu
         if not os.environ.get(env):
             pytest.skip(f"bedrock_agents features: {env} not set")
 
-    result = fs.run_bedrock_agents_features(stratix_live_client)
+    result = fs.run_bedrock_agents_features(layerlens_live_client)
     seen = set(result["seen_types"])
     expected = {"policy.violation", "tool.call", "agent.code", "agent.step"}
     missing = expected - seen

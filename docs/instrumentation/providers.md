@@ -24,11 +24,11 @@ pip install layerlens[openai]
 
 ```python
 import openai
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers.openai import instrument_openai
 
-client = Stratix()
+client = LayerLens()
 openai_client = openai.OpenAI()
 
 # Instrument the client instance
@@ -77,11 +77,11 @@ pip install layerlens[anthropic]
 
 ```python
 import anthropic
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers.anthropic import instrument_anthropic
 
-client = Stratix()
+client = LayerLens()
 anthropic_client = anthropic.Anthropic()
 
 instrument_anthropic(anthropic_client)
@@ -130,11 +130,11 @@ pip install layerlens[litellm]
 
 ```python
 import litellm
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers.litellm import instrument_litellm
 
-client = Stratix()
+client = LayerLens()
 
 # Patch litellm module (call once at startup)
 instrument_litellm()

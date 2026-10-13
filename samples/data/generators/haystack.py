@@ -60,7 +60,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
 # installed framework (a no-op in the integrated ``generators.haystack`` path).
 sys.path[:] = [_q for _q in sys.path if os.path.abspath(_q) != _HERE]
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
@@ -85,7 +85,7 @@ except Exception:  # pragma: no cover - standalone fallback
 OPENAI_MODEL = os.environ.get("SAMPLE_OPENAI_MODEL", "gpt-4o-mini")
 
 
-def _capture_haystack(client: Stratix, pipeline, run_inputs: dict, *, tags: list) -> tuple:
+def _capture_haystack(client: LayerLens, pipeline, run_inputs: dict, *, tags: list) -> tuple:
     """Run a real ``haystack.Pipeline`` under the real ``HaystackAdapter`` +
     observer seam (no background upload) and return ``(sealed_payload, result)``.
 
@@ -160,7 +160,7 @@ _CLAUSE_QUESTION = (
 )
 
 
-def generate_haystack_single(client: Stratix) -> None:
+def generate_haystack_single(client: LayerLens) -> None:
     """Haystack SINGLE (single-component clause Q&A): a minimal pipeline with one
     honest ``llm`` node (``OpenAIGenerator``) that interprets a specific contract
     clause and answers a plain-language question about it. Real OpenAI
@@ -249,7 +249,7 @@ _RAG_TEMPLATE = (
 )
 
 
-def generate_haystack_multi(client: Stratix) -> None:
+def generate_haystack_multi(client: LayerLens) -> None:
     """Haystack MULTI == genuine multi-COMPONENT RAG pipeline (MARKED).
 
     haystack is a pipeline framework, not a multi-agent one: it emits no
@@ -309,6 +309,6 @@ def generate_haystack_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_haystack_single(_client)
     generate_haystack_multi(_client)

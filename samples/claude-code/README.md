@@ -9,7 +9,7 @@ or `/investigate` -- enabling AI-assisted quality assurance without leaving the 
 
 - Claude Code CLI installed and configured
 - The LayerLens Python SDK installed: `pip install layerlens --index-url https://sdk.layerlens.ai/package`
-- `LAYERLENS_STRATIX_API_KEY` set as an environment variable
+- `LAYERLENS_API_KEY` set as an environment variable
 
 To register the skills, add the `samples/claude-code/skills/` directory to your Claude Code
 skill search path, or copy individual `.md` files into your project's `.claude/skills/`
@@ -40,5 +40,5 @@ Claude Code will guide you through creating and uploading a trace interactively.
 
 Each skill operates interactively within the Claude Code session. The skill prompts the user
 for required inputs, executes the corresponding LayerLens SDK operations, and presents
-formatted results directly in the terminal. All operations use the authenticated Stratix
+formatted results directly in the terminal. All operations use the authenticated LayerLens
 client and persist data to your LayerLens workspace.

@@ -11,11 +11,11 @@ Walk through results page by page with full control over page size.
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -90,11 +90,11 @@ Use `get_all()` to fetch every result in a single call. Simpler but loads everyt
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -129,7 +129,7 @@ Use `asyncio.gather` to load results for several evaluations in parallel.
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def fetch_evaluation_results(client, evaluation_id):
@@ -151,7 +151,7 @@ async def fetch_evaluation_results(client, evaluation_id):
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # Replace with your own evaluation IDs
     evaluation_ids = ["68a65a3de7ad047fb5d8e7d4", "688a254c673f6b2835cc7278"]
@@ -177,9 +177,9 @@ if __name__ == "__main__":
 Results can also be fetched directly from an `Evaluation` object when a client is attached:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Get results via the client
 results_response = client.results.get(evaluation=evaluation, page=1, page_size=50)

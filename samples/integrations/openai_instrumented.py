@@ -2,18 +2,18 @@
 
 Requires:
     pip install layerlens[openai]
-    export LAYERLENS_STRATIX_API_KEY="your-api-key"
+    export LAYERLENS_API_KEY="your-api-key"
     export OPENAI_API_KEY="your-openai-key"
 """
 
 import openai
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import span, trace
 from layerlens.instrument.adapters.providers.openai import instrument_openai
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
     openai_client = openai.OpenAI()
 
     # Instrument the OpenAI client — all chat.completions.create calls

@@ -17,7 +17,7 @@ real run outcome, and the token/cost fields are real.
 It is a developer tool, not a customer sample (hence the ``_`` prefix, which
 excludes it from the samples test-suite). Re-run it to refresh the fixtures:
 
-    export LAYERLENS_STRATIX_API_KEY=...   # a client is needed to build traces
+    export LAYERLENS_API_KEY=...   # a client is needed to build traces
     export OPENAI_API_KEY=...  ANTHROPIC_API_KEY=...
     # a local Ollama (OLLAMA_HOST / OLLAMA_MODEL) for the free lanes
     python samples/data/_generate_fixtures.py
@@ -49,7 +49,7 @@ for p in (os.path.join(REPO, "src"), SAMPLES):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace, TraceCollector
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument._context import _current_collector, _push_span, _pop_span
@@ -137,7 +137,7 @@ def _model_for(backend: str) -> str:
 # Capture: run a REAL scenario under @trace, grab the sealed payload (identity
 # + root + attestation) via the observer seam, WITHOUT the background upload.
 # --------------------------------------------------------------------------
-def capture(client: Stratix, *, agent_name: str, backend: str, system: str, user: str,
+def capture(client: LayerLens, *, agent_name: str, backend: str, system: str, user: str,
             input_obj, tags: list[str], max_tokens: int = 400) -> dict:
     captured: dict = {}
     set_trace_observer(lambda p: captured.setdefault("payload", p))
@@ -301,7 +301,7 @@ def _rag_user(query_text: str, kb: list[dict], expected_ids: list[str]) -> str:
     return f"Context:\n{ctx}\n\nQuestion: {query_text}\nAnswer using only the context above."
 
 
-def generate_rag(client: Stratix, payloads_by_file: dict) -> None:
+def generate_rag(client: LayerLens, payloads_by_file: dict) -> None:
     mod = _load("cowork/rag_assessment.py")
     kb = getattr(mod, "KNOWLEDGE_BASE", [])
     system = ("You are rag-qa-agent, a retrieval-augmented QA assistant. Answer strictly from the provided "
@@ -318,7 +318,7 @@ def generate_rag(client: Stratix, payloads_by_file: dict) -> None:
     print(f"  -> {path}\n")
 
 
-def capture_synthetic(client: Stratix, *, agent_name: str, input_text, output_text,
+def capture_synthetic(client: LayerLens, *, agent_name: str, input_text, output_text,
                       tags: list[str], purpose: str) -> dict:
     """Build a CLEARLY-LABELED synthetic trace from honest structural events.
 
@@ -359,7 +359,7 @@ def capture_synthetic(client: Stratix, *, agent_name: str, input_text, output_te
 _IR_ADVERSARIAL = {2, 4}
 
 
-def generate_incident_response(client: Stratix) -> None:
+def generate_incident_response(client: LayerLens) -> None:
     mod = _load("cowork/incident_response.py")
     demos = getattr(mod, "DEMO_TRACES", [])
     system = ("You are support-assistant, a general customer assistant. Answer helpfully, and refuse "
@@ -408,7 +408,7 @@ UNDERWRITING_APPLICATION = {
 }
 
 
-def generate_underwriting_team(client: Stratix) -> None:
+def generate_underwriting_team(client: LayerLens) -> None:
     import json as _json
     from typing import TypedDict
     from langgraph.graph import StateGraph, START, END
@@ -509,7 +509,7 @@ def generate_underwriting_team(client: Stratix) -> None:
 # (fan-out / routing / loop); crewai gives a framework=crewai multi-agent crew.
 # Each specialist node runs on a mix of openai/anthropic/ollama.
 # --------------------------------------------------------------------------
-def _capture_langgraph(client: Stratix, graph, initial: dict, tags: list[str]) -> dict:
+def _capture_langgraph(client: LayerLens, graph, initial: dict, tags: list[str]) -> dict:
     from layerlens.instrument.adapters.frameworks.langgraph import LangGraphCallbackHandler
     captured: dict = {}
     set_trace_observer(lambda p: captured.setdefault("payload", p))
@@ -554,7 +554,7 @@ def _anthropic_say(system: str, user: str) -> str:
     return "".join(getattr(b, "text", "") for b in r.content)
 
 
-def generate_code_review_team(client: Stratix) -> None:
+def generate_code_review_team(client: LayerLens) -> None:
     """LangGraph FAN-OUT: review-supervisor -> [security, style, test] -> aggregator."""
     from typing import TypedDict, Annotated
     import operator
@@ -602,7 +602,7 @@ def generate_code_review_team(client: Stratix) -> None:
     print("  ->", _write([payload], "cowork", "code_review_team"), "\n")
 
 
-def generate_research_report_team(client: Stratix) -> None:
+def generate_research_report_team(client: LayerLens) -> None:
     """LangGraph LOOP: planner -> writer <-> critic (revise loop) -> END."""
     from typing import TypedDict
     from langgraph.graph import StateGraph, START, END
@@ -646,7 +646,7 @@ def generate_research_report_team(client: Stratix) -> None:
     print("  ->", _write([payload], "cowork", "research_report_team"), "\n")
 
 
-def generate_support_triage_team(client: Stratix) -> None:
+def generate_support_triage_team(client: LayerLens) -> None:
     """LangGraph ROUTING: triage-router -> (billing|technical|account) -> resolver."""
     from typing import TypedDict
     from langgraph.graph import StateGraph, START, END
@@ -698,7 +698,7 @@ def generate_support_triage_team(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "support_triage_team"), "\n")
 
 
-def generate_clinical_consult_team(client: Stratix) -> None:
+def generate_clinical_consult_team(client: LayerLens) -> None:
     """CrewAI CREW: a multi-specialist clinical consult (framework=crewai)."""
     from crewai import Agent, Task, Crew, Process, LLM
     from layerlens.instrument.adapters.frameworks.crewai import CrewAIAdapter
@@ -741,7 +741,7 @@ def generate_clinical_consult_team(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "clinical_consult_team"), "\n")
 
 
-def generate_telecom_support_crew(client: Stratix) -> None:
+def generate_telecom_support_crew(client: LayerLens) -> None:
     """CrewAI HIERARCHICAL CREW with real delegation (framework=crewai, multi-agent).
 
     A telecom customer-support manager delegates a mixed billing+connectivity
@@ -813,7 +813,7 @@ def generate_telecom_support_crew(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "telecom_support_crew"), "\n")
 
 
-def generate_content_pipeline_team(client: Stratix) -> None:
+def generate_content_pipeline_team(client: LayerLens) -> None:
     """AutoGen GROUP CHAT: a round-robin content team (framework=autogen).
 
     A content strategist, a copywriter, and an editor collaborate as a real
@@ -884,7 +884,7 @@ def generate_content_pipeline_team(client: Stratix) -> None:
 # deps are imported function-locally so this module imports in any venv.
 # --------------------------------------------------------------------------
 
-def generate_media_content_moderation(client: Stratix) -> None:
+def generate_media_content_moderation(client: LayerLens) -> None:
     """Anthropic single-agent TOOL-USE: a media content-moderation agent that
     calls a REAL ``policy_lookup`` tool (tools=/tool_use) to fetch the platform
     policy for the post under review, then returns an ALLOW / FLAG / REMOVE
@@ -1062,7 +1062,7 @@ def generate_media_content_moderation(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "media_content_moderation"), "\n")
 
 
-def generate_retail_catalog_qa(client: Stratix) -> None:
+def generate_retail_catalog_qa(client: LayerLens) -> None:
     """OpenAI single-agent TOOL-USE: a retail product-Q&A agent that calls a
     REAL ``lookup_product`` tool (tools=/tool_calls) to fetch catalog + live
     inventory for the SKU the shopper asks about, then answers the question
@@ -1261,7 +1261,7 @@ LEGAL_CONTRACT_CLAUSES = [
 ]
 
 
-def generate_legal_contract_rag(client: Stratix) -> None:
+def generate_legal_contract_rag(client: LayerLens) -> None:
     """LlamaIndex RAG (SINGLE): a contract-analysis retrieval-augmented query.
 
     A small in-memory ``VectorStoreIndex`` of the clauses of a SaaS master
@@ -1320,7 +1320,7 @@ def generate_legal_contract_rag(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "legal_contract_rag"), "\n")
 
 
-def generate_legal_agentworkflow(client: Stratix) -> None:
+def generate_legal_agentworkflow(client: LayerLens) -> None:
     """LlamaIndex AgentWorkflow (MULTI, HEADLINE): a two-FunctionAgent handoff.
 
     A REAL ``AgentWorkflow`` runs two ``FunctionAgent``s: ``contract-intake``
@@ -1705,7 +1705,7 @@ def generate_manufacturing_maintenance_tooluse(client) -> None:
     print("  ->", _write([payload], "industry", "manufacturing_maintenance_tooluse"), "\n")
 
 
-def generate_energy_grid_forecast(client: Stratix) -> None:
+def generate_energy_grid_forecast(client: LayerLens) -> None:
     """AWS Bedrock (Nova) single agent: a grid-load-forecaster that does a REAL
     Bedrock Converse call over live grid telemetry and produces a 24-hour load
     forecast + reserve-margin risk flags. ``@trace`` gives it a real
@@ -1785,7 +1785,7 @@ def generate_energy_grid_forecast(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "energy_grid_forecast"), "\n")
 
 
-def generate_energy_grid_tooluse(client: Stratix) -> None:
+def generate_energy_grid_tooluse(client: LayerLens) -> None:
     """AWS Bedrock (Nova) Converse TOOL-USE loop: the same grid-load-forecaster,
     but the model calls a real ``get_sensor_reading`` tool (Converse toolConfig)
     to fetch a zone's live load before forecasting. We return a real toolResult
@@ -1933,7 +1933,7 @@ TRAVEL_TRIP_REQUEST = {
 }
 
 
-def generate_travel_itinerary(client: Stratix) -> None:
+def generate_travel_itinerary(client: LayerLens) -> None:
     """LangGraph SINGLE: a one-node 'itinerary-planner' StateGraph whose node
     makes a REAL instrumented OpenAI call to plan a multi-city trip.
 
@@ -2021,7 +2021,7 @@ _CDS_KB = {
 }
 
 
-def generate_healthcare_clinical_chain(client: Stratix) -> None:
+def generate_healthcare_clinical_chain(client: LayerLens) -> None:
     """LangChain LCEL RAG chain (SINGLE, framework=langchain) for clinical
     decision support.
 
@@ -2100,7 +2100,7 @@ def generate_healthcare_clinical_chain(client: Stratix) -> None:
     print("  ->", _write([payload], "industry", "healthcare_clinical_chain"), "\n")
 
 
-def generate_healthcare_clinical_agent(client: Stratix) -> None:
+def generate_healthcare_clinical_agent(client: LayerLens) -> None:
     """LangChain AgentExecutor (TOOL-USE, framework=langchain) for clinical
     decision support.
 
@@ -2227,7 +2227,7 @@ def generate_healthcare_clinical_agent(client: Stratix) -> None:
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
     print("=== generating recorded real-trace fixtures ===\n")
     for spec in SPEC:
         mod = _load(spec["module"])

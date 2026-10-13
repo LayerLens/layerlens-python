@@ -16,10 +16,10 @@ fi
 
 # Dry-run first
 echo "==> Dry-run:"
-stratix bulk eval --file "$JOBS_FILE" --dry-run
+layerlens bulk eval --file "$JOBS_FILE" --dry-run
 
 echo ""
 read -p "Proceed? [y/N] " confirm
 if [[ "$confirm" =~ ^[Yy]$ ]]; then
-  stratix bulk eval --file "$JOBS_FILE" --wait
+  layerlens bulk eval --file "$JOBS_FILE" --wait
 fi

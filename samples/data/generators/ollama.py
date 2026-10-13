@@ -76,7 +76,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 from layerlens.instrument._collector import TraceCollector, set_trace_observer  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._context import (  # noqa: E402
@@ -105,7 +105,7 @@ _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3:8b")
 # the structural ``trace.root`` so the waterfall renders. Mirrors the
 # ``_generate_fixtures.capture`` seam but for the agent-free provider path.
 # --------------------------------------------------------------------------
-def _capture_provider(client: Stratix, driver: Callable[[Any], None]) -> dict:
+def _capture_provider(client: LayerLens, driver: Callable[[Any], None]) -> dict:
     import ollama
     from layerlens.instrument.adapters.providers.ollama import (
         instrument_ollama,
@@ -185,7 +185,7 @@ _CLINICAL_CASE = (
 )
 
 
-def generate_ollama_single(client: Stratix) -> dict:
+def generate_ollama_single(client: LayerLens) -> dict:
     """Record one real on-prem clinical chat turn (provider empty-state)."""
     def driver(ollama: Any) -> None:
         resp = ollama.chat(
@@ -313,7 +313,7 @@ _MEDSAFETY_TURN2_SYSTEM = (
 )
 
 
-def generate_ollama_multi(client: Stratix) -> dict:
+def generate_ollama_multi(client: LayerLens) -> dict:
     """Record a real 2-turn on-prem medication-safety tool-use loop (empty-state)."""
     def driver(ollama: Any) -> None:
         med_list = ", ".join(_PATIENT_ACTIVE_MEDS)
@@ -376,6 +376,6 @@ def generate_ollama_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_ollama_single(_client)
     generate_ollama_multi(_client)

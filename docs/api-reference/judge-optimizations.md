@@ -1,6 +1,6 @@
 # Judge Optimizations
 
-The `judge_optimizations` resource on the Stratix client allows you to optimize a judge's evaluation criteria using automated prompt engineering. This can improve the accuracy and consistency of your judge's evaluations.
+The `judge_optimizations` resource on the LayerLens client allows you to optimize a judge's evaluation criteria using automated prompt engineering. This can improve the accuracy and consistency of your judge's evaluations.
 
 ## Overview
 
@@ -9,9 +9,9 @@ A judge optimization run takes an existing judge and refines its evaluation goal
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Estimate cost before running
 estimate = client.judge_optimizations.estimate(
@@ -44,10 +44,10 @@ if optimization.status.value == "success":
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     run = await client.judge_optimizations.create(
         judge_id="judge-123",
@@ -72,7 +72,7 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
 ### `estimate(judge_id, budget="medium", timeout=None)`
 

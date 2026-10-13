@@ -10,18 +10,18 @@ Demonstrates the public (unauthenticated) catalog APIs:
   4. Download benchmark prompts (paginated and all-at-once).
 
 These endpoints are read-only and do not require a project API key;
-however, a valid ``LAYERLENS_STRATIX_API_KEY`` must still be set.
+however, a valid ``LAYERLENS_API_KEY`` must still be set.
 
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python public_catalog.py
 """
 

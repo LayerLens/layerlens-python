@@ -5,7 +5,7 @@ installed and its credentials are present. On success it appends a row to the L3
 report (written at session end).
 
     LAYERLENS_LIVE=1 \\
-    LAYERLENS_STRATIX_BASE_URL=<staging> LAYERLENS_STRATIX_API_KEY=... \\
+    LAYERLENS_BASE_URL=<staging> LAYERLENS_API_KEY=... \\
     ANTHROPIC_API_KEY=... \\
     ./scripts/test tests/e2e/live -k anthropic
 """
@@ -23,11 +23,11 @@ _IDS = [f"{case.id}-{variant}" for case, variant in _CASES]
 
 @pytest.mark.live
 @pytest.mark.parametrize("case, variant", _CASES, ids=_IDS)
-def test_provider_live(case, variant, stratix_live_client, record_result) -> None:
+def test_provider_live(case, variant, layerlens_live_client, record_result) -> None:
     pytest.importorskip(case.import_name, reason=f"{case.id}: '{case.import_name}' not installed")
     reason = missing_credentials(case)
     if reason:
         pytest.skip(f"{case.id}: {reason}")
 
-    row = run_case(stratix_live_client, case, variant)
+    row = run_case(layerlens_live_client, case, variant)
     record_result(row)

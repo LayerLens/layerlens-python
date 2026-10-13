@@ -3,7 +3,7 @@
 Async Workflow -- LayerLens Python SDK Sample
 =============================================
 
-Demonstrates using the AsyncStratix client for concurrent operations:
+Demonstrates using the AsyncLayerLens client for concurrent operations:
 
   1. Initialize the async client.
   2. Concurrently fetch models and benchmarks.
@@ -18,13 +18,13 @@ examples.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python async_workflow.py
 """
 
@@ -34,7 +34,7 @@ import sys
 import asyncio
 import logging
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -49,7 +49,7 @@ logger = logging.getLogger("layerlens.samples.async_workflow")
 
 async def main() -> None:
     try:
-        client = AsyncStratix()
+        client = AsyncLayerLens()
     except Exception as exc:
         logger.error("Failed to initialize async client: %s", exc)
         sys.exit(1)

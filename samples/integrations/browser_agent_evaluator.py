@@ -3,7 +3,7 @@
 
 Evaluates browser automation agents (such as Browser Use) against a
 suite of 20 real-world tasks across 5 categories. Captures traces with
-the Stratix SDK, runs specialized judges, and produces a reliability
+the LayerLens SDK, runs specialized judges, and produces a reliability
 report including compound failure analysis.
 
 Works in three modes:
@@ -13,7 +13,7 @@ Works in three modes:
 
 Prerequisites:
     pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python browser_agent_evaluator.py
@@ -33,7 +33,7 @@ import sys
 import time
 from typing import Any, Optional
 
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens import PublicClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -353,7 +353,7 @@ def _load_recorded_traces() -> dict[str, dict[str, Any]]:
         if os.path.isfile(filepath):
             with open(filepath) as f:
                 data = json.load(f)
-            # Extract input/output for Stratix upload
+            # Extract input/output for LayerLens upload
             agent_input = data.get("metadata", {}).get("task_description", "")
             agent_output = ""
             for event in data.get("events", []):
@@ -380,7 +380,7 @@ def _load_recorded_traces() -> dict[str, dict[str, Any]]:
 SAMPLE = "browser_agent_evaluator"
 
 
-def _ensure_judges(client: Stratix) -> dict[str, str]:
+def _ensure_judges(client: LayerLens) -> dict[str, str]:
     """Create the sample's judges. Returns {judge_name: judge_id}.
 
     Judges are namespaced per sample (via ``create_judge(namespace=...)``);
@@ -397,7 +397,7 @@ def _ensure_judges(client: Stratix) -> dict[str, str]:
 
 
 def _evaluate_trace(
-    client: Stratix,
+    client: LayerLens,
     trace_data: dict[str, Any],
     judge_names: list[str],
     judge_map: dict[str, str],
@@ -623,7 +623,7 @@ def _render_report(
     lines.append("")
     lines.append(f"{_BOLD}{'=' * w}{_RESET}")
     lines.append(f"{_BOLD}  BROWSER AGENT RELIABILITY REPORT{_RESET}")
-    lines.append(f"{_BOLD}  Powered by Stratix (LayerLens){_RESET}")
+    lines.append(f"{_BOLD}  Powered by LayerLens (LayerLens){_RESET}")
     lines.append(f"{_BOLD}{'=' * w}{_RESET}")
     lines.append("")
 
@@ -744,7 +744,7 @@ def _render_report(
 def main() -> None:
     """Run the browser agent evaluation framework."""
     parser = argparse.ArgumentParser(
-        description="Evaluate browser automation agents with Stratix judges."
+        description="Evaluate browser automation agents with LayerLens judges."
     )
     parser.add_argument(
         "--mode",
@@ -794,12 +794,12 @@ def main() -> None:
     task_count = sum(len(tasks) for tasks in categories.values())
     print(f"Tasks: {task_count} across {len(categories)} categories")
 
-    # Initialize Stratix client
+    # Initialize LayerLens client
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
-        print(f"\n{_RED}ERROR: Failed to initialize Stratix client: {exc}{_RESET}")
-        print("Set LAYERLENS_STRATIX_API_KEY and try again.")
+        print(f"\n{_RED}ERROR: Failed to initialize LayerLens client: {exc}{_RESET}")
+        print("Set LAYERLENS_API_KEY and try again.")
         sys.exit(1)
 
     # Load recorded traces if needed

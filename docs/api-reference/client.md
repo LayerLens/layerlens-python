@@ -1,46 +1,46 @@
 # Client Configuration
 
-The `Stratix` (syncronous) and `AsyncStratix` (asyncronous) classes are the main entry points for interacting with the LayerLens Stratix sdk. This page covers client initialization, configuration options, and usage patterns.
+The `LayerLens` (syncronous) and `AsyncLayerLens` (asyncronous) classes are the main entry points for interacting with the LayerLens sdk. This page covers client initialization, configuration options, and usage patterns.
 
 ## Basic Usage
 
 ### Syncronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Construct syncronous client
-# Loads for api key from the "LAYERLENS_STRATIX_API_KEY" enviornment variable
-client = Stratix()
+# Loads for api key from the "LAYERLENS_API_KEY" enviornment variable
+client = LayerLens()
 
 # Explicit configuration
-client = Stratix(api_key="your_api_key")
+client = LayerLens(api_key="your_api_key")
 ```
 
 ### Asyncronous Client
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 # Construct async client
-# Loads for api key from the "LAYERLENS_STRATIX_API_KEY" enviornment variable
-client = AsyncStratix()
+# Loads for api key from the "LAYERLENS_API_KEY" enviornment variable
+client = AsyncLayerLens()
 
 # Explicit configuration
-client = AsyncStratix(api_key="your_api_key")
+client = AsyncLayerLens(api_key="your_api_key")
 ```
 
 ## Constructor Parameters
 
-### `Stratix(api_key, base_url, timeout, max_retries)` and `AsyncStratix(api_key, base_url, timeout, max_retries)`
+### `LayerLens(api_key, base_url, timeout, max_retries)` and `AsyncLayerLens(api_key, base_url, timeout, max_retries)`
 
-| Parameter     | Type                             | Required | Default       | Description                   |
-| ------------- | -------------------------------- | -------- | ------------- | ----------------------------- |
-| `api_key`     | `str \| None`                    | Yes\*    | `None`        | Your LayerLens Stratix API key  |
-| `base_url`    | `str \| httpx.URL \| None`       | No       | Stratix API URL | Custom API base URL           |
-| `timeout`     | `float \| httpx.Timeout \| None` | No       | 10 minutes    | Request timeout configuration |
-| `max_retries` | `int`                            | No       | `2`           | Maximum number of retries on retryable errors (429, 500, 502, 503, 504) |
+| Parameter     | Type                             | Required | Default           | Description                                                             |
+| ------------- | -------------------------------- | -------- | ----------------- | ----------------------------------------------------------------------- |
+| `api_key`     | `str \| None`                    | Yes\*    | `None`            | Your LayerLens API key                                                  |
+| `base_url`    | `str \| httpx.URL \| None`       | No       | LayerLens API URL | Custom API base URL                                                     |
+| `timeout`     | `float \| httpx.Timeout \| None` | No       | 10 minutes        | Request timeout configuration                                           |
+| `max_retries` | `int`                            | No       | `2`               | Maximum number of retries on retryable errors (429, 500, 502, 503, 504) |
 
 \*Required unless set via environment variables
 
@@ -49,7 +49,7 @@ client = AsyncStratix(api_key="your_api_key")
 The client automatically loads configuration from these environment variables:
 
 ```bash
-LAYERLENS_STRATIX_API_KEY="your_api_key_here"
+LAYERLENS_API_KEY="your_api_key_here"
 ```
 
 ## Public Client
@@ -59,7 +59,7 @@ For accessing public endpoints (models, benchmarks, comparisons), use `PublicCli
 ```python
 from layerlens import PublicClient
 
-# Loads API key from the "LAYERLENS_STRATIX_API_KEY" environment variable
+# Loads API key from the "LAYERLENS_API_KEY" environment variable
 public = PublicClient()
 models = public.models.get(companies=["OpenAI"])
 ```
@@ -67,7 +67,7 @@ models = public.models.get(companies=["OpenAI"])
 You can also access public endpoints from an authenticated client via the `.public` property:
 
 ```python
-client = Stratix()
+client = LayerLens()
 public_models = client.public.models.get(query="claude")
 ```
 
@@ -76,10 +76,10 @@ public_models = client.public.models.get(query="claude")
 ### Simple Timeout
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # 30-second timeout for all requests
-client = Stratix(timeout=30.0)
+client = LayerLens(timeout=30.0)
 ```
 
 ### Retry Configuration
@@ -87,22 +87,22 @@ client = Stratix(timeout=30.0)
 The client automatically retries requests that fail with retryable status codes (429 Too Many Requests, 500, 502, 503, 504) using exponential backoff. If the server sends a `Retry-After` header, the client respects it.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Default: 2 retries
-client = Stratix()
+client = LayerLens()
 
 # More retries for batch-heavy workloads
-client = Stratix(max_retries=5)
+client = LayerLens(max_retries=5)
 
 # Disable retries entirely
-client = Stratix(max_retries=0)
+client = LayerLens(max_retries=0)
 ```
 
 ### Per-Request Timeout Override
 
 ```python
-client = Stratix()
+client = LayerLens()
 
 # --- Models replace with the model name you want to run
 models = client.models.get(type="public", name="gpt-4o")

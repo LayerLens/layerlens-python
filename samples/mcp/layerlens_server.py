@@ -10,8 +10,8 @@ Prerequisites
 
 Environment
 -----------
-    LAYERLENS_STRATIX_API_KEY   API key used by the SDK (picked up
-                                automatically by ``Stratix()``).
+    LAYERLENS_API_KEY   API key used by the SDK (picked up
+                                automatically by ``LayerLens()``).
 
 Usage
 -----
@@ -31,7 +31,7 @@ from mcp.types import Tool, TextContent
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from layerlens import Stratix, StratixError, NotFoundError
+from layerlens import LayerLens, LayerLensError, NotFoundError
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge as _create_judge_helper
@@ -41,16 +41,16 @@ from _helpers import create_judge as _create_judge_helper
 # ---------------------------------------------------------------------------
 
 _client_lock = threading.Lock()
-_client: Optional[Stratix] = None
+_client: Optional[LayerLens] = None
 
 
-def _get_client() -> Stratix:
-    """Return the module-level Stratix client, creating it on first use."""
+def _get_client() -> LayerLens:
+    """Return the module-level LayerLens client, creating it on first use."""
     global _client
     if _client is None:
         with _client_lock:
             if _client is None:  # double-check after acquiring lock
-                _client = Stratix()
+                _client = LayerLens()
     return _client
 
 
@@ -74,7 +74,7 @@ def _error_text(exc: Exception) -> str:
     """Format an exception into a user-friendly error message."""
     if isinstance(exc, NotFoundError):
         return f"Not found: {exc}"
-    if isinstance(exc, StratixError):
+    if isinstance(exc, LayerLensError):
         return f"LayerLens API error: {exc}"
     return f"Error: {exc}"
 
@@ -230,7 +230,7 @@ def create_server() -> Server:
 # ---------------------------------------------------------------------------
 
 
-async def _handle_list_traces(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_list_traces(client: LayerLens, arguments: dict) -> list[TextContent]:
     limit = arguments.get("limit", 20)
     resp = await asyncio.to_thread(
         client.traces.get_many, page_size=limit, sort_by="created_at", sort_order="desc"
@@ -249,7 +249,7 @@ async def _handle_list_traces(client: Stratix, arguments: dict) -> list[TextCont
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-async def _handle_get_trace(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_get_trace(client: LayerLens, arguments: dict) -> list[TextContent]:
     trace_id: str = arguments["trace_id"]
     trace = await asyncio.to_thread(client.traces.get, trace_id)
     if trace is None:
@@ -257,7 +257,7 @@ async def _handle_get_trace(client: Stratix, arguments: dict) -> list[TextConten
     return [TextContent(type="text", text=_obj_to_text(trace))]
 
 
-async def _handle_run_evaluation(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_run_evaluation(client: LayerLens, arguments: dict) -> list[TextContent]:
     trace_id: str = arguments["trace_id"]
     judge_id: str = arguments["judge_id"]
     evaluation = await asyncio.to_thread(
@@ -279,7 +279,7 @@ async def _handle_run_evaluation(client: Stratix, arguments: dict) -> list[TextC
     ]
 
 
-async def _handle_get_evaluation(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_get_evaluation(client: LayerLens, arguments: dict) -> list[TextContent]:
     eid: str = arguments["evaluation_id"]
     evaluation = await asyncio.to_thread(client.trace_evaluations.get, eid)
     if evaluation is None:
@@ -312,7 +312,7 @@ async def _handle_get_evaluation(client: Stratix, arguments: dict) -> list[TextC
     return [TextContent(type="text", text="\n".join(parts))]
 
 
-async def _handle_create_judge(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_create_judge(client: LayerLens, arguments: dict) -> list[TextContent]:
     name: str = arguments["name"]
     goal: str = arguments["goal"]
     judge = await asyncio.to_thread(
@@ -328,7 +328,7 @@ async def _handle_create_judge(client: Stratix, arguments: dict) -> list[TextCon
     ]
 
 
-async def _handle_list_judges(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_list_judges(client: LayerLens, arguments: dict) -> list[TextContent]:
     resp = await asyncio.to_thread(client.judges.get_many)
     if resp is None or not resp.judges:
         return [TextContent(type="text", text="No judges found.")]

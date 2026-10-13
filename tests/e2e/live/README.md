@@ -29,7 +29,7 @@ flowchart TD
     subgraph SDK["layerlens SDK (under test)"]
         ADP["provider adapter<br/>instrument_*"]
         COL["TraceCollector"]
-        CLI["Stratix client<br/>traces.upload / get / delete"]
+        CLI["LayerLens client<br/>traces.upload / get / delete"]
         PRC["pricing.calculate_cost"]
         ATT["attestation.verify_chain"]
     end
@@ -71,13 +71,13 @@ pip install 'layerlens[anthropic]' 'layerlens[openai]'   # etc.
 
 LayerLens (staging) + suite controls:
 
-| Env var | Purpose |
-| --- | --- |
-| `LAYERLENS_LIVE=1` | Opt the suite in (or pass `-m live`). Without it every test skips. |
-| `LAYERLENS_STRATIX_API_KEY` | Staging API key. |
-| `LAYERLENS_STRATIX_BASE_URL` | **Staging** base URL. Required — the suite refuses to run against the default (prod) URL. |
-| `LAYERLENS_APP_BASE_URL` | UI base for report deep-links (default `https://stratix.layerlens.ai`). |
-| `LAYERLENS_LIVE_COST_CAP_USD` | Per-test spend ceiling (default `0.25`); a test fails if its run exceeds it. |
+| Env var                       | Purpose                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| `LAYERLENS_LIVE=1`            | Opt the suite in (or pass `-m live`). Without it every test skips.                        |
+| `LAYERLENS_API_KEY`           | Staging API key.                                                                          |
+| `LAYERLENS_BASE_URL`          | **Staging** base URL. Required — the suite refuses to run against the default (prod) URL. |
+| `LAYERLENS_APP_BASE_URL`      | UI base for report deep-links (default `https://app.layerlens.ai`).                       |
+| `LAYERLENS_LIVE_COST_CAP_USD` | Per-test spend ceiling (default `0.25`); a test fails if its run exceeds it.              |
 
 Per provider (set the key(s) for the providers you want; others skip):
 
@@ -97,7 +97,7 @@ One provider:
 
 ```bash
 LAYERLENS_LIVE=1 \
-LAYERLENS_STRATIX_BASE_URL=<staging-url> LAYERLENS_STRATIX_API_KEY=<key> \
+LAYERLENS_BASE_URL=<staging-url> LAYERLENS_API_KEY=<key> \
 ANTHROPIC_API_KEY=<key> \
 ./scripts/test tests/e2e/live -k anthropic
 ```
@@ -105,7 +105,7 @@ ANTHROPIC_API_KEY=<key> \
 Everything available:
 
 ```bash
-LAYERLENS_LIVE=1 LAYERLENS_STRATIX_BASE_URL=<staging-url> LAYERLENS_STRATIX_API_KEY=<key> \
+LAYERLENS_LIVE=1 LAYERLENS_BASE_URL=<staging-url> LAYERLENS_API_KEY=<key> \
   <provider keys...> ./scripts/test tests/e2e/live
 ```
 
@@ -164,8 +164,8 @@ Human judgment (not automated — this is the point of L3):
   `LAYERLENS_PRICING_TABLE`. (ollama is expected to be unpriced and is tolerated.)
 - **`run cost exceeded cap`** — a scenario used more tokens than expected; check the prompts or
   raise `LAYERLENS_LIVE_COST_CAP_USD`.
-- **auth / base-url errors at fixture setup** — `LAYERLENS_STRATIX_API_KEY` /
-  `LAYERLENS_STRATIX_BASE_URL` missing or wrong.
+- **auth / base-url errors at fixture setup** — `LAYERLENS_API_KEY` /
+  `LAYERLENS_BASE_URL` missing or wrong.
 
 ## 6. Record results
 
@@ -197,12 +197,12 @@ integration it matches). Same opt-in gating (`LAYERLENS_LIVE=1`), same `upload �
 
 ### Extra env (beyond §1)
 
-| Env var | Purpose |
-| --- | --- |
-| `LAYERLENS_STRATIX_BASE_URL` | Must include the API prefix, e.g. `http://localhost:8080/api/v1`. |
-| `LAYERLENS_LIVE_INTEGRATION_ID` | Optional. When set, every uploaded trace must link to this `sdk_adapter` integration id and (unless disabled) its status must reach `Healthy`. Unset ⇒ linkage is recorded, not asserted (keeps the suite green where no integration is registered). |
-| `LAYERLENS_LIVE_LINKAGE_POLL_STATUS` | Set `0` to assert only the `integration_id` match and skip the `Healthy` status poll. |
-| `LAYERLENS_LIVE_KEEP_TRACES` | Set `1` to skip teardown (keep uploaded traces). |
+| Env var                              | Purpose                                                                                                                                                                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LAYERLENS_BASE_URL`                 | Must include the API prefix, e.g. `http://localhost:8080/api/v1`.                                                                                                                                                                                    |
+| `LAYERLENS_LIVE_INTEGRATION_ID`      | Optional. When set, every uploaded trace must link to this `sdk_adapter` integration id and (unless disabled) its status must reach `Healthy`. Unset ⇒ linkage is recorded, not asserted (keeps the suite green where no integration is registered). |
+| `LAYERLENS_LIVE_LINKAGE_POLL_STATUS` | Set `0` to assert only the `integration_id` match and skip the `Healthy` status poll.                                                                                                                                                                |
+| `LAYERLENS_LIVE_KEEP_TRACES`         | Set `1` to skip teardown (keep uploaded traces).                                                                                                                                                                                                     |
 
 ### Register an `sdk_adapter` integration (for linkage assertions)
 
@@ -302,7 +302,7 @@ this sequence and reads the report.
 ### Prerequisites
 
 - **Local dockerized platform** up and healthy, with the API at
-  `http://localhost:8080/api/v1` (that full prefix goes in `LAYERLENS_STRATIX_BASE_URL` — §7).
+  `http://localhost:8080/api/v1` (that full prefix goes in `LAYERLENS_BASE_URL` — §7).
 - **Gitignored env file** `tests/e2e/live/.env` holding `LAYERLENS_LIVE=1`, the base URL, the
   app API key, optional `LAYERLENS_LIVE_INTEGRATION_ID`, and the provider/framework keys
   (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, Langfuse keys, `OLLAMA_HOST`, …).

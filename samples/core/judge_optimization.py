@@ -19,14 +19,14 @@ judge_optimizations.py example in the existing SDK examples.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least one judge with trace evaluations completed
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python judge_optimization.py --judge-id <JUDGE_ID>
 """
 
@@ -39,7 +39,7 @@ import logging
 import argparse
 
 import layerlens
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge
@@ -84,7 +84,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

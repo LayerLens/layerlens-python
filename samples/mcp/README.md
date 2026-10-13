@@ -10,7 +10,7 @@ development environment.
 
 ```bash
 pip install layerlens --index-url https://sdk.layerlens.ai/package mcp
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 ## Quick Start
@@ -47,7 +47,7 @@ Add the following to your MCP configuration file:
       "command": "python",
       "args": ["samples/mcp/layerlens_server.py"],
       "env": {
-        "LAYERLENS_STRATIX_API_KEY": "your-api-key"
+        "LAYERLENS_API_KEY": "your-api-key"
       }
     }
   }

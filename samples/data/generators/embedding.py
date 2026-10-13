@@ -62,7 +62,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument import trace_context  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
@@ -173,7 +173,7 @@ def _build_index(oc):
     return coll
 
 
-def _capture(client: Stratix, run_fn, *, tags: list, metadata: dict | None = None) -> dict:
+def _capture(client: LayerLens, run_fn, *, tags: list, metadata: dict | None = None) -> dict:
     """Run *run_fn* inside a real ``trace_context`` (which establishes the
     collector + span and flushes on exit) under the observer seam WITHOUT the
     background upload, and return the sealed trace payload.
@@ -225,7 +225,7 @@ _SINGLE_QUESTION = (
 )
 
 
-def generate_embedding_single(client: Stratix) -> None:
+def generate_embedding_single(client: LayerLens) -> None:
     """Embedding SINGLE == a single semantic retrieval over an insurance
     policy-document corpus via the real ``VectorStoreAdapter`` over Chroma. The
     corpus + query are embedded with REAL OpenAI embeddings (untraced setup);
@@ -285,7 +285,7 @@ _MULTI_QUESTIONS = [
 ]
 
 
-def generate_embedding_multi(client: Stratix) -> None:
+def generate_embedding_multi(client: LayerLens) -> None:
     """Embedding MULTI == a genuine embed->retrieve RAG loop (MARKED
     ``genuinely_multi_agent=false``). For each policyholder question the real
     ``EmbeddingAdapter`` embeds the query (``embedding.create``, real OpenAI,
@@ -346,6 +346,6 @@ def generate_embedding_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_embedding_single(_client)
     generate_embedding_multi(_client)

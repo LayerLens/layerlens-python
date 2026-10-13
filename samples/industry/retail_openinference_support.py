@@ -49,7 +49,7 @@ provider key is needed or used, because no model is called here.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python retail_openinference_support.py
@@ -61,7 +61,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -101,10 +101,10 @@ def main() -> None:
     print("=== LayerLens Industry: Retail RAG Customer Support (OpenInference ingestion) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
-        print("  Set LAYERLENS_STRATIX_API_KEY to run this sample.")
+        print("  Set LAYERLENS_API_KEY to run this sample.")
         sys.exit(1)
 
     # Upload the recorded ingested trace first (renders the real span tree with

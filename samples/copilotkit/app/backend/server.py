@@ -6,8 +6,8 @@ via ``ag_ui_langgraph.add_langgraph_fastapi_endpoint`` at path
 ``/evaluator``.
 
 Real LayerLens only. There is no fake/fixture path: a missing or empty
-``LAYERLENS_STRATIX_API_KEY`` is a hard error at startup, and the agent
-talks to the real ``layerlens.Stratix`` client.
+``LAYERLENS_API_KEY`` is a hard error at startup, and the agent
+talks to the real ``layerlens.LayerLens`` client.
 
 Run with::
 
@@ -60,16 +60,16 @@ for env_path in [
 # Real-API guardrail. No fake fixtures, no MagicMock, no silent fallback.
 # ---------------------------------------------------------------------------
 
-_real_key = os.environ.get("LAYERLENS_STRATIX_API_KEY", "").strip()
+_real_key = os.environ.get("LAYERLENS_API_KEY", "").strip()
 if not _real_key:
     raise RuntimeError(
-        "LAYERLENS_STRATIX_API_KEY is required. Set it in your environment "
+        "LAYERLENS_API_KEY is required. Set it in your environment "
         "or in samples/copilotkit/.env / tests/.env. This sample does not "
         "ship a fake/fixture mode — it exercises the real LayerLens API."
     )
 
 masked = _real_key[:4] + "…" + _real_key[-4:] if len(_real_key) > 10 else "<short>"
-print(f"[harness] Stratix client: REAL (key={masked}).", flush=True)
+print(f"[harness] LayerLens client: REAL (key={masked}).", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +155,9 @@ def get_evaluation(evaluation_id: str) -> dict:
     e.g. ``status="failure"`` or ``status="success"`` with a null
     score would loop forever.
     """
-    from layerlens import Stratix
+    from layerlens import LayerLens
 
-    client = Stratix()
+    client = LayerLens()
     try:
         ev = client.trace_evaluations.get(evaluation_id)
     except Exception as exc:

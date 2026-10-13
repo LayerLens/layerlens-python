@@ -5,7 +5,7 @@ This reference guide provides detailed information about all error codes and exc
 ## Exception Hierarchy
 
 ```
-StratixError (Base exception)
+LayerLensError (Base exception)
 ├── APIError (Base for API-related errors)
 │   ├── APIConnectionError (Network/connection issues)
 │   │   └── APITimeoutError (Request timeouts)

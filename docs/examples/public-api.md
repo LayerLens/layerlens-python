@@ -2,13 +2,13 @@
 
 Examples for browsing public models, benchmarks, evaluations, and comparing results using the LayerLens Python SDK.
 
-The public API is accessed through `client.public` on a `Stratix` client, or by instantiating `PublicClient` directly. An API key is still required.
+The public API is accessed through `client.public` on a `LayerLens` client, or by instantiating `PublicClient` directly. An API key is still required.
 
 ```python
-from layerlens import Stratix, PublicClient
+from layerlens import LayerLens, PublicClient
 
 # Via the main client
-client = Stratix()
+client = LayerLens()
 public = client.public
 
 # Or directly

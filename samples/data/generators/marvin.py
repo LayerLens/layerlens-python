@@ -100,7 +100,7 @@ sys.path[:] = [_q for _q in sys.path if os.path.abspath(_q or ".") != _HERE]
 import httpx  # noqa: E402
 
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 from layerlens.instrument import trace  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
@@ -350,7 +350,7 @@ def _pinned_task_id(task_id: str):
         _task_mod.uuid = original
 
 
-def generate_marvin_single(client: Stratix) -> dict:
+def generate_marvin_single(client: LayerLens) -> dict:
     """Record the REAL Marvin MLS listing-intake run and seal both artifacts.
 
     Drives two real Marvin primitives (``cast`` -> ``PropertyListing``, then
@@ -470,5 +470,5 @@ def generate_marvin_single(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_marvin_single(_client)

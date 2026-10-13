@@ -8,7 +8,7 @@ Agent, Framework, and Status columns from real data.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package openai
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     export OPENAI_API_KEY=your-openai-key
 
 Usage:
@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import sys
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, poll_evaluation_results, trace_call
@@ -46,7 +46,7 @@ JUDGE_DEFINITIONS = [
 ]
 
 
-def _ensure_judges(client: Stratix) -> list[tuple[str, str]]:
+def _ensure_judges(client: LayerLens) -> list[tuple[str, str]]:
     """Create the sample's judges and return (judge_id, display_label) tuples.
 
     Judges are namespaced per sample (via ``create_judge(namespace=...)``) so
@@ -74,7 +74,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

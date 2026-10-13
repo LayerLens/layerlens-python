@@ -8,8 +8,8 @@ When LayerLens credentials are present in the environment, the captured trace is
 ALSO uploaded to the backend and verified, so the samples exercise the real
 send path end-to-end. Enable real upload with::
 
-    export LAYERLENS_STRATIX_API_KEY=sk-stx-...
-    export LAYERLENS_STRATIX_BASE_URL=https://api.layerlens.ai/api/v1   # optional
+    export LAYERLENS_API_KEY=sk-stx-...
+    export LAYERLENS_BASE_URL=https://api.layerlens.ai/api/v1   # optional
 
 Without those vars the helper is a clean no-op uploader (prints events only) — it
 never fabricates a successful send. The upload ingests and attests the trace
@@ -41,12 +41,12 @@ class _StubClient:
 
 def _build_client() -> Optional[Any]:
     """Return a real LayerLens client iff credentials are configured, else ``None``."""
-    if not (os.environ.get("LAYERLENS_STRATIX_API_KEY") or os.environ.get("LAYERLENS_ATLAS_API_KEY")):
+    if not (os.environ.get("LAYERLENS_API_KEY") or os.environ.get("LAYERLENS_API_KEY")):
         return None
     try:
-        from layerlens import Stratix
+        from layerlens import LayerLens
 
-        return Stratix()
+        return LayerLens()
     except Exception as exc:  # noqa: BLE001 -- a sample must not hard-fail on client init
         print(f"[upload skipped] could not initialize LayerLens client: {exc}")
         return None

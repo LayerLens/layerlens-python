@@ -12,23 +12,23 @@ fine-tuned models behind a gateway, etc.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python custom_model.py
 """
 
 from __future__ import annotations
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
 
     # ── Create a custom model ─────────────────────────────────────────
     #

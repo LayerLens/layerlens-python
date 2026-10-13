@@ -10,7 +10,7 @@ for marketing content, and structural integrity for extracted documents.
 
 ```bash
 pip install layerlens --index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 ## Quick Start

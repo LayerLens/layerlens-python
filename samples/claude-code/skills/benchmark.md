@@ -9,8 +9,8 @@ You are helping the user manage models, benchmarks, and comparisons in the Layer
 ## SDK Reference: Models
 
 ```python
-from layerlens import Stratix
-client = Stratix()
+from layerlens import LayerLens
+client = LayerLens()
 
 # List models (project-scoped or public catalog)
 models = client.models.get(

@@ -1,6 +1,6 @@
 # Trace Evaluations
 
-The `trace_evaluations` resource on the Stratix client allows you to run judges against traces and retrieve scored results. This is how you assess the quality of your trace data using the evaluation criteria defined in your judges.
+The `trace_evaluations` resource on the LayerLens client allows you to run judges against traces and retrieve scored results. This is how you assess the quality of your trace data using the evaluation criteria defined in your judges.
 
 ## Overview
 
@@ -9,9 +9,9 @@ A trace evaluation runs a specific judge against a specific trace, producing a s
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Estimate cost before running
 estimate = client.trace_evaluations.estimate_cost(
@@ -37,10 +37,10 @@ if result:
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     evaluation = await client.trace_evaluations.create(
         trace_id="trace-1",
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
 ### `create(trace_id, judge_id, timeout=None)`
 

@@ -9,7 +9,7 @@ SCORER_NAME="CLI Demo $(date +%s)"
 
 # Create (dry-run)
 echo "==> Dry-run create:"
-stratix scorer create \
+layerlens scorer create \
   --name "$SCORER_NAME" \
   --description "Evaluates generated code for correctness and readability" \
   --model-id "$MODEL_ID" \
@@ -19,7 +19,7 @@ stratix scorer create \
 # Create for real
 echo ""
 echo "==> Creating scorer..."
-stratix scorer create \
+layerlens scorer create \
   --name "$SCORER_NAME" \
   --description "Evaluates generated code for correctness and readability" \
   --model-id "$MODEL_ID" \
@@ -28,7 +28,7 @@ stratix scorer create \
 # Find the scorer by name in the list
 echo ""
 echo "==> Finding scorer in list..."
-SCORER_ID=$(stratix --format json scorer list \
+SCORER_ID=$(layerlens --format json scorer list \
   | python3 -c "import sys,json
 for s in json.load(sys.stdin):
     if s['name'] == '$SCORER_NAME':
@@ -36,10 +36,10 @@ for s in json.load(sys.stdin):
 echo "==> Scorer ID: $SCORER_ID"
 
 # Inspect
-stratix scorer get "$SCORER_ID"
+layerlens scorer get "$SCORER_ID"
 
 # Delete
 echo ""
 echo "==> Cleaning up..."
-stratix scorer delete "$SCORER_ID" -y
+layerlens scorer delete "$SCORER_ID" -y
 echo "==> Done."

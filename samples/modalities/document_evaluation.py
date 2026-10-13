@@ -6,7 +6,7 @@ consistency, and structural integrity using dedicated judges.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python document_evaluation.py
@@ -20,7 +20,7 @@ import json
 import time
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, upload_trace_dict, poll_evaluation_results
@@ -132,7 +132,7 @@ def main() -> None:
     print("=== LayerLens Document Evaluation Sample ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

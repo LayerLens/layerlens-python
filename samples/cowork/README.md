@@ -21,7 +21,7 @@ between agents. The patterns apply to any multi-agent architecture:
 
 ```bash
 pip install layerlens --index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 ## Quick Start

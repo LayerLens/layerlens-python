@@ -17,13 +17,13 @@ This sample covers SDK model and benchmark management capabilities.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python model_benchmark_management.py
 """
 
@@ -32,7 +32,7 @@ from __future__ import annotations
 import sys
 import logging
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -47,7 +47,7 @@ logger = logging.getLogger("layerlens.samples.model_benchmark_management")
 
 def main() -> None:
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

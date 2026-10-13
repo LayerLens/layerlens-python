@@ -9,8 +9,8 @@ You are helping the user run evaluations in the LayerLens platform using the Pyt
 ## SDK Reference: Trace Evaluations
 
 ```python
-from layerlens import Stratix
-client = Stratix()
+from layerlens import LayerLens
+client = LayerLens()
 
 # Estimate cost before running
 estimate = client.trace_evaluations.estimate_cost(

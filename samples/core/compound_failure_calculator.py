@@ -9,7 +9,7 @@ accuracy over 10 steps. The compound failure effect is the single
 biggest reason multi-step agents fail silently in production.
 
 This tool takes multi-step agent traces, evaluates each step
-independently with Stratix judges, then computes and visualizes
+independently with LayerLens judges, then computes and visualizes
 the compound failure probability using real evaluation data.
 
 The math is simple: P(all_pass) = p^n, where p is per-step
@@ -18,14 +18,14 @@ accuracy and n is the number of steps. The consequences are not.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * (Optional) ``pip install matplotlib`` for PNG chart export
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
     # Simulate a 7-step agent and show compound failure curve
     python compound_failure_calculator.py --simulate 7
@@ -57,7 +57,7 @@ import logging
 import argparse
 from typing import Any, Dict, List, Optional, Tuple
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, poll_evaluation_results, upload_trace_dict
@@ -385,19 +385,19 @@ def parse_trace_steps(trace_path: str) -> List[Dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# Stratix evaluation of individual steps
+# LayerLens evaluation of individual steps
 # ---------------------------------------------------------------------------
 
 
-def evaluate_steps_with_stratix(
-    client: Stratix,
+def evaluate_steps_with_layerlens(
+    client: LayerLens,
     steps: List[Dict[str, str]],
     skip_cleanup: bool = False,
 ) -> List[Dict[str, Any]]:
     """Upload each step as a trace, create a judge, evaluate, and collect results.
 
     Args:
-        client: An initialized Stratix client.
+        client: An initialized LayerLens client.
         steps: List of step dicts from parse_trace_steps or SAMPLE_AGENT_STEPS.
         skip_cleanup: If True, keep created resources after evaluation.
 
@@ -909,7 +909,7 @@ def print_summary(summary: Dict[str, Any]) -> None:
     if "actual_results" in summary:
         actual = summary["actual_results"]
         print()
-        print("  Actual Stratix evaluation results:")
+        print("  Actual LayerLens evaluation results:")
         print(f"    Steps evaluated:    {actual['steps_evaluated']}")
         print(f"    Steps passed:       {actual['steps_passed']}")
         print(f"    Steps failed:       {actual['steps_failed']}")
@@ -942,7 +942,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Compound Failure Calculator. Evaluates multi-step AI agent "
-            "traces with Stratix judges and computes compound failure "
+            "traces with LayerLens judges and computes compound failure "
             "probability."
         ),
     )
@@ -998,14 +998,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-cleanup",
         action="store_true",
         default=False,
-        help="Keep created Stratix resources after evaluation.",
+        help="Keep created LayerLens resources after evaluation.",
     )
     parser.add_argument(
         "--skip-evaluation",
         action="store_true",
         default=False,
         help=(
-            "Skip Stratix evaluation and only compute the mathematical "
+            "Skip LayerLens evaluation and only compute the mathematical "
             "compound failure curve. Useful for quick visualization."
         ),
     )
@@ -1038,16 +1038,16 @@ def main() -> None:
 
         if not args.skip_evaluation:
             try:
-                client = Stratix()
+                client = LayerLens()
             except Exception as exc:
-                logger.error("Failed to initialize Stratix client: %s", exc)
+                logger.error("Failed to initialize LayerLens client: %s", exc)
                 sys.exit(1)
             logger.info(
                 "Connected to LayerLens (org=%s, project=%s)",
                 client.organization_id,
                 client.project_id,
             )
-            step_results = evaluate_steps_with_stratix(
+            step_results = evaluate_steps_with_layerlens(
                 client,
                 steps,
                 skip_cleanup=args.skip_cleanup,
@@ -1063,7 +1063,7 @@ def main() -> None:
                     actual_rate * 100,
                 )
         else:
-            logger.info("Skipping Stratix evaluation (math-only mode).")
+            logger.info("Skipping LayerLens evaluation (math-only mode).")
 
     elif args.simulate is not None:
         # --- Simulation mode ---
@@ -1086,22 +1086,22 @@ def main() -> None:
 
         if not args.skip_evaluation:
             try:
-                client = Stratix()
+                client = LayerLens()
             except Exception as exc:
-                logger.error("Failed to initialize Stratix client: %s", exc)
+                logger.error("Failed to initialize LayerLens client: %s", exc)
                 sys.exit(1)
             logger.info(
                 "Connected to LayerLens (org=%s, project=%s)",
                 client.organization_id,
                 client.project_id,
             )
-            step_results = evaluate_steps_with_stratix(
+            step_results = evaluate_steps_with_layerlens(
                 client,
                 steps,
                 skip_cleanup=args.skip_cleanup,
             )
         else:
-            logger.info("Skipping Stratix evaluation (math-only mode).")
+            logger.info("Skipping LayerLens evaluation (math-only mode).")
 
     else:
         parser.print_help()

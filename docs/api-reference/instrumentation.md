@@ -7,10 +7,10 @@ The `layerlens.instrument` module provides tracing primitives and provider/frame
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace, span
 
-client = Stratix()
+client = LayerLens()
 
 @trace(client)
 def my_agent(query: str):
@@ -26,10 +26,10 @@ my_agent("Hello")
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 from layerlens.instrument import trace, span
 
-client = AsyncStratix()
+client = AsyncLayerLens()
 
 @trace(client)
 async def my_agent(query: str):
@@ -49,11 +49,11 @@ Decorator that creates a root span and uploads the trace on function completion.
 
 #### Parameters
 
-| Parameter | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `client` | `Stratix \| AsyncStratix` | Yes | SDK client used to upload the trace |
-| `name` | `str \| None` | No | Override span name (defaults to function name) |
-| `metadata` | `dict \| None` | No | Arbitrary metadata attached to the root span |
+| Parameter  | Type                          | Required | Description                                    |
+| ---------- | ----------------------------- | -------- | ---------------------------------------------- |
+| `client`   | `LayerLens \| AsyncLayerLens` | Yes      | SDK client used to upload the trace            |
+| `name`     | `str \| None`                 | No       | Override span name (defaults to function name) |
+| `metadata` | `dict \| None`                | No       | Arbitrary metadata attached to the root span   |
 
 #### Behavior
 

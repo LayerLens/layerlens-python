@@ -65,7 +65,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import TraceCollector, set_trace_observer  # noqa: E402
 from layerlens.instrument._context import (  # noqa: E402
@@ -135,7 +135,7 @@ class _A2AParticipant:
         )
 
 
-def _capture_a2a(client: Stratix, *, root_name: str, drive) -> dict:
+def _capture_a2a(client: LayerLens, *, root_name: str, drive) -> dict:
     """Run *drive* under a live collector + instrumented a2a client, then flush
     the sealed payload (identity/root synthesis + attestation chain) via the
     ``_generate_fixtures`` capture seam, WITHOUT the background upload.
@@ -190,7 +190,7 @@ def _delegation_edges(payload: dict):
 # --------------------------------------------------------------------------
 # single-hop: dispute-orchestrator -> billing-specialist (one refund delegation)
 # --------------------------------------------------------------------------
-def generate_a2a_single(client: Stratix) -> dict:
+def generate_a2a_single(client: LayerLens) -> dict:
     """Record a single-hop A2A delegation: an orchestrator discovers a billing
     specialist's signed card and delegates one refund task to it."""
     from a2a.compat.v0_3 import types as a2a_types
@@ -256,7 +256,7 @@ def generate_a2a_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # multi-hop: dispute-orchestrator -> billing-specialist -> ledger-adjuster
 # --------------------------------------------------------------------------
-def generate_a2a_multi(client: Stratix) -> dict:
+def generate_a2a_multi(client: LayerLens) -> dict:
     """Record a genuine MULTI-HOP A2A delegation graph: an orchestrator delegates
     a refund to a billing specialist, which delegates the ledger posting to a
     ledger-adjuster — two real ``a2a.delegation`` edges (a 3-node agent DAG)."""
@@ -338,6 +338,6 @@ def generate_a2a_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_a2a_single(_client)
     generate_a2a_multi(_client)

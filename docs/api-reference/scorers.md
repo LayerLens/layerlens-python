@@ -1,6 +1,6 @@
 # Scorers
 
-The `scorers` resource on the Stratix client allows you to create and manage custom scorers for evaluating benchmark results. Scorers use an LLM model to evaluate model outputs using a custom prompt.
+The `scorers` resource on the LayerLens client allows you to create and manage custom scorers for evaluating benchmark results. Scorers use an LLM model to evaluate model outputs using a custom prompt.
 
 ## Overview
 
@@ -9,9 +9,9 @@ A scorer defines a custom evaluation criterion backed by a specific LLM model an
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Fetch a model to use for the scorer
 models = client.models.get(type="public", name="gpt-4o")
@@ -39,10 +39,10 @@ if response:
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     scorer = await client.scorers.create(
         name="Helpfulness Scorer",
@@ -60,7 +60,7 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
 ### `create(name, description, model_id, prompt, timeout=None)`
 

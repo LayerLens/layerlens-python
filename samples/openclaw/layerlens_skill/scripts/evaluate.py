@@ -15,7 +15,7 @@ Usage:
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import tempfile
 from typing import Any, Optional
 
 try:
-    from layerlens import Stratix
+    from layerlens import LayerLens
 except ImportError:
     print(
         json.dumps(
@@ -95,7 +95,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _upload_trace(
-    client: Stratix,
+    client: LayerLens,
     input_text: str,
     output_text: str,
     metadata: Optional[dict[str, Any]] = None,
@@ -123,7 +123,7 @@ def _upload_trace(
 
 
 def _poll_results(
-    client: Stratix,
+    client: LayerLens,
     evaluation_id: str,
     max_attempts: int = 30,
 ) -> Optional[dict[str, Any]]:
@@ -173,7 +173,7 @@ def main() -> None:
 
     # Initialize client
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(
             json.dumps(

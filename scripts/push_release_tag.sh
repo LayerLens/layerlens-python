@@ -38,7 +38,7 @@ fi
 LAST_RELEASE=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname | head -n 1)
 
 echo "================================================"
-echo "  Stratix Python SDK Release"
+echo "  LayerLens Python SDK Release"
 echo "================================================"
 echo "version:      ${TAG}"
 echo "commit:       ${COMMIT}"

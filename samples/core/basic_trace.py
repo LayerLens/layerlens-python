@@ -17,14 +17,14 @@ layerlens SDK client instead of raw httpx calls.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * A traces.jsonl file (see samples/data/traces/ for format)
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python basic_trace.py
     python basic_trace.py --file /path/to/traces.jsonl
 """
@@ -38,7 +38,7 @@ import logging
 import argparse
 import tempfile
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -125,7 +125,7 @@ def main() -> None:
 
     # --- Initialize SDK client ---
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

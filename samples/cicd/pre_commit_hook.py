@@ -29,13 +29,13 @@ Option B -- using the ``pre-commit`` framework (``.pre-commit-config.yaml``)::
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python pre_commit_hook.py
 """
 
@@ -46,7 +46,7 @@ import sys
 import logging
 import subprocess
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import poll_evaluation_results
@@ -115,7 +115,7 @@ def main() -> None:
     # Initialize client
     # ------------------------------------------------------------------
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.warning("LayerLens client init failed (%s) -- allowing commit.", exc)
         sys.exit(0)

@@ -1,7 +1,7 @@
-# CopilotKit Samples — LayerLens Stratix
+# CopilotKit Samples — LayerLens
 
 Production-shaped reference for building CopilotKit-powered UIs on top of
-LayerLens Stratix. Two agents ship here:
+LayerLens. Two agents ship here:
 
 | Agent | Purpose |
 |---|---|
@@ -48,8 +48,8 @@ pip install -r samples/copilotkit/app/backend/requirements.lock
 # Frontend deps (already shrinkwrapped via package-lock.json)
 cd samples/copilotkit/app/frontend && npm install
 
-# Credentials — real LayerLens Stratix only; no fake fixture path
-export LAYERLENS_STRATIX_API_KEY=your-stratix-key
+# Credentials — real LayerLens only; no fake fixture path
+export LAYERLENS_API_KEY=your-layerlens-key
 export OPENAI_API_KEY=your-openai-key
 # optional overrides for any OpenAI-compatible endpoint
 export OPENAI_BASE_URL=https://your-openai-compatible-host/v1
@@ -96,29 +96,29 @@ export OPENAI_MODEL=gpt-4o-mini
                 |
                 v
 +-- FastAPI backend (samples/copilotkit/app/backend/server.py) ---+
-|                                                                 |
-|  POST /evaluator                                                |
-|    ag_ui_langgraph.add_langgraph_fastapi_endpoint               |
-|        wraps the graph in build_agui_agent (recursion_limit=200)|
-|                                                                 |
-|  GET  /evaluations/{id}                                         |
-|    Out-of-band polling endpoint — returns the current verdict   |
-|    (status / passed / score / reasoning / trace_id / judge_id). |
-|                                                                 |
-|  langchain.agents.create_agent (state_schema=EvaluatorState)    |
-|    - model: ChatOpenAI (OpenAI-compatible)                      |
-|    - tools (async, return Command(update={...})):               |
-|        list_recent_traces                                       |
-|        list_judges                                              |
-|        run_trace_evaluation                                     |
-|        get_evaluation_result                                    |
-|    - middleware: [CopilotKitMiddleware]                         |
-|    - confirm_judge bridged in from the frontend (no-arg HITL)   |
-|                                                                 |
-|  Tools call copilotkit_emit_state to push state mid-run so the  |
-|  canvas updates while the agent works.                          |
-|                                                                 |
-|  layerlens.Stratix client                                       |
+|                                                               |
+| POST /evaluator                                               |
+| ag_ui_langgraph.add_langgraph_fastapi_endpoint                |
+| wraps the graph in build_agui_agent (recursion_limit=200)     |
+|                                                               |
+| GET  /evaluations/{id}                                        |
+| Out-of-band polling endpoint — returns the current verdict    |
+| (status / passed / score / reasoning / trace_id / judge_id).  |
+|                                                               |
+| langchain.agents.create_agent (state_schema=EvaluatorState)   |
+| - model: ChatOpenAI (OpenAI-compatible)                       |
+| - tools (async, return Command(update={...})):                |
+| list_recent_traces                                            |
+| list_judges                                                   |
+| run_trace_evaluation                                          |
+| get_evaluation_result                                         |
+| - middleware: [CopilotKitMiddleware]                          |
+| - confirm_judge bridged in from the frontend (no-arg HITL)    |
+|                                                               |
+| Tools call copilotkit_emit_state to push state mid-run so the |
+| canvas updates while the agent works.                         |
+|                                                               |
+| layerlens.LayerLens client                                    |
 +-----------------------------------------------------------------+
 ```
 
@@ -344,7 +344,7 @@ that workarounds [`ag-ui-protocol/ag-ui#1582`](https://github.com/ag-ui-protocol
 
 ### Real LayerLens only
 
-Missing or empty `LAYERLENS_STRATIX_API_KEY` is a hard `RuntimeError`
+Missing or empty `LAYERLENS_API_KEY` is a hard `RuntimeError`
 at startup. There is no fake/fixture mode. This sample exists to
 exercise real LayerLens; a fake mode would defeat the demo.
 
@@ -354,7 +354,7 @@ exercise real LayerLens; a fake mode would defeat the demo.
 # Terminal 1 — backend
 cd samples/copilotkit/app/backend
 pip install -r requirements.lock
-export LAYERLENS_STRATIX_API_KEY=...
+export LAYERLENS_API_KEY=...
 export OPENAI_API_KEY=...
 python server.py         # http://127.0.0.1:8123
 
@@ -374,7 +374,7 @@ populate progressively as each tool runs and as verdicts complete.
 pytest tests/test_samples_e2e.py -k copilotkit
 ```
 
-The mocked tests exercise each backend tool with a patched Stratix
+The mocked tests exercise each backend tool with a patched LayerLens
 client and verify the graph imports cleanly with mocked heavy deps.
 
 Playwright tests under `samples/copilotkit/app/frontend/tests/` are

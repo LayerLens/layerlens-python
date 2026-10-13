@@ -15,7 +15,7 @@ evaluates the team's brief with domain judges.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python research_report_team.py
@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 import sys
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -53,7 +53,7 @@ def main() -> None:
     print("=== LayerLens Cowork: Multi-Agent Research Report Team ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

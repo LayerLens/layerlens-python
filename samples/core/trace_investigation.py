@@ -17,7 +17,7 @@ Workflow
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least a few traces already present in the project (upload some
   with ``basic_trace.py`` if needed).
 
@@ -25,7 +25,7 @@ Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python trace_investigation.py
     python trace_investigation.py --page-size 25 --latency-threshold 2.0
 """
@@ -36,7 +36,7 @@ import sys
 import logging
 import argparse
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -120,7 +120,7 @@ def main() -> None:
 
     # --- Initialize SDK client ---
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

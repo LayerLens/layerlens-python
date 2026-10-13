@@ -1,7 +1,7 @@
 """Live end-to-end agent-graph contract (G7).
 
-Seeds each corpus lane's sealed events through a REAL ``Stratix()`` client to a
-running atlas (``LAYERLENS_STRATIX_BASE_URL`` — local :8080 or a dev deploy) and
+Seeds each corpus lane's sealed events through a REAL ``LayerLens()`` client to a
+running atlas (``LAYERLENS_BASE_URL`` — local :8080 or a dev deploy) and
 asserts the server-computed graph matches the shipped oracle:
 
   * ``graph`` is present IFF the lane has topology; an agentless trace stores no graph;
@@ -46,14 +46,17 @@ _EMPTY_LANES = sorted(k for k, v in ORACLE.items() if not v["shipped_nodes"])
 
 @pytest.fixture(scope="module")
 def live():
-    """Real Stratix client + raw-API creds, or skip. Never the prod default URL."""
-    base = os.environ.get("LAYERLENS_STRATIX_BASE_URL")
-    key = os.environ.get("LAYERLENS_STRATIX_API_KEY")
-    if not base or not key:
-        pytest.skip("LAYERLENS_STRATIX_BASE_URL + LAYERLENS_STRATIX_API_KEY required (never the prod default)")
-    from layerlens import Stratix
+    """Real LayerLens client + raw-API creds, or skip. Never the prod default URL."""
+    from layerlens._env import find_api_key, find_base_url
 
-    client = Stratix()
+    found_base, found_key = find_base_url(), find_api_key()
+    base = found_base.value if found_base else None
+    key = found_key.value if found_key else None
+    if not base or not key:
+        pytest.skip("LAYERLENS_BASE_URL + LAYERLENS_API_KEY required (never the prod default)")
+    from layerlens import LayerLens
+
+    client = LayerLens()
     return client, base, key
 
 

@@ -1,4 +1,4 @@
-# Table of Contents - Stratix Python SDK
+# Table of Contents - LayerLens Python SDK
 
 * [Introduction](README.md)
 
@@ -6,6 +6,7 @@
 * [Installation](getting-started/installation.md)
 * [Authentication & Configuration](getting-started/authentication.md)
 * [Quick Start Guide](getting-started/quickstart.md)
+* [Migrating from Stratix](migrating-from-stratix.md)
 
 ## API Reference
 * [Overview](api-reference/README.md)

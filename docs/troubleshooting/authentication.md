@@ -16,4 +16,4 @@ This guide covers common authentication-related issues when using the Layerlens 
 
 ### Missing Required Configuration
 
-**Error**: `StratixError: The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_STRATIX_API_KEY environment variable`
+**Error**: `LayerLensError: The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_API_KEY environment variable`

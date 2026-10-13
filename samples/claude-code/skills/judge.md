@@ -9,8 +9,8 @@ You are helping the user manage judges in the LayerLens platform using the Pytho
 ## SDK Reference
 
 ```python
-from layerlens import Stratix
-client = Stratix()
+from layerlens import LayerLens
+client = LayerLens()
 
 # List available models to use as the judge's backing LLM
 models = client.models.get(type="public")

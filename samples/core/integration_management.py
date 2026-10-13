@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Example: working with integrations via the Stratix SDK.
+"""Example: working with integrations via the LayerLens SDK.
 
 Requires:
     pip install layerlens
-    export LAYERLENS_STRATIX_API_KEY="your-api-key"
+    export LAYERLENS_API_KEY="your-api-key"
 """
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
 
     # --- List all integrations
     response = client.integrations.get_many()

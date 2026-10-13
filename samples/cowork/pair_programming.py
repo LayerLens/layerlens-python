@@ -8,7 +8,7 @@ a create-test-refine loop until the judge produces satisfactory results.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python pair_programming.py
@@ -20,7 +20,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -86,7 +86,7 @@ MAX_REFINEMENT_ROUNDS = 2
 
 
 def run_test_suite(
-    client: Stratix,
+    client: LayerLens,
     judge_id: str,
     round_num: int,
 ) -> list[dict[str, Any]]:
@@ -149,7 +149,7 @@ def main() -> None:
     print("=== LayerLens Co-Work: Pair Programming (Judge Refinement) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)

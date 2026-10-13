@@ -4,27 +4,27 @@ This page provides reference information about accessing the available models an
 
 ## Overview
 
-Running evaluations on the Stratix platform require a model and benchmark to be selected. The availability of models and benchmarks depends on your organizations configuration.
+Running evaluations on the LayerLens platform require a model and benchmark to be selected. The availability of models and benchmarks depends on your organizations configuration.
 
 > Before running the below examples ensure the model and benchmark being run are present on your organiztion.
 
 ### Finding Available Models and Benchmarks
 
-#### 1. Using the Stratix Dashboard
+#### 1. Using the LayerLens Dashboard
 
 The most reliable way to find available models and benchmarks:
 
-1. Log into your Stratix Dashboard.
+1. Log into your LayerLens Dashboard.
 2. Navigate to the evaluation creation page.
 3. View dropdown lists of available models and benchmarks.
 
 #### 2. Using the python sdk
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Construct sync client (API key from env or inline)
-client = Stratix()
+client = LayerLens()
 
 # --- Models
 models = client.models.get()
@@ -37,7 +37,7 @@ benchmarks = client.benchmarks.get()
 
 ### `get(type=None, name=None, key=None, categories=None, companies=None, regions=None, licenses=None, timeout=None)`
 
-Retrieves a list of available models with optional filtering parameters. Both the `Stratix` and `AsyncStratix` clients have this method.
+Retrieves a list of available models with optional filtering parameters. Both the `LayerLens` and `AsyncLayerLens` clients have this method.
 
 #### Parameters
 
@@ -71,7 +71,7 @@ Each `Model` object in the returned list contains:
 
 ### `get_by_id(id, timeout=None)`
 
-Retrieves a specific model by its unique identifier. Both the `Stratix` and `AsyncStratix` clients have this method.
+Retrieves a specific model by its unique identifier. Both the `LayerLens` and `AsyncLayerLens` clients have this method.
 
 #### Parameters
 
@@ -86,7 +86,7 @@ Returns an `Optional[Model]` - a single `Model` object if found, or `None` if th
 
 ### `get_by_key(key, timeout=None)`
 
-Retrieves a specific model by its unique key. Both the `Stratix` and `AsyncStratix` clients have this method.
+Retrieves a specific model by its unique key. Both the `LayerLens` and `AsyncLayerLens` clients have this method.
 
 #### Parameters
 
@@ -117,7 +117,7 @@ Returns `bool` - `True` if the operation succeeded, `False` otherwise.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 success = client.models.add("model-id-1", "model-id-2")
 ```
 
@@ -139,7 +139,7 @@ Returns `bool` - `True` if the operation succeeded, `False` otherwise.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 success = client.models.remove("model-id-1", "model-id-2")
 ```
 
@@ -179,7 +179,7 @@ Returns `None` if the request fails.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 
 result = client.models.create_custom(
     name="My Custom Model",
@@ -218,7 +218,7 @@ Returns `bool` — `True` on success, `False` otherwise.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 
 # Repoint the api_url without re-creating the model
 client.models.update_custom(
@@ -251,7 +251,7 @@ Returns `bool` — `True` on success, `False` otherwise.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 client.models.delete_custom("model-id-from-create-custom")
 ```
 
@@ -259,7 +259,7 @@ client.models.delete_custom("model-id-from-create-custom")
 
 ### `get(type=None, name=None, key=None, categories=None, languages=None, timeout=None)`
 
-Retrieves a list of available benchmarks with optional filtering parameters. Both the `Stratix` and `AsyncStratix` clients have this method.
+Retrieves a list of available benchmarks with optional filtering parameters. Both the `LayerLens` and `AsyncLayerLens` clients have this method.
 
 #### Parameters
 
@@ -290,7 +290,7 @@ Each `Benchmark` object in the returned list contains:
 
 ### `get_by_id(id, timeout=None)`
 
-Retrieves a specific benchmark by its unique identifier. Both the `Stratix` and `AsyncStratix` clients have this method.
+Retrieves a specific benchmark by its unique identifier. Both the `LayerLens` and `AsyncLayerLens` clients have this method.
 
 #### Parameters
 
@@ -305,7 +305,7 @@ Returns an `Optional[Benchmark]` - a single `Benchmark` object if found, or `Non
 
 ### `get_by_key(key, timeout=None)`
 
-Retrieves a specific benchmark by its unique key. Both the `Stratix` and `AsyncStratix` clients have this method.
+Retrieves a specific benchmark by its unique key. Both the `LayerLens` and `AsyncLayerLens` clients have this method.
 
 #### Parameters
 
@@ -336,7 +336,7 @@ Returns `bool` - `True` if the operation succeeded, `False` otherwise.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 success = client.benchmarks.add("benchmark-id-1", "benchmark-id-2")
 ```
 
@@ -358,7 +358,7 @@ Returns `bool` - `True` if the operation succeeded, `False` otherwise.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 success = client.benchmarks.remove("benchmark-id-1", "benchmark-id-2")
 ```
 
@@ -402,7 +402,7 @@ Returns `None` if the request fails.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 
 result = client.benchmarks.create_custom(
     name="QA Benchmark",
@@ -447,7 +447,7 @@ Returns `None` if the request fails.
 #### Example
 
 ```python
-client = Stratix()
+client = LayerLens()
 
 result = client.benchmarks.create_smart(
     name="Product Knowledge Benchmark",

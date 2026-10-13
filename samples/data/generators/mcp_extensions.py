@@ -92,7 +92,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # imported as ``generators.mcp_extensions``; defensive when run directly).
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import TraceCollector, set_trace_observer  # noqa: E402
 from layerlens.instrument._context import (  # noqa: E402
@@ -124,7 +124,7 @@ _METADATA = {
 # on that span (every protocol event parents to it) and no ``agent.identity`` is
 # added (empty-state). Returns the sealed, attested payload.
 # --------------------------------------------------------------------------
-def _capture_session(client: Stratix, *, root_name: str, drive) -> dict:
+def _capture_session(client: LayerLens, *, root_name: str, drive) -> dict:
     import anyio
 
     col = TraceCollector(client, _CAPTURE)
@@ -208,7 +208,7 @@ def _summary(payload: dict) -> dict:
 # --------------------------------------------------------------------------
 # SINGLE — Healthcare: a clinical-records MCP session (tool-use + form consent)
 # --------------------------------------------------------------------------
-def generate_mcp_extensions_single(client: Stratix) -> dict:
+def generate_mcp_extensions_single(client: LayerLens) -> dict:
     """Record a clinical decision-support MCP session: handshake + list_tools +
     ``get_patient_record`` (structured output validated closed) + a form-mode
     PHI-access consent the clinician accepts. Renders honest empty-state."""
@@ -333,7 +333,7 @@ def generate_mcp_extensions_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # MULTI — Financial: the FULL MCP session (tool + URL consent + sampling + cost)
 # --------------------------------------------------------------------------
-def generate_mcp_extensions_multi(client: Stratix) -> dict:
+def generate_mcp_extensions_multi(client: LayerLens) -> dict:
     """Record the FULL payments MCP session: handshake + list_tools +
     ``authorize_payment`` (structured output validated closed) + a URL-mode
     payment-authorization consent (3-D Secure browser flow, no content hash) +
@@ -489,6 +489,6 @@ def generate_mcp_extensions_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_mcp_extensions_single(_client)
     generate_mcp_extensions_multi(_client)

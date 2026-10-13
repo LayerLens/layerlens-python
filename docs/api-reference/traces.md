@@ -1,6 +1,6 @@
 # Traces
 
-The `traces` resource on the Stratix client allows you to upload, retrieve, and manage trace data. Traces are flexible JSON documents representing execution data that can be evaluated by judges.
+The `traces` resource on the LayerLens client allows you to upload, retrieve, and manage trace data. Traces are flexible JSON documents representing execution data that can be evaluated by judges.
 
 ## Overview
 
@@ -9,9 +9,9 @@ Traces capture execution data (e.g., LLM interactions, agent workflows) in JSON 
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Upload a trace file
 result = client.traces.upload("./traces.jsonl")
@@ -27,10 +27,10 @@ for trace in response.traces:
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     result = await client.traces.upload("./traces.jsonl")
     print(f"Uploaded {len(result.trace_ids)} traces")
@@ -45,7 +45,7 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
 ### `upload(file_path, timeout=None)`
 

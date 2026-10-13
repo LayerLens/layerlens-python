@@ -1,7 +1,7 @@
 """LayerLens industry sample — Retail multi-agent support triage (OpenInference).
 
 Uploads a RECORDED, real multi-agent OpenInference-ingested trace and evaluates
-it with only a ``LAYERLENS_STRATIX_API_KEY`` — no provider key, no browser, no
+it with only a ``LAYERLENS_API_KEY`` — no provider key, no browser, no
 network to any model. The trace was produced once by
 ``samples/data/generators/openinference.py::generate_openinference_multi``:
 
@@ -24,7 +24,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -61,10 +61,10 @@ def main() -> None:
     print("=== LayerLens Industry: Retail Multi-Agent Support Triage (OpenInference ingestion) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
-        print("  Set LAYERLENS_STRATIX_API_KEY to run this sample.")
+        print("  Set LAYERLENS_API_KEY to run this sample.")
         sys.exit(1)
 
     print(

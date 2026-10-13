@@ -4,7 +4,7 @@
   </a>
 </p>
 
-<h1 align="center">Stratix Python SDK</h1>
+<h1 align="center">LayerLens Python SDK</h1>
 
 <p align="center">
   <strong>Ship AI that actually works.<br />
@@ -24,7 +24,7 @@
   <a href="#installation">Install</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#adapters">Adapters</a> &middot;
-  <a href="#how-stratix-compares">Compare</a> &middot;
+  <a href="#how-layerlens-compares">Compare</a> &middot;
   <a href="https://layerlens.gitbook.io/stratix-python-sdk">Docs</a> &middot;
   <a href="#samples">Samples</a> &middot;
   <a href="https://discord.gg/layerlens">Discord</a>
@@ -32,10 +32,10 @@
 
 ---
 <p align="center">
-  <img src="./demo-stratix.gif" alt="Stratix Python SDK demo: list frontier models in 5 lines of Python" width="720">
+  <img src="./demo-stratix.gif" alt="LayerLens Python SDK demo: list frontier models in 5 lines of Python" width="720">
 </p>
 
-## Why Stratix?
+## Why LayerLens?
 
 Production-grade evaluation infrastructure out of the box: public benchmark data, custom judges, full agent trace analysis, playback, bulk evaluation, and CI/CD gates.
 
@@ -48,30 +48,30 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 - **[Adapters](#adapters) for the stack you already run.** Traces from your agent frameworks, protocols and model providers land in one schema, so a judge you tuned last quarter runs unchanged on next quarter's stack.
 - **CI/CD eval gates.** `layerlens ci report` emits a markdown summary for your job output, and [`samples/cicd/`](./samples/cicd/) has a ready-to-copy threshold gate that exits non-zero on regression.
 
-## How Stratix Compares
+## How LayerLens Compares
 
-| Capability              | **Stratix**                                    | LangSmith                  | Langfuse                | DeepEval            | Phoenix (Arize)        |
-| ----------------------- | ---------------------------------------------- | -------------------------- | ----------------------- | ------------------- | ---------------------- |
-| Pre-built benchmarks    | 78 benchmarks, 172 models                      | No public benchmarks       | No public benchmarks    | 50+ metrics         | Bring your own         |
-| Prompt-level comparison | Native head-to-head with outcome filters       | Side-by-side runs (manual) | Side-by-side runs + Playground/Experiments (UI Supported)            | Manual setup        | Not built-in           |
-| Custom judge builder    | Auto-optimized GEPA judges with budget control | LLM-as-judge (manual)      | LLM-as-judge (manual)   | Basic LLM judges    | LLM-as-judge templates |
-| Agent trace evaluation  | Upload, replay, judge every step               | Trace logging + annotation | Trace logging + scoring | Trace logging only  | Trace visualization    |
-| Eval generation ladder  | Heuristic > model-graded > deliberation > GEPA | Single generation          | Single generation       | Single generation   | Single generation      |
-| CI/CD eval gate         | `layerlens ci report` + sample threshold gate  | Custom integration         | Custom integration      | `deepeval test`     | Manual integration     |
-| Evaluation Spaces       | Collaborative eval environments                | Hub (paid)                 | Not available           | Not available       | Not available          |
-| Dataset versioning      | Pin evals to versions, diff between runs       | Dataset management         | Not built-in            | Basic support       | Dataset management     |
-| OpenTelemetry export    | Native OTLP exporter                           | Not built-in               | Native OTLP             | Not built-in        | Native (OpenInference) |
-| Pricing model           | Free public data; premium for org features     | Per-trace pricing          | Per-event pricing       | Open source + cloud | Open source + cloud    |
+| Capability              | **LayerLens**                                  | LangSmith                  | Langfuse                                                  | DeepEval            | Phoenix (Arize)        |
+| ----------------------- | ---------------------------------------------- | -------------------------- | --------------------------------------------------------- | ------------------- | ---------------------- |
+| Pre-built benchmarks    | 78 benchmarks, 172 models                      | No public benchmarks       | No public benchmarks                                      | 50+ metrics         | Bring your own         |
+| Prompt-level comparison | Native head-to-head with outcome filters       | Side-by-side runs (manual) | Side-by-side runs + Playground/Experiments (UI Supported) | Manual setup        | Not built-in           |
+| Custom judge builder    | Auto-optimized GEPA judges with budget control | LLM-as-judge (manual)      | LLM-as-judge (manual)                                     | Basic LLM judges    | LLM-as-judge templates |
+| Agent trace evaluation  | Upload, replay, judge every step               | Trace logging + annotation | Trace logging + scoring                                   | Trace logging only  | Trace visualization    |
+| Eval generation ladder  | Heuristic > model-graded > deliberation > GEPA | Single generation          | Single generation                                         | Single generation   | Single generation      |
+| CI/CD eval gate         | `layerlens ci report` + sample threshold gate  | Custom integration         | Custom integration                                        | `deepeval test`     | Manual integration     |
+| Evaluation Spaces       | Collaborative eval environments                | Hub (paid)                 | Not available                                             | Not available       | Not available          |
+| Dataset versioning      | Pin evals to versions, diff between runs       | Dataset management         | Not built-in                                              | Basic support       | Dataset management     |
+| OpenTelemetry export    | Native OTLP exporter                           | Not built-in               | Native OTLP                                               | Not built-in        | Native (OpenInference) |
+| Pricing model           | Free public data; premium for org features     | Per-trace pricing          | Per-event pricing                                         | Open source + cloud | Open source + cloud    |
 
 ## Pricing
 
-**Free to start.** `PublicClient` is free with an API key–query 172 models, 78 benchmarks, and run head-to-head comparisons. Advanced features (traces, custom judges, scorers, CI gates) require **Stratix Premium**. Sign up and purchase credits at [stratix.layerlens.ai](https://stratix.layerlens.ai).
+**Free to start.** `PublicClient` is free with an API key–query 172 models, 78 benchmarks, and run head-to-head comparisons. Advanced features (traces, custom judges, scorers, CI gates) require **LayerLens Premium**. Sign up and purchase credits at [app.layerlens.ai](https://app.layerlens.ai).
 
 ## Requirements
 
 - **Python 3.8+.** CI runs the test suite on 3.9–3.12. A few framework extras (`crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `dspy`, `marvin`, `mirascope`, `pydantic-ai`) require Python 3.10+ and are skipped automatically on older interpreters. On the other end, `layerlens[crewai]` has been reported to fail to install on Python 3.14 (a `tiktoken` build failure upstream, not in this SDK) — use 3.11 or 3.12 for CrewAI work until that resolves.
 - **OS independent.** Linux, macOS and Windows.
-- **Async supported.** Every client has an async twin — `AsyncStratix`, `AsyncPublicClient` — with the same methods and `await` semantics.
+- **Async supported.** Every client has an async twin — `AsyncLayerLens`, `AsyncPublicClient` — with the same methods and `await` semantics.
 - **Runtime dependencies:** `httpx` and `pydantic` — the core SDK works on Pydantic v1.9+ or v2; some framework adapters (LangGraph, CrewAI, AutoGen) are Pydantic v2-only, following their upstream. The CLI adds `click`.
 
 ## Installation
@@ -86,7 +86,7 @@ pip install --extra-index-url https://sdk.layerlens.ai/package layerlens[cli]
 ## Quick Start
 
 > [!NOTE]
-> **Two clients, one SDK.** Use `PublicClient` for models, benchmarks, and comparisons. Use `Stratix` for traces, custom judges, scorers, and CI gates. Both take the same API key.
+> **Two clients, one SDK.** Use `PublicClient` for models, benchmarks, and comparisons. Use `LayerLens` for traces, custom judges, scorers, and CI gates. Both take the same API key.
 
 ### 1. Install
 
@@ -96,11 +96,13 @@ pip install --extra-index-url https://sdk.layerlens.ai/package layerlens[cli]
 
 ### 2. Set your API key
 
-Get a key from [stratix.layerlens.ai](https://stratix.layerlens.ai) → Settings → API Keys.
+Get a key from [app.layerlens.ai](https://app.layerlens.ai) → Settings → API Keys.
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 ```
+
+> **Upgrading from an earlier release?** The client was renamed to `LayerLens` and its variables to `LAYERLENS_API_KEY` / `LAYERLENS_BASE_URL`. Your existing code and environment keep working, with a deprecation warning. See [Migrating from Stratix](docs/migrating-from-stratix.md).
 
 ### 3. Run your first comparison
 
@@ -124,7 +126,7 @@ comparison = pc.comparisons.compare_models(
 print(comparison)
 ```
 
-That's it! You're comparing frontier models on real benchmark data. **[See full results in the dashboard →](https://stratix.layerlens.ai)**
+That's it! You're comparing frontier models on real benchmark data. **[See full results in the dashboard →](https://app.layerlens.ai)**
 
 ### Next steps
 
@@ -138,7 +140,7 @@ Adapters normalize traces from the agent frameworks, protocols and model provide
 
 **The problem they solve.** Judges and baselines are tuned against the traces a particular framework emits. Migrate frameworks, or let a second team pick a different one, and the traces come out a different shape: the pipeline stops parsing them, and every baseline you built stops being comparable to anything new. The evaluation work is locked to the framework that made it necessary.
 
-**What an adapter does.** It maps a source-specific run into the Stratix event schema: one representation of steps, tool calls, inputs, outputs, errors and timings, regardless of origin. A judge tuned last quarter runs unchanged on the agent you ship next quarter, and switching frameworks is a wiring change rather than a rewrite.
+**What an adapter does.** It maps a source-specific run into the LayerLens event schema: one representation of steps, tool calls, inputs, outputs, errors and timings, regardless of origin. A judge tuned last quarter runs unchanged on the agent you ship next quarter, and switching frameworks is a wiring change rather than a rewrite.
 
 **Integrity.** Every captured trace carries a SHA-256 hash chain over its events, sealed with a root hash. Altering or removing an event breaks verification rather than passing quietly, so a trace you evaluated is a trace you can attest to later.
 
@@ -153,10 +155,10 @@ pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langch
 Then let `auto()` wire an adapter for everything it finds installed:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import auto, discover_installed
 
-client = Stratix()
+client = LayerLens()
 
 print(discover_installed())   # what auto() would wire, without connecting anything
 auto(client)                  # instrument every installed framework and provider
@@ -240,7 +242,7 @@ The SDK ships with a full CLI for managing evaluations from your terminal or CI 
 
 ```bash
 # Set your API key
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 
 # List traces
 layerlens trace list
@@ -259,7 +261,7 @@ non-zero below a threshold, copy [`samples/cicd/quality_gate.py`](./samples/cicd
 
 ```
 layerlens/
-  _client.py          # Stratix / Client (premium) + AsyncStratix
+  _client.py          # LayerLens / Client (premium) + AsyncLayerLens
   _public_client.py   # PublicClient (open data) + AsyncPublicClient
   cli/                # Click-based CLI
     commands/         # trace, judge, evaluate, evaluations, scorer, space,
@@ -283,34 +285,34 @@ layerlens/
 
 The [`samples/`](./samples) directory contains 70+ production-ready samples organized by use case. See [`samples/README.md`](./samples/README.md) for the full index.
 
-| Category | Description |
-|---|---|
-| [Core samples](./samples) | Quickstart, traces, evaluations, judges, async workflows |
-| [Industry solutions](./samples/industry) | Healthcare, financial, legal, government, retail, insurance |
-| [CI/CD integration](./samples/cicd) | Quality gates, pre-commit hooks, GitHub Actions workflow |
-| [Multi-agent (Cowork)](./samples/cowork) | Generator-Evaluator, Code Review, RAG, Incident Response patterns |
-| [Content-type evaluations](./samples/modalities) | Text, brand, and document quality scoring |
-| [LLM provider integrations](./samples/integrations) | OpenAI, Anthropic, LangChain tracing and instrumentation |
-| [MCP server](./samples/mcp) | Expose LayerLens as tools for Claude, Cursor, and any MCP-compatible assistant |
-| [CopilotKit CoAgents](./samples/copilotkit) | Full-stack LangGraph + generative UI components |
-| [Claude Code skills](./samples/claude-code) | Slash commands for managing LayerLens from the Claude Code CLI |
-| [OpenClaw agent evaluation](./samples/openclaw) | Trace, evaluate, and monitor OpenClaw autonomous agents |
-| [Sample data](./samples/data) | Pre-built traces, test datasets, and industry evaluation data |
+| Category                                            | Description                                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [Core samples](./samples)                           | Quickstart, traces, evaluations, judges, async workflows                       |
+| [Industry solutions](./samples/industry)            | Healthcare, financial, legal, government, retail, insurance                    |
+| [CI/CD integration](./samples/cicd)                 | Quality gates, pre-commit hooks, GitHub Actions workflow                       |
+| [Multi-agent (Cowork)](./samples/cowork)            | Generator-Evaluator, Code Review, RAG, Incident Response patterns              |
+| [Content-type evaluations](./samples/modalities)    | Text, brand, and document quality scoring                                      |
+| [LLM provider integrations](./samples/integrations) | OpenAI, Anthropic, LangChain tracing and instrumentation                       |
+| [MCP server](./samples/mcp)                         | Expose LayerLens as tools for Claude, Cursor, and any MCP-compatible assistant |
+| [CopilotKit CoAgents](./samples/copilotkit)         | Full-stack LangGraph + generative UI components                                |
+| [Claude Code skills](./samples/claude-code)         | Slash commands for managing LayerLens from the Claude Code CLI                 |
+| [OpenClaw agent evaluation](./samples/openclaw)     | Trace, evaluate, and monitor OpenClaw autonomous agents                        |
+| [Sample data](./samples/data)                       | Pre-built traces, test datasets, and industry evaluation data                  |
 
 ## Used By
 
 <!-- Update this section as adoption grows -->
 
-Stratix powers evaluation workflows at LayerLens and across teams building production AI systems. The public benchmark data is queried thousands of times per week via the SDK and [stratix.layerlens.ai](https://stratix.layerlens.ai).
+The SDK powers evaluation workflows at LayerLens and across teams building production AI systems. The public benchmark data is queried thousands of times per week via the SDK and [app.layerlens.ai](https://app.layerlens.ai).
 
-If your team uses Stratix, [open a PR](https://github.com/LayerLens/stratix-python/pulls) to add your logo here.
+If your team uses LayerLens, [open a PR](https://github.com/LayerLens/stratix-python/pulls) to add your logo here.
 
 ## Join the Community
 
 The LayerLens Discord is the best place to:
 - Get help with the SDK and trace evaluations
 - Share your custom judges and agent workflows
-- Access free Stratix Premium Credits for active contributors
+- Access free LayerLens Premium Credits for active contributors
 - Join weekly Eval Office Hours & model comparison discussions
 - Influence the roadmap
 
@@ -353,7 +355,7 @@ Apache 2.0. See [LICENSE](./LICENSE).
 
 ```bash
 pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 python3 -c "from layerlens import PublicClient; pc = PublicClient(); print(pc.models.get(page_size=5))"
 ```
 
@@ -363,7 +365,7 @@ Then explore the [Quick Start guide](https://layerlens.gitbook.io/stratix-python
 
 <p align="center">
   ⭐ <strong>Star us if you found this useful!</strong> ⭐<br />
-  It helps more developers discover Stratix.
+  It helps more developers discover LayerLens.
 </p>
 
 <p align="center">

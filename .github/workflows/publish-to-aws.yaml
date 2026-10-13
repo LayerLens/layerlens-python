@@ -312,10 +312,10 @@ jobs:
           <!DOCTYPE html>
           <html>
           <head>
-              <title>LayerLens Stratix SDK</title>
+              <title>LayerLens Python SDK</title>
           </head>
           <body>
-              <h1>LayerLens Stratix SDK</h1>
+              <h1>LayerLens Python SDK</h1>
               <a href="${{ env.PACKAGE_NAME }}/">${{ env.PACKAGE_NAME }}</a><br/>
           </body>
           </html>

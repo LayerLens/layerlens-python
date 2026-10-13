@@ -9,8 +9,8 @@ You are helping the user optimize judges in the LayerLens platform using the Pyt
 ## SDK Reference
 
 ```python
-from layerlens import Stratix
-client = Stratix()
+from layerlens import LayerLens
+client = LayerLens()
 
 # Step 1: Estimate optimization cost before committing
 estimate = client.judge_optimizations.estimate(

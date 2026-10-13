@@ -9,8 +9,8 @@ You are helping the user investigate production traces in the LayerLens platform
 ## SDK Reference
 
 ```python
-from layerlens import Stratix
-client = Stratix()
+from layerlens import LayerLens
+client = LayerLens()
 
 # Step 1: List recent traces
 response = client.traces.get_many(

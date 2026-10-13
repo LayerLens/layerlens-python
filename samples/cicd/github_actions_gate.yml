@@ -3,7 +3,7 @@
 # Blocks PRs if pass rate drops below threshold.
 #
 # Prerequisites:
-#   - LAYERLENS_STRATIX_API_KEY stored as a GitHub Actions secret
+#   - LAYERLENS_API_KEY stored as a GitHub Actions secret
 #
 # Usage:
 #   Copy to .github/workflows/ai-quality-gate.yml
@@ -19,7 +19,7 @@ on:
       - "agents/**"
 
 env:
-  LAYERLENS_STRATIX_API_KEY: ${{ secrets.LAYERLENS_STRATIX_API_KEY }}
+  LAYERLENS_API_KEY: ${{ secrets.LAYERLENS_API_KEY }}
   PASS_RATE_THRESHOLD: "0.85"
 
 jobs:

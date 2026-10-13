@@ -15,14 +15,14 @@ compare_evaluations.py into a standalone runnable sample.
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least two completed evaluations on the same benchmark
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python compare_evaluations.py
     python compare_evaluations.py --eval-id-1 <ID1> --eval-id-2 <ID2>
 """
@@ -33,7 +33,7 @@ import sys
 import logging
 import argparse
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -68,7 +68,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

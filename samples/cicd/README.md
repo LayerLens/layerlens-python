@@ -12,7 +12,7 @@ script for any CI system, and a pre-commit hook for local development.
 pip install layerlens --index-url https://sdk.layerlens.ai/package
 ```
 
-- A valid `LAYERLENS_STRATIX_API_KEY` set as an environment variable (locally or as a CI secret)
+- A valid `LAYERLENS_API_KEY` set as an environment variable (locally or as a CI secret)
 - For the GitHub Actions workflow: repository write access to add workflow files
 - For the pre-commit hook: a local Git repository
 
@@ -21,7 +21,7 @@ pip install layerlens --index-url https://sdk.layerlens.ai/package
 Run the quality gate script locally to verify your current evaluation pass rate:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 python quality_gate.py --threshold 0.85
 ```
 
@@ -44,7 +44,7 @@ aggregate pass rate, and exits with code 0 (pass) or 1 (fail) based on the thres
 cp samples/cicd/github_actions_gate.yml .github/workflows/ai-quality-gate.yml
 ```
 
-Add `LAYERLENS_STRATIX_API_KEY` as a repository secret in your GitHub settings.
+Add `LAYERLENS_API_KEY` as a repository secret in your GitHub settings.
 
 ### Pre-Commit Hook
 

@@ -10,7 +10,7 @@ What this does, in order:
    ``TraceCollector`` — proving the adapter emits ``agent.handoff`` /
    ``agent.node.*`` / ``agent.state.change`` / ``model.invoke`` on real node
    transitions.
-3. Uploads each captured trace with a real ``Stratix()`` client (LayerLens key
+3. Uploads each captured trace with a real ``LayerLens()`` client (LayerLens key
    only) and reads the SERVER-computed agent graph back over the raw trace-detail
    API, asserting the honest multi-agent DAG (``triage -> <dept>_specialist ->
    closer``). If no LayerLens key is configured it runs capture-only and prints a
@@ -19,8 +19,8 @@ What this does, in order:
 Env (source ``stratix-python-private/tests/e2e/live/.env``):
     VENDOR_MODEL_BACKEND        'openai' (this env) or 'openrouter' (upstream)
     OPENAI_API_KEY / OPENROUTER_API_KEY   the model credential for the chosen backend
-    LAYERLENS_STRATIX_API_KEY   LayerLens platform key (customer upload)
-    LAYERLENS_STRATIX_BASE_URL  atlas-app API base (e.g. local http://localhost:8080/api/v1)
+    LAYERLENS_API_KEY   LayerLens platform key (customer upload)
+    LAYERLENS_BASE_URL  atlas-app API base (e.g. local http://localhost:8080/api/v1)
 """
 
 from __future__ import annotations
@@ -61,15 +61,15 @@ def _mask(value: Optional[str]) -> str:
 
 
 def build_real_client():
-    """Construct a native ``Stratix()`` (LayerLens-key-only), or return None."""
-    if not os.environ.get("LAYERLENS_STRATIX_API_KEY"):
-        return None, "LAYERLENS_STRATIX_API_KEY not set"
-    if not os.environ.get("LAYERLENS_STRATIX_BASE_URL"):
-        return None, "LAYERLENS_STRATIX_BASE_URL not set (refusing the prod default)"
+    """Construct a native ``LayerLens()`` (LayerLens-key-only), or return None."""
+    if not os.environ.get("LAYERLENS_API_KEY"):
+        return None, "LAYERLENS_API_KEY not set"
+    if not os.environ.get("LAYERLENS_BASE_URL"):
+        return None, "LAYERLENS_BASE_URL not set (refusing the prod default)"
     try:
-        from layerlens import Stratix
+        from layerlens import LayerLens
 
-        return Stratix(), None
+        return LayerLens(), None
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
 
@@ -151,8 +151,8 @@ def main() -> None:
     print(f"model backend : {backend}")
     print(f"OPENAI_API_KEY: {_mask(os.environ.get('OPENAI_API_KEY'))}   "
           f"OPENROUTER_API_KEY: {_mask(os.environ.get('OPENROUTER_API_KEY'))}")
-    print(f"LAYERLENS_STRATIX_BASE_URL: {os.environ.get('LAYERLENS_STRATIX_BASE_URL', '<default>')}")
-    print(f"LAYERLENS_STRATIX_API_KEY : {_mask(os.environ.get('LAYERLENS_STRATIX_API_KEY'))}")
+    print(f"LAYERLENS_BASE_URL: {os.environ.get('LAYERLENS_BASE_URL', '<default>')}")
+    print(f"LAYERLENS_API_KEY : {_mask(os.environ.get('LAYERLENS_API_KEY'))}")
     print()
 
     # Pre-flight: the model credential must exist, or there is nothing honest to run.
@@ -163,8 +163,8 @@ def main() -> None:
         return
 
     client, client_err = build_real_client()
-    base = os.environ.get("LAYERLENS_STRATIX_BASE_URL", "")
-    key = os.environ.get("LAYERLENS_STRATIX_API_KEY", "")
+    base = os.environ.get("LAYERLENS_BASE_URL", "")
+    key = os.environ.get("LAYERLENS_API_KEY", "")
     if client is not None:
         print(f"[atlas-app] client: org={client.organization_id} project={client.project_id}")
     else:

@@ -6,7 +6,7 @@ The `results` resource allows you to retrieve detailed results from completed or
 
 Results contain detailed information about each test case in an evaluation.
 
-> Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+> Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
 ## Methods
 
@@ -28,9 +28,9 @@ Returns a `List[Result]` containing all result objects across all pages. Returns
 #### Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Get evaluation first
 evaluation = client.evaluations.get_by_id("eval_12345")
@@ -46,11 +46,11 @@ else:
 #### Async Usage
 
 ```python
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 import asyncio
 
 async def get_all_results():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # Get evaluation first
     evaluation = await client.evaluations.get_by_id("eval_12345")
@@ -86,9 +86,9 @@ Returns a `List[Result]` containing all result objects across all pages. Returns
 #### Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Get all results directly by evaluation ID
 all_results = client.results.get_all_by_id(evaluation_id="eval_12345")
@@ -97,11 +97,11 @@ all_results = client.results.get_all_by_id(evaluation_id="eval_12345")
 #### Async Usage
 
 ```python
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 import asyncio
 
 async def get_all_results():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # Get all results asynchronously
     all_results = await client.results.get_all_by_id(evaluation_id="eval_12345")
@@ -144,9 +144,9 @@ The `ResultsResponse` object includes:
 ##### Basic Usage (All Results)
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Get evaluation first
 evaluation = client.evaluations.get_by_id("eval_12345")
@@ -322,10 +322,10 @@ Results can contain thousands of individual test cases. Consider using the async
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def fetch_results_async():
-    async_client = AsyncStratix()
+    async_client = AsyncLayerLens()
 
     # Get evaluation first
     evaluation = await async_client.evaluations.get_by_id("eval_12345")

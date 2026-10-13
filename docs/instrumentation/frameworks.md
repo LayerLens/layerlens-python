@@ -20,10 +20,10 @@ pip install layerlens[langchain]
 ### Usage
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument.adapters.frameworks.langchain import LangChainCallbackHandler
 
-client = Stratix()
+client = LayerLens()
 handler = LangChainCallbackHandler(client)
 
 # Pass the handler to any LangChain runnable
@@ -60,10 +60,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument.adapters.frameworks.langchain import LangChainCallbackHandler
 
-client = Stratix()
+client = LayerLens()
 handler = LangChainCallbackHandler(client)
 
 prompt = ChatPromptTemplate.from_template("Answer: {question}")
@@ -112,10 +112,10 @@ pip install layerlens[langchain]
 ### Usage
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument.adapters.frameworks.langgraph import LangGraphCallbackHandler
 
-client = Stratix()
+client = LayerLens()
 handler = LangGraphCallbackHandler(client)
 
 # Use with a LangGraph compiled graph

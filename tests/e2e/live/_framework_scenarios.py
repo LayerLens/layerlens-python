@@ -1,6 +1,6 @@
 """Canonical live workloads per framework adapter.
 
-Each ``run_*`` instruments a real framework with its Stratix adapter, drives a
+Each ``run_*`` instruments a real framework with its LayerLens adapter, drives a
 minimal real workload (a paid tool/chat call where the framework needs one),
 and uninstruments. It must run inside the harness's active ``TraceCollector``
 (see ``_framework_harness``). SDK imports are lazy so collection never requires
@@ -162,7 +162,7 @@ def run_pydantic_ai(flow: str) -> None:
 # OpenAI Agents SDK — NOTE: this adapter is a global TracingProcessor that
 # manages its own per-trace collectors and *flushes* (uploads) them itself, so
 # it is driven by ``_framework_harness.run_openai_agents_case`` (not the ambient
-# collector path). ``client`` must be the real Stratix client for the flush.
+# collector path). ``client`` must be the real LayerLens client for the flush.
 # --------------------------------------------------------------------------- #
 def run_openai_agents(flow: str, client: object) -> None:
     from agents import Agent, Runner

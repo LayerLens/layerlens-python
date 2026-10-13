@@ -6,7 +6,7 @@ init client, upload a trace, create a judge, evaluate, get results.
 
 Prerequisites:
     pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY="your-api-key"
+    export LAYERLENS_API_KEY="your-api-key"
 """
 
 import os
@@ -14,15 +14,15 @@ import sys
 import json
 import tempfile
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, poll_evaluation_results
 
 
 def main() -> None:
-    # --- 1. Initialize the client (reads LAYERLENS_STRATIX_API_KEY from env)
-    client = Stratix()
+    # --- 1. Initialize the client (reads LAYERLENS_API_KEY from env)
+    client = LayerLens()
 
     # --- 2. Create a temporary JSONL trace file and upload it
     trace_data = {

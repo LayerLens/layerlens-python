@@ -8,11 +8,11 @@ pipeline if the overall pass rate falls below a threshold.
 
 Designed to be called from a GitHub Actions workflow (see
 ``github_actions_gate.yml``) but works in any CI environment where
-``LAYERLENS_STRATIX_API_KEY`` is set.
+``LAYERLENS_API_KEY`` is set.
 
 Flow
 ----
-1. Initialize ``Stratix()`` client (reads API key from env automatically).
+1. Initialize ``LayerLens()`` client (reads API key from env automatically).
 2. Fetch recent traces via ``client.traces.get_many()``.
 3. Fetch judges via ``client.judges.get_many()``.
 4. Create a trace evaluation for each (trace, judge) pair.
@@ -23,13 +23,13 @@ Flow
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python quality_gate.py --threshold 0.85
 """
 
@@ -40,7 +40,7 @@ import sys
 import logging
 import argparse
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import poll_evaluation_results
@@ -96,7 +96,7 @@ def main() -> None:
     # Step 1: Connect
     # ------------------------------------------------------------------
     try:
-        client = Stratix()
+        client = LayerLens()
     except Exception as exc:
         logger.error("Failed to initialize LayerLens client: %s", exc)
         sys.exit(1)

@@ -1,6 +1,6 @@
 # Security Policy
 
-We take the security of the Stratix Python SDK seriously. Thanks for helping us keep it safe.
+We take the security of the LayerLens Python SDK seriously. Thanks for helping us keep it safe.
 
 ## Reporting a vulnerability
 
@@ -22,11 +22,11 @@ In scope:
 
 - The `layerlens` Python package published to PyPI.
 - Source code in this repository (`src/`, `tests/`, `samples/`, `scripts/`).
-- The `stratix` CLI binary distributed with the SDK.
+- The `layerlens` CLI distributed with the SDK (and its deprecated `stratix` alias).
 
 Out of scope (please report to the relevant team instead):
 
-- Vulnerabilities in the hosted Stratix platform itself ([stratix.layerlens.ai](https://stratix.layerlens.ai)). Email **support@layerlens.ai** with subject "Security report: Stratix platform."
+- Vulnerabilities in the hosted LayerLens platform itself ([app.layerlens.ai](https://app.layerlens.ai)). Email **support@layerlens.ai** with subject "Security report: LayerLens platform."
 - Third-party dependencies. Please file with the upstream project.
 - Issues that require physical access to a user's machine.
 

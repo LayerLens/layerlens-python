@@ -3,8 +3,8 @@
 Opt-in: see ``conftest.py``. Built-in protocols (agui/a2ui/ap2/ucp) always run;
 mcp/a2a skip unless their optional package is installed (Python 3.10+).
 
-    LAYERLENS_LIVE=1 LAYERLENS_STRATIX_BASE_URL=http://localhost:8080/api/v1 \\
-    LAYERLENS_STRATIX_API_KEY=... LAYERLENS_LIVE_INTEGRATION_ID=<id> \\
+    LAYERLENS_LIVE=1 LAYERLENS_BASE_URL=http://localhost:8080/api/v1 \\
+    LAYERLENS_API_KEY=... LAYERLENS_LIVE_INTEGRATION_ID=<id> \\
     ./scripts/test tests/e2e/live -k "protocol"
 """
 
@@ -32,7 +32,7 @@ _IDS = [f"{c.id}-{v}" for c, v in _CASES]
 
 @pytest.mark.live
 @pytest.mark.parametrize("case, variant", _CASES, ids=_IDS)
-def test_protocol_live(case, variant, stratix_live_client, record_result) -> None:
+def test_protocol_live(case, variant, layerlens_live_client, record_result) -> None:
     pytest.importorskip(case.import_name, reason=f"{case.id}: '{case.import_name}' not installed")
-    row = run_framework_case(stratix_live_client, case, variant)
+    row = run_framework_case(layerlens_live_client, case, variant)
     record_result(row)

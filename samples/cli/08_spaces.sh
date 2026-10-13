@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Create a private space (capture ID from output)
 echo "==> Creating evaluation space..."
-SPACE_ID=$(stratix space create \
+SPACE_ID=$(layerlens space create \
   --name "CLI Demo Space" \
   --description "Temporary space for CLI examples" \
   --visibility private \
@@ -14,15 +14,15 @@ echo "==> Created space: $SPACE_ID"
 # List spaces
 echo ""
 echo "==> All spaces:"
-stratix space list
+layerlens space list
 
 # Get details
 echo ""
 echo "==> Space details:"
-stratix space get "$SPACE_ID"
+layerlens space get "$SPACE_ID"
 
 # Clean up
 echo ""
 echo "==> Deleting space..."
-stratix space delete "$SPACE_ID" -y
+layerlens space delete "$SPACE_ID" -y
 echo "==> Done."

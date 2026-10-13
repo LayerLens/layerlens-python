@@ -66,11 +66,11 @@ def _client(results_pages: List[Any]) -> LayerLens:
 
     transport = httpx.MockTransport(handle)
 
-    class _MockTransportStratix(LayerLens):
+    class _MockTransportLayerLens(LayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
             return transport
 
-    return _MockTransportStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
 def _page(results: List[Dict[str, Any]], *, total_count: Optional[int] = None) -> Dict[str, Any]:
@@ -332,7 +332,7 @@ def test_async_get_all_raises_instead_of_truncating() -> None:
     from layerlens import AsyncLayerLens
     from layerlens.models import Project, Organization
 
-    class _MockTransportAsyncStratix(AsyncLayerLens):
+    class _MockTransportAsyncLayerLens(AsyncLayerLens):
         def _get_organization(self) -> Organization:
             return Organization(
                 id="68a1f0c2d4e5b6a7c8d9e100",
@@ -343,7 +343,7 @@ def test_async_get_all_raises_instead_of_truncating() -> None:
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.AsyncBaseTransport:
             return transport
 
-    client = _MockTransportAsyncStratix(api_key="test-key", base_url=BASE_URL)
+    client = _MockTransportAsyncLayerLens(api_key="test-key", base_url=BASE_URL)
 
     async def drive() -> None:
         await client.results.get_all_by_id(evaluation_id="68a1f0c2d4e5b6a7c8d9e001")

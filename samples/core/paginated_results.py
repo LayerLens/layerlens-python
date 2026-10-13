@@ -15,24 +15,24 @@ Demonstrates two approaches for fetching evaluation results:
 Prerequisites
 -------------
 * ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least one completed evaluation in the project
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python paginated_results.py
 """
 
 from __future__ import annotations
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
 
     # ── Get a completed evaluation to work with ──────────────────────
     models = client.models.get()
