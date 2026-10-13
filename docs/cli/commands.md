@@ -29,11 +29,6 @@ layerlens [global-options]
 │   ├── get           Get a scorer by ID
 │   ├── create        Create a new scorer
 │   └── delete        Delete a scorer
-├── space
-│   ├── list          List evaluation spaces
-│   ├── get           Get a space by ID or slug
-│   ├── create        Create a new space
-│   └── delete        Delete a space
 ├── bulk
 │   └── eval          Run evaluations in bulk
 ├── ci
@@ -285,57 +280,6 @@ layerlens scorer create [OPTIONS]
 
 ```bash
 layerlens scorer delete <ID> [OPTIONS]
-```
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `--yes`, `-y` | flag | Skip confirmation prompt |
-| `--dry-run` | flag | Preview without executing |
-
----
-
-## space
-
-Manage evaluation spaces.
-
-### `space list`
-
-```bash
-layerlens space list [OPTIONS]
-```
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `--page` | int | Page number |
-| `--page-size` | int | Results per page |
-| `--sort-by` | text | Sort field (e.g. weight, created_at) |
-| `--order` | asc/desc | Sort order |
-
-### `space get`
-
-```bash
-layerlens space get <ID>
-```
-
-Accepts an ID or slug.
-
-### `space create`
-
-```bash
-layerlens space create [OPTIONS]
-```
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `--name` | text | yes | Space name |
-| `--description` | text | no | Description (max 500 characters) |
-| `--visibility` | private/public/tenant | no | Visibility level |
-| `--dry-run` | flag | no | Preview without executing |
-
-### `space delete`
-
-```bash
-layerlens space delete <ID> [OPTIONS]
 ```
 
 | Option | Type | Description |

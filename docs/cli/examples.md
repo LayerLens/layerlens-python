@@ -195,34 +195,7 @@ layerlens scorer delete <SCORER_ID> -y
 
 ---
 
-## 11. Evaluation spaces
-
-```bash
-# List spaces
-layerlens space list
-
-# Create a private space
-layerlens space create \
-  --name "Q1 Model Comparison" \
-  --description "Comparing GPT-4o vs Claude 3 Opus for Q1 release" \
-  --visibility private
-
-# Create a public space (dry-run first)
-layerlens space create \
-  --name "Public Leaderboard" \
-  --visibility public \
-  --dry-run
-
-# Get space details by slug or ID
-layerlens space get q1-model-comparison
-
-# Clean up
-layerlens space delete <SPACE_ID> -y
-```
-
----
-
-## 12. JSON output and scripting
+## 11. JSON output and scripting
 
 ```bash
 # Pipe trace IDs into a loop
@@ -241,7 +214,7 @@ layerlens --format json evaluate list | jq '[.[] | select(.status == "success")]
 
 ---
 
-## 13. Pagination and sorting
+## 12. Pagination and sorting
 
 ```bash
 # Page through traces
@@ -252,13 +225,11 @@ layerlens trace list --page 2 --page-size 20
 layerlens evaluate list --sort-by accuracy --order desc --page-size 5
 layerlens evaluate list --sort-by submitted_at --order asc
 
-# Sort spaces
-layerlens space list --sort-by created_at --order desc
 ```
 
 ---
 
-## 14. Verbose mode and debugging
+## 13. Verbose mode and debugging
 
 ```bash
 # Enable verbose output to see HTTP requests
@@ -273,7 +244,7 @@ layerlens -v integration list
 
 ---
 
-## 15. Clean up resources
+## 14. Clean up resources
 
 ```bash
 # Delete a trace (with confirmation prompt)
@@ -286,6 +257,4 @@ layerlens trace delete <TRACE_ID> -y
 layerlens scorer delete <SCORER_ID> --dry-run
 layerlens scorer delete <SCORER_ID> -y
 
-# Delete a space
-layerlens space delete <SPACE_ID> -y
 ```

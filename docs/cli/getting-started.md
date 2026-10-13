@@ -1,6 +1,6 @@
 # CLI — Getting Started
 
-The LayerLens CLI provides terminal access to all platform features: traces, judges, evaluations, integrations, scorers, evaluation spaces, bulk operations, and CI/CD helpers.
+The LayerLens CLI provides terminal access to all platform features: traces, judges, evaluations, integrations, scorers, bulk operations, and CI/CD helpers.
 
 ## Installation
 

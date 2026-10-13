@@ -58,7 +58,6 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 | Agent trace evaluation  | Upload, replay, judge every step               | Trace logging + annotation | Trace logging + scoring                                   | Trace logging only  | Trace visualization    |
 | Eval generation ladder  | Heuristic > model-graded > deliberation > GEPA | Single generation          | Single generation                                         | Single generation   | Single generation      |
 | CI/CD eval gate         | `layerlens ci report` + sample threshold gate  | Custom integration         | Custom integration                                        | `deepeval test`     | Manual integration     |
-| Evaluation Spaces       | Collaborative eval environments                | Hub (paid)                 | Not available                                             | Not available       | Not available          |
 | Dataset versioning      | Pin evals to versions, diff between runs       | Dataset management         | Not built-in                                              | Basic support       | Dataset management     |
 | OpenTelemetry export    | Native OTLP exporter                           | Not built-in               | Native OTLP                                               | Not built-in        | Native (OpenInference) |
 | Pricing model           | Free public data; premium for org features     | Per-trace pricing          | Per-event pricing                                         | Open source + cloud | Open source + cloud    |
