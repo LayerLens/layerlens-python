@@ -191,9 +191,7 @@ class TestApiKeyEnvironment:
         assert client.api_key == "new-key"
         assert _deprecations(records) == []
 
-    def test_stratix_variable_wins_over_atlas_variable(
-        self, clean_env: pytest.MonkeyPatch, no_org_fetch: None
-    ) -> None:
+    def test_stratix_variable_wins_over_atlas_variable(self, clean_env: pytest.MonkeyPatch, no_org_fetch: None) -> None:
         _ = no_org_fetch
         clean_env.setenv("LAYERLENS_STRATIX_API_KEY", "old-key")
         clean_env.setenv("LAYERLENS_ATLAS_API_KEY", "older-key")
@@ -203,9 +201,7 @@ class TestApiKeyEnvironment:
 
         assert client.api_key == "old-key"
 
-    def test_empty_canonical_variable_counts_as_unset(
-        self, clean_env: pytest.MonkeyPatch, no_org_fetch: None
-    ) -> None:
+    def test_empty_canonical_variable_counts_as_unset(self, clean_env: pytest.MonkeyPatch, no_org_fetch: None) -> None:
         _ = no_org_fetch
         clean_env.setenv("LAYERLENS_API_KEY", "")
         clean_env.setenv("LAYERLENS_STRATIX_API_KEY", "old-key")

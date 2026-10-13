@@ -116,7 +116,6 @@ class InternalServerError(APIStatusError):
     pass
 
 
-
 # Deprecated names (LAY-4220): the same class as ``LayerLensError``.
 if TYPE_CHECKING:
     StratixError = LayerLensError

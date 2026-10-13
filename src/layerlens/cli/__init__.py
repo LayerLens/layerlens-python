@@ -24,7 +24,6 @@ def main() -> None:
     cli()
 
 
-
 def legacy_main() -> None:
     """Entry point for the deprecated ``stratix`` command (LAY-4220).
 

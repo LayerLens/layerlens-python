@@ -477,7 +477,6 @@ class AsyncLayerLens(BaseAsyncClient):
         return organization.data if isinstance(organization, OrganizationResponse) else None
 
 
-
 Client = LayerLens
 AsyncClient = AsyncLayerLens
 
