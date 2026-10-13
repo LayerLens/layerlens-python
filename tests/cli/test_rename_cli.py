@@ -273,7 +273,9 @@ class TestCommandName:
 
         assert proc.returncode == 0, proc.stderr
         assert "trace" in proc.stdout
-        assert proc.stderr == ""
+        # Our notice must not appear. (Other packages may warn at import time, e.g.
+        # requests' RequestsDependencyWarning in CI; that is not ours to silence.)
+        assert "deprecated" not in proc.stderr, proc.stderr
 
     def test_console_scripts_point_at_the_right_entry_points(self) -> None:
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
