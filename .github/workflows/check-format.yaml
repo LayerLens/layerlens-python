@@ -16,13 +16,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Install Rye
-        uses: eifinger/setup-rye@v4
-        with:
-          version: latest
-
-      - name: Sync Rye environment
-        run: rye sync
+      - name: Install Python and exactly uv.lock
+        uses: ./.github/actions/setup-locked-env
 
       - name: Run format script and check output
         run: |

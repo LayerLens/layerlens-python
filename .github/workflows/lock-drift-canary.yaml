@@ -1,0 +1,98 @@
+# Lock drift canary — weekly, ADVISORY ONLY.
+#
+# PR CI installs exactly uv.lock, so an upstream release can no longer turn it
+# red. The flip side is that PR CI no longer notices when an upstream release
+# breaks us, while customers install our extras unbounded. The Adapter Drift
+# Canary covers the framework matrix rows. This canary covers everything else
+# (providers, protocols, the shared dev environment): it re-locks to the latest
+# releases (`uv lock --upgrade`, never committed) and runs the full suite on
+# every CI Python version against that one upgraded lock.
+#
+# A red row means a customer installing `layerlens[<extra>]` today may hit the
+# failure. Triage it, fix real breaks test-first, then move uv.lock forward in a
+# deliberate PR (CONTRIBUTING.md > "Dependencies and the lock"). Failures never
+# block PRs or redden main: the suite step is continue-on-error and this
+# workflow has no PR trigger. Read the verdicts in the run's step summary.
+
+name: Lock Drift Canary
+
+on:
+  schedule:
+    - cron: "11 6 * * 1" # weekly, Monday 06:11 UTC (after the adapter drift canary)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Reads [tool.uv] required-version; "lowest" installs exactly its floor.
+          resolution-strategy: lowest
+
+      - name: Re-lock to the latest releases
+        run: |
+          set -o pipefail
+          uv lock --upgrade 2>&1 | tee "$RUNNER_TEMP/relock.log"
+          {
+            echo "### Versions that moved from the committed uv.lock"
+            echo '```'
+            grep -E '^Updated|^Added|^Removed' "$RUNNER_TEMP/relock.log" || echo "(none)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uv-lock-latest
+          path: uv.lock
+
+  suite:
+    needs: relock
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    env:
+      UV_MANAGED_PYTHON: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: uv-lock-latest
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          resolution-strategy: lowest
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the upgraded lock
+        run: uv sync --locked --all-extras
+
+      - name: Run the full suite against the latest releases
+        id: suite
+        continue-on-error: true # advisory: a red canary never blocks anything
+        env:
+          UV_NO_SYNC: "1"
+        run: ./scripts/test
+
+      - name: Verdict
+        if: always()
+        env:
+          OUTCOME: ${{ steps.suite.outcome }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Python ${PYTHON_VERSION}: suite green on the latest releases" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Upstream drift on Python ${PYTHON_VERSION}::The suite fails against the latest releases. Triage before moving uv.lock forward."
+            echo "Python ${PYTHON_VERSION}: suite RED on the latest releases (see the job log)" >> "$GITHUB_STEP_SUMMARY"
+          fi

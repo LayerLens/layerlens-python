@@ -1,0 +1,40 @@
+# Lock freshness. uv.lock is the only source of what CI installs, so it must
+# match pyproject.toml exactly. `uv lock --check` validates the committed lock
+# against pyproject.toml and fails if any dependency, extra, group or bound
+# changed without re-locking. It never rewrites uv.lock and never moves a pin.
+# To fix a failure, run `uv lock` and commit uv.lock (CONTRIBUTING.md >
+# "Dependencies and the lock").
+
+name: Check Lock
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Reads [tool.uv] required-version; "lowest" installs exactly its floor.
+          resolution-strategy: lowest
+
+      - name: Check uv.lock is up to date with pyproject.toml
+        run: |
+          if ! uv lock --check; then
+            echo "::error title=uv.lock is stale::pyproject.toml changed without re-locking. Run 'uv lock' and commit uv.lock (see CONTRIBUTING.md > Dependencies and the lock)."
+            exit 1
+          fi
