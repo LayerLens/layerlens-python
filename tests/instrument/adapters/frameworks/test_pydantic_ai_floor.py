@@ -43,6 +43,7 @@ object, the real agent loop, and the adapter's own parser are real.
 from __future__ import annotations
 
 import os
+import copy
 import json
 import asyncio
 from dataclasses import dataclass
@@ -220,6 +221,40 @@ class TestCostFloor:
         assert payload["cost_usd"] > 0
         # 12 prompt + 1 completion at the gpt-4o-mini rate.
         assert payload["cost_usd"] == pytest.approx(2.4e-06, rel=1e-3)
+
+    def test_no_cost_record_when_the_run_reports_no_tokens(self, mock_client):
+        """A run whose model reports no token usage emits no cost.record (LAY-4241).
+
+        pydantic-ai still counts the request, so the run's usage is
+        ``RunUsage(requests=1)`` with zero tokens. pydantic-ai 1.9-1.94 reports
+        exactly that for EVERY call once genai-prices >= 0.1 is installed: its
+        usage extraction raises TypeError on the new ``output_reasoning_tokens``
+        field and pydantic-ai swallows it. A response that simply omits
+        ``usage`` (optional on ChatCompletion, and omitted by some
+        OpenAI-compatible servers) produces the same usage on every version,
+        so that is the shape driven here. The adapter used to ship
+        ``{"model": ..., "model_requests": 1}`` as a cost.record: a cost event
+        with no token counts and nothing to price.
+        """
+        os.environ.pop("OPENAI_API_KEY", None)
+        fixture = copy.deepcopy(load_recorded("openai", "default"))
+        del fixture["interactions"][0]["response"]["json"]["usage"]
+        uploaded = capture_framework_trace(mock_client)
+
+        agent = _recorded_agent(fixture, "tokenless_agent")
+        adapter = PydanticAIAdapter(mock_client, capture_config=CaptureConfig.full())
+        adapter.connect(target=agent)
+        result = agent.run_sync("Reply with exactly: pong")
+        adapter.disconnect()
+
+        assert result.output == "pong"
+        events = uploaded["events"]
+        assert find_events(events, "cost.record") == []
+        # The run itself is still reported, with the request count it really made
+        # and no invented token counts.
+        out = find_event(events, "agent.output")
+        assert out["payload"]["model_requests"] == 1
+        assert not {"tokens_prompt", "tokens_completion", "tokens_total"} & set(out["payload"])
 
 
 # ---------------------------------------------------------------------------

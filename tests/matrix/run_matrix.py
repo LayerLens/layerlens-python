@@ -80,10 +80,14 @@ def run_row(name: str, row: Dict[str, Any], *, latest: bool, keep_venv: bool, ve
             for p in pins
         ]
 
+    # Installing the SDK with the row's extras applies the extras' own bounds.
+    extras = row.get("extras") or []
+    project = f"{REPO_ROOT}[{','.join(extras)}]" if extras else REPO_ROOT
+
     try:
         if _run(["uv", "venv", "--python", str(row.get("python", "3.11")), venv]).returncode != 0:
             return 2
-        if _run(["uv", "pip", "install", "--python", python, "-e", REPO_ROOT, "pytest", *pins]).returncode != 0:
+        if _run(["uv", "pip", "install", "--python", python, "-e", project, "pytest", *pins]).returncode != 0:
             print(f"::error::[{name}] dependency install failed (pins={pins})")
             return 2
 
@@ -146,6 +150,9 @@ _ROW_ALIASES = {
     # The embedding floor exercises the vector_store adapter too, so a
     # vector_store.py source change must also run the embedding row.
     "embedding": ["embedding", "vector_store"],
+    # The marvin row also runs the pydantic-ai adapter's tests in the
+    # pydantic-ai the `[marvin]` extra installs.
+    "marvin": ["marvin", "pydantic_ai"],
 }
 
 

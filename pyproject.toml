@@ -82,9 +82,18 @@ instructor = ["instructor>=1.3.0"]
 # 1.95.0 first-broken. Cap here until marvin corrects its own metadata; this is
 # deliberately NOT added to ``all-frameworks``, so the bound cannot leak onto
 # users who only wanted the pydantic-ai adapter.
+#
+# genai-prices is capped for the same reason (LAY-4241). pydantic-ai < 1.107.7
+# declares ``genai-prices>=...`` with no upper bound, but genai-prices 0.1.0 added
+# ``Usage.output_reasoning_tokens`` and pydantic-ai 1.9-1.94 then raises TypeError
+# extracting usage and swallows it: every run reports zero tokens. pydantic-ai
+# 1.107.7 caps it ``<0.1`` itself; the pydantic-ai cap above keeps marvin installs
+# below that release, so mirror its cap here. Drop both once marvin supports
+# pydantic-ai >= 1.95.
 marvin = [
   "marvin>=3.0; python_version >= '3.10'",
   "pydantic-ai>=1.9,<1.95; python_version >= '3.10'",
+  "genai-prices<0.1; python_version >= '3.10'",
 ]
 # Mirascope v2 relocated the call surface from ``mirascope.core.<provider>.call``
 # to ``mirascope.llm.call``; the adapter targets v2, so exclude the v1 line

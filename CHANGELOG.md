@@ -36,6 +36,10 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   without checking the key at all, and said "Not logged in" when only
   `LAYERLENS_STRATIX_API_KEY` was set.
 
+- **crewai: a crew or agent run from inside your own `Flow` is now part of that Flow's trace.** It used to be uploaded as separate traces (two on crewai 1.14.6, three on 1.15) whose closing events were lost, so they flushed only at `disconnect()`. The crew and the agent now appear as nested spans under the flow, and the trace uploads when the flow finishes or fails. crewai reports a failed flow from 1.15 on; on earlier versions a failed flow emits no end event, so its trace (now including any crew it ran) uploads at `disconnect()`
+
+- **`layerlens[marvin]` caps `genai-prices` below 0.1.** pydantic-ai 1.9-1.94 (the `[marvin]` extra caps pydantic-ai below 1.95) raises a `TypeError` extracting usage once genai-prices 0.1 is installed, swallows it, and reports zero tokens for every run. pydantic-ai 1.107.7 applies the same cap itself; it will be removed once marvin supports pydantic-ai >= 1.95
+
 ### Fixed
 
 - **`LAYERLENS_API_KEY` was rejected by every CLI command.** The CLI sent it as a
@@ -47,6 +51,16 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   the main clients always have. Every client resolves its configuration the same way.
 - The CLI reference, workflow examples, README and `samples/cli/08_spaces.sh` still
   documented the `space` command, which 2.0.0 removed. They no longer do.
+
+- **crewai >= 1.14.7: one `crew.kickoff()` was uploaded as two traces.** From 1.14.7 crewai runs each agent execution inside an internal `AgentExecutor` Flow. The adapter opened a new trace for it, and its end event closed the crew's trace early, so the crew's inputs landed in one trace and its model call and `cost.record` in another. Everything that starts inside a run is now a nested span placed by crewai's event lineage, and only the event that opened a run ends it. `pip install layerlens[crewai]` resolves crewai 1.15 today, so this affected every new install
+
+- **crewai: concurrent kickoffs through one adapter lost their completion.** crewai stamps `CrewKickoffCompletedEvent` with no parent (only `started_event_id` links it to its kickoff), so while a second kickoff was running the adapter could not tell which run it closed and dropped it. Each trace was then flushed only at `disconnect()`, without the crew's output and `cost.record`. Reproduced on crewai 1.14.6 and 1.15.27
+
+- **crewai: model calls carry their token usage and cost.** crewai 1.x reports a call's usage on the event rather than in the response, so every model call reached the trace with no tokens and no cost; only the crew's total survived, without a price. Each model call now carries its prompt / completion / total tokens and a priced `cost.record`, both naming the calling agent (`agent_role`) so they can be attributed to it. The crew's total becomes a `cost.record` only when its calls reported no usage, so the same tokens aren't counted twice. A failed model call's `agent.error` names its agent too
+
+- **crewai >= 1.15: a failed Flow uploads its trace, with the error, when it fails.** The adapter did not handle `FlowFailedEvent`, so a failed flow's trace stayed open until `disconnect()` (in a process that never disconnects, it was never uploaded), and the executor flow of each failed agent attempt was left without an end
+
+- **pydantic-ai: no `cost.record` without token counts.** When pydantic-ai reports no tokens for a run (a provider that omits `usage`, or pydantic-ai 1.9-1.94 with genai-prices >= 0.1, which loses usage inside pydantic-ai) the adapter still emitted a `cost.record` carrying only the request count: a cost event with nothing to price. It is now emitted only when token counts are present; `agent.output` still reports `model_requests`
 
 ### Deprecated
 

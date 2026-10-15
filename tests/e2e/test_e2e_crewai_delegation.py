@@ -28,7 +28,7 @@ pytest.importorskip("crewai.tasks.task_output")
 
 # The adapter needs crewai's modern typed event bus (the 1.14 line); the base lock
 # resolves whatever the cross-adapter solve allows (0.193.2 or 1.6.1 by platform),
-# both too old. Only the pinned matrix (crewai==1.14.6) row is supported; skip below.
+# both too old. Only the pinned matrix (crewai==1.15.27) row is supported; skip below.
 from packaging.version import Version  # noqa: E402
 
 if Version(crewai.__version__) < Version("1.14"):

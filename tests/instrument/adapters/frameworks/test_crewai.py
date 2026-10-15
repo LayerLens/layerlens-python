@@ -30,7 +30,7 @@ except (ImportError, TypeError):
 # The adapter needs crewai's modern typed event bus (the 1.14 line). The dev floor
 # is loose (crewai>=0.5.0) and the combined base lock resolves whatever the cross-
 # adapter solve allows — 0.193.2 or 1.6.1 depending on platform, both predating that
-# event surface. Only the pinned matrix (crewai==1.14.6) row is supported; skip below
+# event surface. Only the pinned matrix (crewai==1.15.27) row is supported; skip below
 # 1.14 rather than fail in the base ``test`` job.
 from packaging.version import Version  # noqa: E402
 

@@ -42,7 +42,7 @@ import pytest
 
 # Mirror test_crewai.py's guards: crewai uses ``type | None`` (TypeError on
 # py<3.10) and the modern typed event bus only lands on the 1.14 line, which the
-# pinned matrix (crewai==1.14.6) resolves. importorskip only catches ImportError,
+# pinned matrix (crewai==1.15.27) resolves. importorskip only catches ImportError,
 # so guard explicitly.
 if sys.version_info < (3, 10):
     pytest.skip("crewai requires Python >= 3.10", allow_module_level=True)
