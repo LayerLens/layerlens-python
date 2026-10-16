@@ -17,7 +17,7 @@ LiteLLM provides a unified interface to 100+ providers (Azure, Google, Cohere, M
 ### Installation
 
 ```bash
-pip install layerlens[openai]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]"
 ```
 
 ### Usage
@@ -70,7 +70,7 @@ provider.disconnect()
 ### Installation
 
 ```bash
-pip install layerlens[anthropic]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[anthropic]"
 ```
 
 ### Usage
@@ -123,7 +123,7 @@ LiteLLM works differently from OpenAI/Anthropic — it patches module-level func
 ### Installation
 
 ```bash
-pip install layerlens[litellm]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"
 ```
 
 ### Usage

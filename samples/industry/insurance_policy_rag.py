@@ -26,7 +26,7 @@ samples/data/traces/industry/. This sample uploads it and evaluates the
 retrieval health with observability judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

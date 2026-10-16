@@ -40,17 +40,24 @@ layerlens [global-options]
 
 ## Global options
 
-These options are available on every command:
+These options are available on every command, either right after `layerlens` or at
+the end of the command (`layerlens --format json judge get <id>` or
+`layerlens judge get <id> --format json`), but not between `judge` and `get`. If you
+give an option in both places, the one at the end wins.
 
 ```
 --api-key TEXT         API key (env: LAYERLENS_API_KEY)
 --host TEXT            API host
 --port INTEGER         API port
---format [table|json]      Output format (default: table)
---verbose, -v         Enable debug output
---version             Show version and exit
---help                Show help and exit
+--format [table|json]  Output format (default: table)
+--verbose, -v          Enable debug output
+--quiet, -q            Don't show the startup banner
+--help                 Show help and exit
 ```
+
+`layerlens --version` prints the version and exits. With `--format json`, stdout
+holds only the JSON (`[]` for an empty list) and messages go to stderr, except for
+`login` (interactive) and `completion` (prints shell code).
 
 ---
 

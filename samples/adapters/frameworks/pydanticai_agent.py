@@ -16,7 +16,7 @@ def main() -> None:
     try:
         from pydantic_ai import Agent  # type: ignore[import-not-found]
     except ImportError:
-        print("Install: pip install 'layerlens[pydantic-ai]' pydantic-ai")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[pydantic-ai]" pydantic-ai')
         return
 
     if not os.environ.get("OPENAI_API_KEY"):

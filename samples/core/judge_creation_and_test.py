@@ -17,7 +17,7 @@ by showing how to define a purpose-built judge and validate it end-to-end.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
 * Set ``LAYERLENS_API_KEY`` environment variable
 * Some traces should already exist (run ``basic_trace.py`` first)
 

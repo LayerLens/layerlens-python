@@ -67,6 +67,21 @@ class TestFormatValue:
     def test_string(self):
         assert _format_value("hello") == "hello"
 
+    def test_enum_shows_its_value(self):
+        # str() of a (str, Enum) member is "EvaluationStatus.SUCCESS" on every Python.
+        from layerlens.models import EvaluationStatus, TraceEvaluationStatus
+
+        assert _format_value(EvaluationStatus.SUCCESS) == "success"
+        assert _format_value(EvaluationStatus.IN_PROGRESS) == "in-progress"
+        assert _format_value(TraceEvaluationStatus.IN_PROGRESS) == "in_progress"
+
+    def test_enum_in_a_table_cell(self):
+        from layerlens.models import EvaluationStatus
+
+        table = format_table([{"id": "ev-1", "status": EvaluationStatus.FAILURE}], [("id", "ID"), ("status", "Status")])
+
+        assert table.splitlines()[2].split() == ["ev-1", "failure"]
+
     def test_int(self):
         assert _format_value(42) == "42"
 

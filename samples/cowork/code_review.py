@@ -7,7 +7,7 @@ and uploads them, while a Reviewer agent evaluates each trace across multiple
 quality dimensions using LayerLens judge types.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

@@ -5,8 +5,10 @@ import sys
 
 
 def main() -> None:
-    # Handle --version before importing click so it works without the [cli] extra
-    if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-v"):
+    # Handle --version before importing click so it works without the [cli] extra.
+    # `-v` alone is a shorthand for it; followed by a command, `-v` is --verbose.
+    args = sys.argv[1:]
+    if args[:1] == ["--version"] or args == ["-v"]:
         from .._version import __version__
 
         print(f"layerlens {__version__}")  # noqa: T201
@@ -16,7 +18,8 @@ def main() -> None:
         import click  # noqa: F401
     except ImportError:
         print(  # noqa: T201
-            "CLI dependencies not installed. Install them with:\n\n  pip install layerlens[cli]\n"
+            "CLI dependencies not installed. Install them with:\n\n"
+            '  uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"\n'
         )
         sys.exit(1)
 

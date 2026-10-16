@@ -18,7 +18,7 @@ judge_optimizations.py example in the existing SDK examples.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
 * Set ``LAYERLENS_API_KEY`` environment variable
 * At least one judge with trace evaluations completed
 

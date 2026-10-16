@@ -14,7 +14,7 @@ Workflow:
   5. Print a quality report with pass rates per judge.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package openclaw
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens openclaw
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

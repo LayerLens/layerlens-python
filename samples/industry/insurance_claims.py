@@ -5,7 +5,7 @@ Evaluates AI claims adjudication for coverage determination accuracy,
 state regulatory compliance, and settlement fairness.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

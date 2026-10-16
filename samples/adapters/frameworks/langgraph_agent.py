@@ -18,7 +18,7 @@ def main() -> None:
             LangGraphCallbackHandler,
         )
     except ImportError:
-        print("Install: pip install 'layerlens[langchain]' langgraph")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]" langgraph')
         return
 
     def classify(state: dict) -> dict:

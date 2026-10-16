@@ -24,7 +24,7 @@ empty-state (--) with a span waterfall (tool.call + tool.result are shown in the
 timeline) -- nothing is fabricated as an agent.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

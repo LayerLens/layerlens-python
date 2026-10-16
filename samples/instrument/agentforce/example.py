@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[agentforce]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[agentforce]"
     python samples/instrument/agentforce/example.py
 
 See ``docs/adapters/frameworks/agentforce.md`` for the Connected App / OAuth
@@ -25,7 +25,7 @@ def main() -> int:
         adapter = AgentforceAdapter(client=layerlens_client)
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Agentforce deps with: pip install layerlens[agentforce]")
+        print('Install Agentforce deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[agentforce]"')
         return 0
 
     print("AgentforceAdapter constructed.")

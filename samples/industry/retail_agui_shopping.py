@@ -25,7 +25,7 @@ attested, shows the honest empty-state, and evaluates the streamed shopping
 recommendation with a domain judge.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

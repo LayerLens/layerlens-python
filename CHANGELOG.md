@@ -51,6 +51,64 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   the main clients always have. Every client resolves its configuration the same way.
 - The CLI reference, workflow examples, README and `samples/cli/08_spaces.sh` still
   documented the `space` command, which 2.0.0 removed. They no longer do.
+- **CLI: `--format`, `--api-key`, `--host`, `--port`, `-v` and `-q` failed after the
+  command.** They were options of `layerlens` itself, so the form every `--help`
+  example used, `layerlens judge result abc123 --format json`, failed with
+  "No such option: --format". Every command now accepts them after its name too, and
+  a value given there wins over one given before the command. `layerlens -v <command>`
+  printed the version instead of running the command in verbose mode; `-v` alone
+  still prints the version.
+- **CLI: `--format json` printed text before the JSON.** `judge test`, `judge create`,
+  `scorer create`, `integration test`, `evaluate run --wait` and `bulk eval` wrote
+  progress and confirmation lines to stdout, and a list with no results printed
+  "No judges found." (or similar), so piping to `jq` failed. With `--format json`,
+  stdout now holds only the JSON (`[]` for an empty list) and those lines go to stderr,
+  as do the delete confirmation prompts. `bulk eval --file` and
+  `bulk eval --judge-id --traces` print the evaluations they created, and `whoami` and
+  `synthetic templates` print JSON too. The table format is unchanged.
+- **CLI: a list command reported "No judges found." when it could not read the API's
+  response at all** (empty, not an object, or the wrong shape). It now prints an error
+  and exits 1, so neither a person nor a script mistakes a failed call for an empty
+  list.
+- **CLI: `bulk eval` exited 0 when some of its jobs failed.** `bulk eval --file` and
+  `bulk eval --judge-id --traces` now exit 1 when any job is skipped, fails, or (with
+  `--wait`) can no longer be fetched, after printing the ones that succeeded and how
+  many failed. `bulk eval --model … --benchmark … --wait` printed `None` and exited 0
+  when its evaluation disappeared; it now says so and exits 1, as `evaluate run --wait`
+  does.
+- **CLI: `integration test` exited 0 when the check failed.** It now exits 1, so a
+  script or CI step sees the failure.
+- **CLI: `--port` without `--host` was silently ignored**, and requests went to the
+  default host. It is now a usage error.
+- **CLI: statuses were shown as `EvaluationStatus.SUCCESS`** in tables (every Python
+  version) and in progress lines (Python 3.11+). They are shown as `success`.
+- Shell completion of IDs ignored `--api-key`, `--host` and `--port` typed on the
+  command line. It uses them now.
+- **Install instructions installed the wrong package.** `layerlens` on public PyPI is
+  an unrelated project, so the bare `pip install layerlens` in the CI quality-gate
+  sample and across the docs and samples installed it. The `--index-url
+  https://sdk.layerlens.ai/package` form failed outright, because that index hosts
+  only `layerlens` and pip couldn't find its dependencies. And pip with
+  `--extra-index-url` merges the two indexes and installs whichever `layerlens` has
+  the higher version, so a higher-versioned release on PyPI would replace this SDK.
+  Every install command, in the docs, the samples (the CI quality-gate sample and the
+  copilotkit requirements files included) and the SDK's own "install the extra"
+  messages, is now `uv pip install --extra-index-url https://sdk.layerlens.ai/package …`:
+  uv takes `layerlens` only from the LayerLens index and its dependencies from PyPI.
+  The README and the installation guide also give pip users a safe two-step form
+  (`pip install --no-deps --index-url …`, then the dependencies). Extras are in
+  double quotes (`"layerlens[cli]"`) so the command works in zsh, which rejects an
+  unquoted `[...]`, and in Windows cmd.exe, which passes single quotes through.
+  Samples no longer name extras that don't exist (`haystack`, `langfuse`,
+  `llamaindex`). The installation guide no longer lists `requests`, which the SDK
+  doesn't depend on, and the README's "build the docs locally" step, which named a
+  `docs` extra and an `mkdocs` setup that don't exist, is gone.
+- The VS Code extension README's install steps never built the `.vsix` they then
+  installed. They now package it with `npx @vscode/vsce package`.
+- The CI quality-gate sample pins its actions to commits, and this repository's
+  workflows pin their third-party actions: a tag can be moved to other code, and these
+  jobs hold `LAYERLENS_API_KEY` or AWS credentials. Dependabot keeps the repository's
+  pins current.
 
 - **crewai >= 1.14.7: one `crew.kickoff()` was uploaded as two traces.** From 1.14.7 crewai runs each agent execution inside an internal `AgentExecutor` Flow. The adapter opened a new trace for it, and its end event closed the crew's trace early, so the crew's inputs landed in one trace and its model call and `cost.record` in another. Everything that starts inside a run is now a nested span placed by crewai's event lineage, and only the event that opened a run ends it. `pip install layerlens[crewai]` resolves crewai 1.15 today, so this affected every new install
 

@@ -7,13 +7,13 @@ The LayerLens CLI provides terminal access to all platform features: traces, jud
 Install the SDK with the `cli` extra:
 
 ```bash
-pip install layerlens[cli] --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
 ```
 
 If you already have `layerlens` installed, add the CLI extra:
 
 ```bash
-pip install "layerlens[cli]" --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
 ```
 
 For local development from a cloned repo:
@@ -55,7 +55,10 @@ layerlens --host my-instance.example.com --port 8443 trace list
 
 ## Global options
 
-Every command accepts these options:
+Every command accepts these options, either right after `layerlens` or at the end
+of the command: `layerlens --format json trace list` and
+`layerlens trace list --format json` are the same. (Between `trace` and `list` they
+are not accepted.) If you give an option in both places, the one at the end wins.
 
 | Option             | Description                                |
 | ------------------ | ------------------------------------------ |
@@ -64,7 +67,9 @@ Every command accepts these options:
 | `--port`           | API port                                   |
 | `--format`         | Output format: `table` (default) or `json` |
 | `--verbose` / `-v` | Enable debug output                        |
-| `--version`        | Print version and exit                     |
+| `--quiet` / `-q`   | Don't show the startup banner              |
+
+`layerlens --version` prints the version and exits.
 
 ## Output formats
 
@@ -97,6 +102,12 @@ layerlens --format json trace list
   }
 ]
 ```
+
+With `--format json`, stdout holds only the JSON (an empty result is `[]`), so
+you can pipe it to `jq`. Progress and confirmation messages, such as
+`Trace evaluation created: …`, go to stderr. A command that returns no data, such
+as `trace delete`, leaves stdout empty. The exceptions are `login`, which prompts
+for your email and password, and `completion`, which prints shell code.
 
 ## Shell completions
 

@@ -18,7 +18,7 @@ def main() -> None:
             OpenAIAgentsAdapter,
         )
     except ImportError:
-        print("Install: pip install 'layerlens[openai-agents]'")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai-agents]"')
         return
 
     agent = Agent(name="demo", instructions="Answer in one word.")

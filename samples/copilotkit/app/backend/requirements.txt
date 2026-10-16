@@ -4,9 +4,14 @@
 # customers will install when following the sample). Matches the
 # environment captured in DevRel's diagnostic bundle.
 #
-# Use ``pip install -r requirements.lock`` (committed alongside this file)
+# Use ``uv pip install -r requirements.lock`` (committed alongside this file)
 # to get byte-identical transitive deps. This plain requirements.txt is
 # kept for readability.
+
+# layerlens comes from the LayerLens index; `layerlens` on public PyPI is an unrelated
+# project. Install with `uv pip install -r`: uv takes layerlens only from this index,
+# while pip would take whichever index offers the higher version.
+--extra-index-url https://sdk.layerlens.ai/package
 
 copilotkit==0.1.87
 langchain==1.2.15

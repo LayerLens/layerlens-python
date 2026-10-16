@@ -9,7 +9,7 @@ script for any CI system, and a pre-commit hook for local development.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 - A valid `LAYERLENS_API_KEY` set as an environment variable (locally or as a CI secret)

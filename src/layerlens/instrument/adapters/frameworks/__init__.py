@@ -2,9 +2,9 @@
 
 Per M2 ticket ACs (LAY-3446..3450) and the M1.C LangChain template, framework
 adapter classes are exposed via PEP 562 ``__getattr__`` so importing this
-package never eagerly pulls a framework SDK. ``pip install layerlens`` stays
-lean by default; ``pip install layerlens[langgraph]`` (etc.) adds the runtime
-deps the user actually needs.
+package never eagerly pulls a framework SDK. The default install of
+``layerlens`` stays lean; an extra such as ``layerlens[langgraph]`` adds the
+runtime deps the user actually needs.
 
 Usage::
 

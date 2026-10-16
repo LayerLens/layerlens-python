@@ -7,7 +7,7 @@ uploading sample traces and running evaluations. The two agents collaborate in
 a create-test-refine loop until the judge produces satisfactory results.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

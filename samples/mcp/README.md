@@ -9,7 +9,7 @@ development environment.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package mcp
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens mcp
 export LAYERLENS_API_KEY=your-api-key
 ```
 

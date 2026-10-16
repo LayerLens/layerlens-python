@@ -19,7 +19,7 @@ panel's collaboration with domain judges. Nothing is fabricated: the agent
 names, handoff edges, tokens, and cost are all real.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

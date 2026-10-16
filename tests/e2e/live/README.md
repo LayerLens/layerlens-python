@@ -63,11 +63,14 @@ flowchart TD
 
 ## 1. Prerequisites
 
-Install the provider extras you want to exercise, e.g.:
+Install this checkout with the provider extras you want to exercise, e.g.:
 
 ```bash
-pip install 'layerlens[anthropic]' 'layerlens[openai]'   # etc.
+uv sync --locked --extra anthropic --extra openai   # etc.; --all-extras for every provider
 ```
+
+(This suite tests the SDK in this repository; a `layerlens` installed from a package
+index would be a different version.)
 
 LayerLens (staging) + suite controls:
 

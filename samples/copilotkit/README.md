@@ -42,8 +42,8 @@ samples/copilotkit/
 
 ```bash
 # Python deps
-pip install layerlens --index-url https://sdk.layerlens.ai/package
-pip install -r samples/copilotkit/app/backend/requirements.lock
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+uv pip install -r samples/copilotkit/app/backend/requirements.lock
 
 # Frontend deps (already shrinkwrapped via package-lock.json)
 cd samples/copilotkit/app/frontend && npm install
@@ -353,7 +353,7 @@ exercise real LayerLens; a fake mode would defeat the demo.
 ```bash
 # Terminal 1 — backend
 cd samples/copilotkit/app/backend
-pip install -r requirements.lock
+uv pip install -r requirements.lock
 export LAYERLENS_API_KEY=...
 export OPENAI_API_KEY=...
 python server.py         # http://127.0.0.1:8123

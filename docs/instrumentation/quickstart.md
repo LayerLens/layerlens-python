@@ -7,16 +7,16 @@ This guide covers the core instrumentation API: the `@trace` decorator and the `
 The instrumentation module is included in the base SDK — no extra dependencies needed:
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 Provider adapters require their respective SDK as an optional dependency:
 
 ```bash
-pip install layerlens[openai]      # OpenAI
-pip install layerlens[anthropic]   # Anthropic
-pip install layerlens[litellm]     # LiteLLM (100+ providers)
-pip install layerlens[langchain]   # LangChain / LangGraph
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]"      # OpenAI
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[anthropic]"   # Anthropic
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"     # LiteLLM (100+ providers)
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"   # LangChain / LangGraph
 ```
 
 ## The `@trace` Decorator

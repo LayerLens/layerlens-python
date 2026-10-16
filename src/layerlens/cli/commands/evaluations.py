@@ -8,13 +8,14 @@ from typing import Any, Dict, cast
 
 import click
 
+from .._command import LayerLensGroup
 from ...datasets import Dataset, DatasetVisibility, InMemoryDatasetStore
 from .._safe_loader import load_callable as _load_callable
 from ...evaluation_runs import RunComparer, EvaluationRunner
 from ...evaluation_runs.models import ScorerFn
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def evaluations() -> None:
     """Run and compare dataset-scoped evaluations locally."""
 

@@ -16,7 +16,7 @@ individual LLM interactions with judges), see ``trace_evaluation.py``.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
 * Set ``LAYERLENS_API_KEY`` environment variable
 * At least one model and one benchmark must be available in your project
   or the public catalog.

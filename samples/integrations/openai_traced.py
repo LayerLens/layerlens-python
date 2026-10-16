@@ -7,7 +7,7 @@ the uploaded trace carries genuine model/token/cost events and renders the
 Agent, Framework, and Status columns from real data.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package openai
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens openai
     export LAYERLENS_API_KEY=your-api-key
     export OPENAI_API_KEY=your-openai-key
 

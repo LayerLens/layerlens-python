@@ -44,7 +44,7 @@ except ImportError:
         def __init_subclass__(cls, **kwargs: Any) -> None:
             raise ImportError(
                 "The 'langchain-core' package is required for LangChain instrumentation. "
-                "Install it with: pip install layerlens[langchain]"
+                'Install it with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"'
             )
 
 

@@ -9,7 +9,7 @@ streaming responses, `finish_reason`, and `response_id`.
 ## Install
 
 ```bash
-pip install layerlens[providers-vertex]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-vertex]"
 ```
 
 Pulls `google-cloud-aiplatform>=1.38`. The `google-vertex` extra is kept as

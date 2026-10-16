@@ -5,7 +5,9 @@ import sys
 import click
 
 from .._client import get_client, handle_errors, resolve_model, resolve_benchmark
-from .._formatter import format_output
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
+from .._formatter import format_value, format_output
 from ..._exceptions import APIStatusError
 from .._completions import complete_model, complete_benchmark, complete_evaluation
 
@@ -19,7 +21,7 @@ EVALUATION_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def evaluate() -> None:
     """Manage evaluations.
 
@@ -86,8 +88,10 @@ def list_evaluations(
         sort_by=sort_by,  # type: ignore[arg-type]
         order=order,  # type: ignore[arg-type]
     )
-    if result is None or not result.evaluations:
-        click.echo("No evaluations found.")
+    if result is None:
+        exit_unreadable("the evaluation list")
+    if not result.evaluations:
+        echo_empty(ctx, "No evaluations found.")
         return
 
     if ctx.obj["verbose"]:
@@ -187,22 +191,22 @@ def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: b
     if ctx.obj["verbose"]:
         click.echo(f"Resolved benchmark: {benchmark.name} ({benchmark.id})", err=True)
 
-    click.echo(f"Creating evaluation: {model.name} x {benchmark.name}")
+    echo_status(ctx, f"Creating evaluation: {model.name} x {benchmark.name}")
 
     evaluation = client.evaluations.create(model=model, benchmark=benchmark)
     if evaluation is None:
         click.echo("Failed to create evaluation.", err=True)
         sys.exit(1)
 
-    click.echo(f"Evaluation created: {evaluation.id} (status: {evaluation.status})")
+    echo_status(ctx, f"Evaluation created: {evaluation.id} (status: {format_value(evaluation.status)})")
 
     if wait:
-        click.echo("Waiting for completion...")
+        echo_status(ctx, "Waiting for completion...")
         evaluation = client.evaluations.wait_for_completion(evaluation)
         if evaluation is None:
             click.echo("Evaluation disappeared while waiting.", err=True)
             sys.exit(1)
-        click.echo(f"Evaluation finished: {evaluation.status}")
+        echo_status(ctx, f"Evaluation finished: {format_value(evaluation.status)}")
 
     output = format_output(evaluation, ctx.obj["output_format"])
     click.echo(output)

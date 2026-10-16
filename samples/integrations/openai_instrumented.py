@@ -1,7 +1,7 @@
 """Example: Instrument OpenAI with automatic LLM span capture.
 
 Requires:
-    pip install layerlens[openai]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]"
     export LAYERLENS_API_KEY="your-api-key"
     export OPENAI_API_KEY="your-openai-key"
 """

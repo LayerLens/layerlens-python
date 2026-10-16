@@ -28,7 +28,7 @@ driven through the real ``MCPProtocolAdapter``); this sample uploads it and
 evaluates the session's consent + schema-validation governance with domain judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

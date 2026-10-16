@@ -23,7 +23,7 @@ def main() -> None:
     try:
         from openai import AzureOpenAI  # type: ignore[import-not-found]
     except ImportError:
-        print("Install the Azure extra: pip install 'layerlens[azure]'")
+        print('Install the Azure extra: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[azure]"')
         return
 
     required = {"AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY"}

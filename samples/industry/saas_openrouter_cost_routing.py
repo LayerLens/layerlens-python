@@ -49,7 +49,7 @@ SEALED FIXTURE -- no OpenRouter credential exists
     output text and cost are unaffected (see ``metadata`` on the trace).
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
     (NO provider key needed -- the trace is already recorded.)
 

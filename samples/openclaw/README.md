@@ -16,7 +16,7 @@ LayerLens integrates with OpenClaw at two levels:
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package openclaw
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens openclaw
 export LAYERLENS_API_KEY=your-api-key
 ```
 

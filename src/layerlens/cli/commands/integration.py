@@ -5,6 +5,8 @@ import sys
 import click
 
 from .._client import get_client, handle_errors
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
 from .._formatter import format_output
 from .._completions import complete_integration
 
@@ -17,7 +19,7 @@ INTEGRATION_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def integration() -> None:
     """Manage integrations.
 
@@ -43,8 +45,10 @@ def list_integrations(ctx: click.Context, page: int | None, page_size: int | Non
     """
     client = get_client(ctx)
     result = client.integrations.get_many(page=page, page_size=page_size)
-    if result is None or not result.integrations:
-        click.echo("No integrations found.")
+    if result is None:
+        exit_unreadable("the integration list")
+    if not result.integrations:
+        echo_empty(ctx, "No integrations found.")
         return
 
     if ctx.obj["verbose"]:
@@ -73,13 +77,17 @@ def test_integration(ctx: click.Context, id: str) -> None:
         sys.exit(1)
 
     if result.success:
-        click.echo(f"Integration {id}: OK")
+        echo_status(ctx, f"Integration {id}: OK")
     else:
-        click.echo(f"Integration {id}: FAILED")
+        echo_status(ctx, f"Integration {id}: FAILED")
 
     if result.message:
-        click.echo(f"Message: {result.message}")
+        echo_status(ctx, f"Message: {result.message}")
 
     if ctx.obj["output_format"] == "json":
         output = format_output(result, "json")
         click.echo(output)
+
+    # A failed check is a failure for a script too, not only for the reader.
+    if not result.success:
+        sys.exit(1)

@@ -6,7 +6,7 @@ queries against a knowledge base and a Quality Judge agent evaluates
 retrieval quality, answer groundedness, and completeness.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

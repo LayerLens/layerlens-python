@@ -17,7 +17,7 @@ forecast with grid-safety and predictive-accuracy judges. Mirrors the ateam
 energy/grid_load_forecaster.py industry scenario.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

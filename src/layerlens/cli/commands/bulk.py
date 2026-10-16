@@ -6,7 +6,9 @@ import json
 import click
 
 from .._client import get_client, handle_errors, resolve_model, resolve_benchmark
-from .._formatter import format_output
+from .._output import echo_status
+from .._command import LayerLensGroup
+from .._formatter import format_value, format_output
 
 EVALUATION_COLUMNS = [
     ("id", "ID"),
@@ -16,7 +18,7 @@ EVALUATION_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def bulk() -> None:
     """Bulk operations.
 
@@ -95,12 +97,12 @@ def bulk_eval(
             sys.exit(1)
 
         if dry_run:
-            click.echo(f"[dry-run] Would create {len(jobs)} evaluation(s):")
+            echo_status(ctx, f"[dry-run] Would create {len(jobs)} evaluation(s):")
             for job in jobs:
-                click.echo(f"  model={job.get('model')} benchmark={job.get('benchmark')}")
+                echo_status(ctx, f"  model={job.get('model')} benchmark={job.get('benchmark')}")
             return
 
-        click.echo(f"Creating {len(jobs)} evaluation(s)...")
+        echo_status(ctx, f"Creating {len(jobs)} evaluation(s)...")
         evaluations = []
         for i, job in enumerate(jobs, 1):
             m = resolve_model(client, job["model"])
@@ -114,19 +116,33 @@ def bulk_eval(
 
             ev = client.evaluations.create(model=m, benchmark=b)
             if ev:
-                click.echo(f"  [{i}] Created: {ev.id}")
+                echo_status(ctx, f"  [{i}] Created: {ev.id}")
                 evaluations.append(ev)
             else:
                 click.echo(f"  [{i}] FAIL", err=True)
 
-        click.echo(f"\n{len(evaluations)} evaluation(s) created.")
+        echo_status(ctx, f"\n{len(evaluations)} evaluation(s) created.")
 
         if wait and evaluations:
-            click.echo("Waiting for completion...")
+            echo_status(ctx, "Waiting for completion...")
+            finished = []
             for ev in evaluations:
                 result = client.evaluations.wait_for_completion(ev)
                 if result:
-                    click.echo(f"  {result.id}: {result.status}")
+                    echo_status(ctx, f"  {result.id}: {format_value(result.status)}")
+                    finished.append(result)
+                else:
+                    click.echo(f"  {ev.id}: disappeared while waiting", err=True)
+            evaluations = finished
+
+        if ctx.obj["output_format"] == "json":
+            click.echo(format_output(evaluations, "json"))
+
+        # Exit 1 on a partial failure too, after reporting what did succeed.
+        failed = len(jobs) - len(evaluations)
+        if failed:
+            click.echo(f"{failed} of {len(jobs)} evaluation(s) failed; see above.", err=True)
+            sys.exit(1)
 
     elif model_id and benchmark_id:
         model = resolve_model(client, model_id)
@@ -147,21 +163,23 @@ def bulk_eval(
 
         else:
             if dry_run:
-                click.echo(f"[dry-run] Would create evaluation: {model.name} x {benchmark.name}")
+                echo_status(ctx, f"[dry-run] Would create evaluation: {model.name} x {benchmark.name}")
                 return
 
-            click.echo(f"Creating evaluation: {model.name} x {benchmark.name}")
+            echo_status(ctx, f"Creating evaluation: {model.name} x {benchmark.name}")
             ev = client.evaluations.create(model=model, benchmark=benchmark)
             if ev is None:
                 click.echo("Failed to create evaluation.", err=True)
                 sys.exit(1)
 
-            click.echo(f"Evaluation created: {ev.id}")
+            echo_status(ctx, f"Evaluation created: {ev.id}")
             if wait:
-                click.echo("Waiting for completion...")
+                echo_status(ctx, "Waiting for completion...")
                 ev = client.evaluations.wait_for_completion(ev)
-                if ev:
-                    click.echo(f"Evaluation finished: {ev.status}")
+                if ev is None:
+                    click.echo("Evaluation disappeared while waiting.", err=True)
+                    sys.exit(1)
+                echo_status(ctx, f"Evaluation finished: {format_value(ev.status)}")
 
             output = format_output(ev, ctx.obj["output_format"])
             click.echo(output)
@@ -175,22 +193,30 @@ def bulk_eval(
             sys.exit(1)
 
         if dry_run:
-            click.echo(f"[dry-run] Would create {len(trace_ids)} trace evaluation(s) with judge {judge_id}:")
+            echo_status(ctx, f"[dry-run] Would create {len(trace_ids)} trace evaluation(s) with judge {judge_id}:")
             for tid in trace_ids:
-                click.echo(f"  trace={tid}")
+                echo_status(ctx, f"  trace={tid}")
             return
 
-        click.echo(f"Creating {len(trace_ids)} trace evaluation(s) with judge {judge_id}...")
+        echo_status(ctx, f"Creating {len(trace_ids)} trace evaluation(s) with judge {judge_id}...")
         results = []
         for i, trace_id in enumerate(trace_ids, 1):
             te = client.trace_evaluations.create(trace_id=trace_id, judge_id=judge_id)
             if te:
-                click.echo(f"  [{i}] Created: {te.id} (trace={trace_id})")
+                echo_status(ctx, f"  [{i}] Created: {te.id} (trace={trace_id})")
                 results.append(te)
             else:
                 click.echo(f"  [{i}] FAIL (trace={trace_id})", err=True)
 
-        click.echo(f"\n{len(results)} trace evaluation(s) created.")
+        echo_status(ctx, f"\n{len(results)} trace evaluation(s) created.")
+
+        if ctx.obj["output_format"] == "json":
+            click.echo(format_output(results, "json"))
+
+        failed = len(trace_ids) - len(results)
+        if failed:
+            click.echo(f"{failed} of {len(trace_ids)} trace evaluation(s) failed; see above.", err=True)
+            sys.exit(1)
     else:
         click.echo("Provide --file, --model + --benchmark, or --judge-id + --traces.", err=True)
         sys.exit(1)

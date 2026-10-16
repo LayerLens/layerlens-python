@@ -5,7 +5,7 @@ This guide walks you through the most common SDK workflows.
 ## Setup
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 export LAYERLENS_API_KEY="your-api-key"
 ```
 

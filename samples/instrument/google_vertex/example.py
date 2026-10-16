@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[providers-vertex]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-vertex]"
     python samples/instrument/google_vertex/example.py
 
 See ``docs/adapters/providers/google_vertex.md`` for the Service Account JSON
@@ -22,7 +22,7 @@ def main() -> int:
         from layerlens.instrument.adapters.providers import GoogleVertexProvider
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Vertex deps with: pip install layerlens[providers-vertex]")
+        print('Install Vertex deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-vertex]"')
         return 0
 
     print("GoogleVertexProvider available.")
@@ -44,7 +44,7 @@ def main() -> int:
         from vertexai.generative_models import GenerativeModel  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Vertex deps with: pip install layerlens[providers-vertex]")
+        print('Install Vertex deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-vertex]"')
         return 0
 
     vertexai.init(project=project, location=os.environ.get("VERTEX_LOCATION", "us-central1"))

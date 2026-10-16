@@ -6,7 +6,7 @@ any MCP-compatible AI assistant can invoke.
 
 Prerequisites
 -------------
-    pip install layerlens --index-url https://sdk.layerlens.ai/package mcp
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens mcp
 
 Environment
 -----------

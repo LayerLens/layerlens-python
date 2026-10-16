@@ -8,7 +8,7 @@ model/token/cost events and renders the Agent, Framework, and Status columns
 from real data.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package anthropic
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens anthropic
     export LAYERLENS_API_KEY=your-api-key
     export ANTHROPIC_API_KEY=your-anthropic-key
 

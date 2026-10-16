@@ -48,7 +48,8 @@ class FrameworkAdapter(BaseAdapter):
             pkg = self.package or self.name
             raise ImportError(
                 "The '%s' package is required for %s instrumentation. "
-                "Install it with: pip install layerlens[%s]" % (pkg, self.name, pkg)
+                'Install it with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[%s]"'
+                % (pkg, self.name, pkg)
             )
 
     def __init__(self, client: Any, capture_config: Optional[CaptureConfig] = None) -> None:

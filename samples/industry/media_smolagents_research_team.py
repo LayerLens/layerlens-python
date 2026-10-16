@@ -20,7 +20,7 @@ delegations the framework emitted. This sample uploads the trace and evaluates
 the team's output with domain judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

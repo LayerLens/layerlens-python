@@ -19,7 +19,7 @@ def main() -> None:
     try:
         from anthropic import Anthropic  # type: ignore[import-not-found]
     except ImportError:
-        print("Install the Anthropic extra: pip install 'layerlens[anthropic]'")
+        print('Install the Anthropic extra: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[anthropic]"')
         return
 
     if not os.environ.get("ANTHROPIC_API_KEY"):

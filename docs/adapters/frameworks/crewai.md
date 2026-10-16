@@ -7,7 +7,7 @@ handled via the dispatcher fallback.
 ## Install
 
 ```bash
-pip install layerlens[crewai]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[crewai]"
 ```
 
 Pulls `crewai>=0.30.0`. CrewAI 0.30+ is Pydantic v2-only

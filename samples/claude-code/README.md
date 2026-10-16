@@ -8,7 +8,7 @@ or `/investigate` -- enabling AI-assisted quality assurance without leaving the 
 ## Prerequisites
 
 - Claude Code CLI installed and configured
-- The LayerLens Python SDK installed: `pip install layerlens --index-url https://sdk.layerlens.ai/package`
+- The LayerLens Python SDK installed: `uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens`
 - `LAYERLENS_API_KEY` set as an environment variable
 
 To register the skills, add the `samples/claude-code/skills/` directory to your Claude Code

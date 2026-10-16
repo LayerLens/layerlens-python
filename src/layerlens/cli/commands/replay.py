@@ -8,6 +8,7 @@ from typing import Callable, cast
 import click
 
 from ...replay import ReplayRequest, ReplayController
+from .._command import LayerLensGroup
 from .._safe_loader import load_callable
 from ...models.trace import Trace
 
@@ -22,7 +23,7 @@ def _load_callable(spec: str) -> Callable[..., Trace]:
     return cast(Callable[..., Trace], load_callable(spec, param_hint="--replay-fn"))
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def replay() -> None:
     """Replay traces locally with overrides."""
 

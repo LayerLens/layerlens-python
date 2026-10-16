@@ -5,7 +5,7 @@ Shows the core trace-evaluation workflow in under 50 lines:
 init client, upload a trace, create a judge, evaluate, get results.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY="your-api-key"
 """
 

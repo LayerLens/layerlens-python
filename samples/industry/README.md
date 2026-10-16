@@ -9,7 +9,7 @@ tailored to the compliance, safety, and accuracy requirements of each vertical.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 export LAYERLENS_API_KEY=your-api-key
 ```
 

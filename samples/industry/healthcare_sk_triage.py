@@ -24,7 +24,7 @@ samples/data/generators/semantic_kernel.py); this sample uploads it and evaluate
 the triage decision with domain judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

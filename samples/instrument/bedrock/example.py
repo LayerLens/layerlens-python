@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[bedrock]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]"
     python samples/instrument/bedrock/example.py
 
 See ``docs/adapters/providers/bedrock.md`` for the required IAM permissions
@@ -21,7 +21,7 @@ def main() -> int:
         from layerlens.instrument.adapters.providers import BedrockProvider
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Bedrock deps with: pip install layerlens[bedrock]")
+        print('Install Bedrock deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]"')
         return 0
 
     print("BedrockProvider available.")
@@ -29,7 +29,7 @@ def main() -> int:
         import boto3  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install boto3: pip install layerlens[bedrock]")
+        print('Install boto3: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]"')
         return 0
 
     region = os.environ.get("AWS_REGION", "us-east-1")

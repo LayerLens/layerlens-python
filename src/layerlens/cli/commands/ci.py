@@ -7,10 +7,12 @@ from datetime import datetime
 import click
 
 from .._client import get_client, handle_errors
+from .._output import echo_status
+from .._command import LayerLensGroup
 from .._formatter import to_dict
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def ci() -> None:
     """CI/CD pipeline helpers.
 
@@ -48,7 +50,7 @@ def ci_report(ctx: click.Context, output_file: str | None, limit: int, dry_run: 
       layerlens ci report >> $GITHUB_STEP_SUMMARY
     """
     if dry_run:
-        click.echo("[dry-run] Would generate CI report")
+        echo_status(ctx, "[dry-run] Would generate CI report")
         return
 
     client = get_client(ctx)
@@ -78,7 +80,7 @@ def ci_report(ctx: click.Context, output_file: str | None, limit: int, dry_run: 
     if output_file:
         with open(output_file, "w") as f:
             f.write(content)
-        click.echo(f"Report written to {output_file}")
+        echo_status(ctx, f"Report written to {output_file}")
     else:
         click.echo(content)
 

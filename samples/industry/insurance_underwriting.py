@@ -5,7 +5,7 @@ Evaluates AI underwriting decisions for risk assessment accuracy,
 regulatory compliance (fair lending), and pricing consistency.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

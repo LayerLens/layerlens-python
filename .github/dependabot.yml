@@ -1,0 +1,10 @@
+# Third-party actions are pinned to commit SHAs (a tag can be moved to other code);
+# Dependabot keeps those pins, and their `# vX` comments, current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+      - "/.github/actions/setup-locked-env"
+    schedule:
+      interval: weekly

@@ -14,7 +14,7 @@ Framework adapters plug into agent frameworks as callback handlers. Unlike provi
 ### Installation
 
 ```bash
-pip install layerlens[langchain]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"
 ```
 
 ### Usage
@@ -106,7 +106,7 @@ The LangGraph adapter extends the LangChain handler with graph node awareness.
 ### Installation
 
 ```bash
-pip install layerlens[langchain]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"
 ```
 
 ### Usage

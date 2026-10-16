@@ -18,7 +18,7 @@ samples/data/traces/industry/. This sample uploads it and evaluates whether the
 forecast was correctly grounded in the tool's live reading.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

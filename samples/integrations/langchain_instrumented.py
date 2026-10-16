@@ -1,7 +1,7 @@
 """Example: Instrument a LangChain chain with automatic span capture.
 
 Requires:
-    pip install layerlens[langchain] langchain-openai
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]" langchain-openai
     export LAYERLENS_API_KEY="your-api-key"
     export OPENAI_API_KEY="your-openai-key"
 """

@@ -8,7 +8,7 @@ exploring domain-specific or advanced patterns.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 export LAYERLENS_API_KEY=your-api-key
 ```
 

@@ -28,7 +28,7 @@ rationale is its own real wording and is shipped verbatim, imprecision included
 score, and editing the model's answer to look better would be fabrication.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
     No provider key is needed: the browse and the model call already happened

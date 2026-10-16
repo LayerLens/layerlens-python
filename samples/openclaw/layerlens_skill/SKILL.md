@@ -29,7 +29,7 @@ quality judges, run evaluations, and retrieve scored results.
 Install the LayerLens Python SDK:
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 Set your API key:

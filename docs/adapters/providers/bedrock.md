@@ -11,7 +11,7 @@ caller's single-read `StreamingBody` still works.
 ## Install
 
 ```bash
-pip install layerlens[bedrock]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]"
 ```
 
 Pulls `boto3` for the `bedrock-runtime` client.

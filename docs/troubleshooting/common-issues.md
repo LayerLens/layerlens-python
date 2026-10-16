@@ -11,7 +11,7 @@ This guide covers frequently encountered issues when using the LayerLens Python 
 Make sure to include the custom package index:
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 ### Python Version Incompatibility

@@ -6,6 +6,8 @@ import json
 import click
 
 from .._client import get_client, handle_errors
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
 from .._formatter import to_dict, format_output
 from .._completions import complete_trace
 
@@ -17,7 +19,7 @@ TRACE_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def trace() -> None:
     """Manage traces.
 
@@ -66,8 +68,10 @@ def list_traces(
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    if result is None or not result.traces:
-        click.echo("No traces found.")
+    if result is None:
+        exit_unreadable("the trace list")
+    if not result.traces:
+        echo_empty(ctx, "No traces found.")
         return
 
     if ctx.obj["verbose"]:
@@ -136,8 +140,10 @@ def search_traces(
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    if result is None or not result.traces:
-        click.echo("No traces found matching your query.")
+    if result is None:
+        exit_unreadable("the trace search results")
+    if not result.traces:
+        echo_empty(ctx, "No traces found matching your query.")
         return
 
     if ctx.obj["verbose"]:
@@ -178,7 +184,7 @@ def export_trace(ctx: click.Context, id: str, output_file: str | None) -> None:
     if output_file:
         with open(output_file, "w") as f:
             f.write(json_str)
-        click.echo(f"Trace exported to {output_file}")
+        echo_status(ctx, f"Trace exported to {output_file}")
     else:
         click.echo(json_str)
 
@@ -197,12 +203,13 @@ def delete_trace(ctx: click.Context, id: str, yes: bool) -> None:
       layerlens trace delete abc123 --yes
     """
     if not yes:
-        click.confirm(f"Are you sure you want to delete trace {id}?", abort=True)
+        # On stderr: a prompt is not output, and stdout may be JSON.
+        click.confirm(f"Are you sure you want to delete trace {id}?", abort=True, err=True)
 
     client = get_client(ctx)
     success = client.traces.delete(id)
     if success:
-        click.echo(f"Trace {id} deleted.")
+        echo_status(ctx, f"Trace {id} deleted.")
     else:
         click.echo(f"Failed to delete trace {id}.", err=True)
         sys.exit(1)

@@ -17,7 +17,7 @@ accuracy and n is the number of steps. The consequences are not.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
 * Set ``LAYERLENS_API_KEY`` environment variable
 * (Optional) ``pip install matplotlib`` for PNG chart export
 

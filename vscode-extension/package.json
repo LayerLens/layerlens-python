@@ -4,6 +4,12 @@
   "description": "LayerLens trace viewer, debugger, and SDK integration for VS Code.",
   "version": "0.1.0",
   "publisher": "LayerLens",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LayerLens/stratix-python",
+    "directory": "vscode-extension"
+  },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other", "Debuggers", "Testing"],
   "activationEvents": ["onStartupFinished"],

@@ -14,7 +14,7 @@ Demonstrates two approaches for fetching evaluation results:
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
 * Set ``LAYERLENS_API_KEY`` environment variable
 * At least one completed evaluation in the project
 

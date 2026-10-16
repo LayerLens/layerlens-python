@@ -5,7 +5,7 @@ Evaluates document processing for extraction accuracy, cross-field
 consistency, and structural integrity using dedicated judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

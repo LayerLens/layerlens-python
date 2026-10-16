@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import click
 
+from ._command import LayerLensGroup, base_url_for, root_options
 from .._version import __version__
 from .commands.ci import ci
 from .commands.auth import login, logout, whoami
@@ -16,24 +17,8 @@ from .commands.evaluations import evaluations
 from .commands.integration import integration
 
 
-@click.group()
-@click.option(
-    "--api-key",
-    envvar="LAYERLENS_API_KEY",
-    default=None,
-    help="API key for authentication (default: $LAYERLENS_API_KEY).",
-)
-@click.option("--host", default=None, help="API host (e.g. api.layerlens.ai).")
-@click.option("--port", default=None, type=int, help="API port.")
-@click.option(
-    "--format",
-    "output_format",
-    type=click.Choice(["table", "json"]),
-    default="table",
-    help="Output format.",
-)
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose/debug output.")
-@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress the startup banner.")
+@click.group(cls=LayerLensGroup)
+@root_options
 @click.version_option(version=__version__, prog_name="layerlens")
 @click.pass_context
 def cli(
@@ -45,14 +30,15 @@ def cli(
     verbose: bool,
     quiet: bool,
 ) -> None:
-    """LayerLens CLI — manage traces, judges, evaluations, integrations, and more."""
-    import sys
+    """LayerLens CLI — manage traces, judges, evaluations, integrations, and more.
 
-    if not quiet and sys.stderr.isatty():
-        from ._banner import banner
+    The options below, except --version, also work at the end of the command.
 
-        click.echo(banner(__version__), err=True)
-
+    \b
+    Examples:
+      layerlens --format json judge get <judge-id>
+      layerlens judge get <judge-id> --format json
+    """
     ctx.ensure_object(dict)
     ctx.obj["api_key"] = api_key
     # Where the key came from, so `whoami` can say so.
@@ -60,16 +46,11 @@ def cli(
     ctx.obj["api_key_source"] = "LAYERLENS_API_KEY" if from_env else "--api-key"
     ctx.obj["output_format"] = output_format
     ctx.obj["verbose"] = verbose
-
-    # Build base_url from --host / --port
-    base_url = None
-    if host is not None:
-        scheme = "https" if port in (None, 443) else "http"
-        if port and port not in (80, 443):
-            base_url = f"{scheme}://{host}:{port}/api/v1"
-        else:
-            base_url = f"{scheme}://{host}/api/v1"
-    ctx.obj["base_url"] = base_url
+    # The banner is shown by the command (see _command.LayerLensCommand), once a -q after it is known.
+    ctx.obj["quiet"] = quiet
+    ctx.obj["host"] = host
+    ctx.obj["port"] = port
+    ctx.obj["base_url"] = base_url_for(host, port)
 
 
 # Core commands

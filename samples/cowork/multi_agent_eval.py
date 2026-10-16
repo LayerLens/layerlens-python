@@ -6,7 +6,7 @@ produces responses and an Evaluator agent scores them using LayerLens
 SafetyJudge and FactualAccuracyJudge.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package anthropic
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens anthropic
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

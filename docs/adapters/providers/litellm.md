@@ -10,7 +10,7 @@ argument.
 ## Install
 
 ```bash
-pip install layerlens[litellm]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"
 ```
 
 Pulls the `litellm` package.

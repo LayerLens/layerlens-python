@@ -1,3 +1,7 @@
+# layerlens comes from the LayerLens index; `layerlens` on public PyPI is an unrelated
+# project. Install with `uv pip install -r`: uv takes layerlens only from this index,
+# while pip would take whichever index offers the higher version.
+--extra-index-url https://sdk.layerlens.ai/package
 ag-ui-langgraph==0.0.34
 ag-ui-protocol==0.1.18
 annotated-doc==0.0.4

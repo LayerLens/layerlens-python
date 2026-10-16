@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[azure]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[azure]"
     python samples/instrument/azure_openai/example.py
 
 See ``docs/adapters/providers/azure_openai.md`` for deployment setup
@@ -20,7 +20,7 @@ def main() -> int:
         from layerlens.instrument.adapters.providers import AzureOpenAIProvider
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Azure deps with: pip install layerlens[azure]")
+        print('Install Azure deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[azure]"')
         return 0
 
     print("AzureOpenAIProvider available.")
@@ -28,7 +28,7 @@ def main() -> int:
         from openai import AzureOpenAI  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install the OpenAI SDK: pip install layerlens[azure]")
+        print('Install the OpenAI SDK: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[azure]"')
         return 0
 
     endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "https://<resource>.openai.azure.com")

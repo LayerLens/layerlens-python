@@ -7,18 +7,24 @@ import json
 
 import click
 
+from .._command import LayerLensGroup
 from ...synthetic import SyntheticDataBuilder
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def synthetic() -> None:
     """Generate synthetic traces from templates."""
 
 
 @synthetic.command("templates")
-def templates() -> None:
+@click.pass_context
+def templates(ctx: click.Context) -> None:
     """List available templates."""
-    for t in SyntheticDataBuilder().list_templates():
+    found = SyntheticDataBuilder().list_templates()
+    if ctx.obj["output_format"] == "json":
+        click.echo(json.dumps([{"id": t.id, "category": t.category.value, "title": t.title} for t in found], indent=2))
+        return
+    for t in found:
         click.echo(f"{t.id:30s} {t.category.value:15s} {t.title}")
 
 

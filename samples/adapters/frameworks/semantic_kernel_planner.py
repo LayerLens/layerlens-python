@@ -20,7 +20,7 @@ async def run() -> None:
         from semantic_kernel import Kernel  # type: ignore[import-not-found]
         from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion  # type: ignore[import-not-found]
     except ImportError:
-        print("Install: pip install 'layerlens[semantic-kernel]' semantic-kernel")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[semantic-kernel]" semantic-kernel')
         return
 
     if not os.environ.get("OPENAI_API_KEY"):

@@ -2,7 +2,7 @@
 """Example: working with integrations via the LayerLens SDK.
 
 Requires:
-    pip install layerlens
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY="your-api-key"
 """
 

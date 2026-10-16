@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[langgraph]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langgraph]"
     python samples/instrument/langgraph/example.py
 """
 
@@ -20,7 +20,7 @@ def main() -> int:
         handler = LangGraphCallbackHandler(client=layerlens_client)
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install LangGraph with: pip install layerlens[langgraph]")
+        print('Install LangGraph with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langgraph]"')
         return 0
 
     print(f"LangGraphCallbackHandler ready: requires_pydantic={handler.requires_pydantic}")

@@ -6,7 +6,7 @@ AutoGen's structured event logging API (autogen-core ≥ 0.4).
 ## Install
 
 ```bash
-pip install layerlens[autogen]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[autogen]"
 ```
 
 Pulls `autogen-agentchat>=0.4.0` (and `autogen-core` as a transitive dep).

@@ -76,11 +76,25 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 ## Installation
 
 > [!NOTE]
-> `layerlens` is hosted on a private index during early access. Use the command below — the plain `pip install layerlens[cli]` will not work yet.
+> `layerlens` is hosted on the LayerLens package index during early access. The `layerlens` package on public PyPI is an unrelated project, so where the SDK comes from matters.
+
+Install with [uv](https://docs.astral.sh/uv/) (`pip install uv` if you don't have it), in a virtual environment:
 
 ```bash
-pip install --extra-index-url https://sdk.layerlens.ai/package layerlens[cli]
+uv venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
 ```
+
+uv takes each package from the first index that has it, so `layerlens` comes only from the LayerLens index and its dependencies from PyPI.
+
+**With pip,** install `layerlens` itself from the LayerLens index first, then its dependencies:
+
+```bash
+pip install --no-deps --index-url https://sdk.layerlens.ai/package layerlens
+pip install "layerlens[cli]"
+```
+
+Don't give pip `--extra-index-url` for `layerlens`: pip merges the two indexes and installs whichever `layerlens` has the higher version, so a higher-versioned release of the unrelated PyPI project would replace this SDK. For the same reason, to upgrade add `--upgrade` to the first command (it reads only the LayerLens index), never to the second, then run the second again. `--index-url` alone doesn't work: the LayerLens index hosts only `layerlens`, so pip can't find its dependencies.
 
 ## Quick Start
 
@@ -90,7 +104,7 @@ pip install --extra-index-url https://sdk.layerlens.ai/package layerlens[cli]
 ### 1. Install
 
 ```bash
-pip install --extra-index-url https://sdk.layerlens.ai/package layerlens[cli]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
 ```
 
 ### 2. Set your API key
@@ -148,7 +162,7 @@ Adapters normalize traces from the agent frameworks, protocols and model provide
 Install the extra for your stack — one per framework or provider, e.g. `layerlens[langchain]`, `layerlens[crewai]`, `layerlens[mcp]`:
 
 ```bash
-pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"
 ```
 
 Then let `auto()` wire an adapter for everything it finds installed:
@@ -321,13 +335,6 @@ The LayerLens Discord is the best place to:
 
 Full documentation is available at [layerlens.gitbook.io/stratix-python-sdk](https://layerlens.gitbook.io/stratix-python-sdk).
 
-To build docs locally:
-
-```bash
-pip install layerlens[docs]
-mkdocs serve
-```
-
 ## Versioning and Compatibility
 
 The SDK follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): breaking changes only in a major release, new capability in minors, fixes in patches. Anything not documented here or in the docs site — modules and attributes prefixed with `_`, and internal event fields — is not part of the public API and can change in any release. Every release is recorded in [CHANGELOG.md](./CHANGELOG.md), with deprecations announced there at least one minor version before removal.
@@ -353,7 +360,7 @@ Apache 2.0. See [LICENSE](./LICENSE).
 **Get started in under 2 minutes:**
 
 ```bash
-pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"
 export LAYERLENS_API_KEY="your-api-key"
 python3 -c "from layerlens import PublicClient; pc = PublicClient(); print(pc.models.get(page_size=5))"
 ```

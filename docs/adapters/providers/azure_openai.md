@@ -11,7 +11,7 @@ and Azure pricing layered on top.
 ## Install
 
 ```bash
-pip install layerlens[azure]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[azure]"
 ```
 
 Pulls the OpenAI Python SDK (`AzureOpenAI` lives in the `openai` package).

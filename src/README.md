@@ -6,7 +6,7 @@ The LayerLens Python library provides convenient access to the LayerLens REST AP
 
 ```sh
 # Install from PyPI
-pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 ## Usage

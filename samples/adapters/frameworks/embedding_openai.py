@@ -22,7 +22,7 @@ def main() -> None:
     try:
         import openai  # type: ignore[import-not-found]
     except ImportError:
-        print("Install: pip install 'layerlens[openai]' openai")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]" openai')
         return
 
     if not os.environ.get("OPENAI_API_KEY"):

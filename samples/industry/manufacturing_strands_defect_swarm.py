@@ -18,7 +18,7 @@ fabricated: the Framework column shows ``strands``, the agent nodes are the real
 producer-declared identities, and the handoff edges are genuine.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

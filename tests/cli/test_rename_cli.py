@@ -238,11 +238,11 @@ class TestWhoami:
 
 
 def _run_entry_point(
-    entry: str, *args: str, extra_env: "dict[str, str] | None" = None
+    entry: str, *args: str, extra_env: "dict[str, str] | None" = None, prog: str = "prog"
 ) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in ALL_ENV_VARS}
     env.update(extra_env or {})
-    code = f"import sys; sys.argv = ['prog', *{list(args)!r}]; from layerlens.cli import {entry}; {entry}()"
+    code = f"import sys; sys.argv = [{prog!r}, *{list(args)!r}]; from layerlens.cli import {entry}; {entry}()"
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=60)
 
 
@@ -269,10 +269,13 @@ class TestCommandName:
         # The shell calls the program on every TAB; a notice there lands in the prompt.
         completion = {"_STRATIX_COMPLETE": "bash_complete", "COMP_WORDS": "stratix tr", "COMP_CWORD": "1"}
 
-        proc = _run_entry_point("legacy_main", extra_env=completion)
+        # click reads the completion variable named after the program, so the
+        # process has to be called `stratix` for _STRATIX_COMPLETE to apply.
+        proc = _run_entry_point("legacy_main", extra_env=completion, prog="stratix")
 
         assert proc.returncode == 0, proc.stderr
-        assert "trace" in proc.stdout
+        # A completion reply ("plain,trace"), not the help text that lists `trace` too.
+        assert proc.stdout.splitlines() == ["plain,trace"], proc.stdout
         # Our notice must not appear. (Other packages may warn at import time, e.g.
         # requests' RequestsDependencyWarning in CI; that is not ours to silence.)
         assert "deprecated" not in proc.stderr, proc.stderr

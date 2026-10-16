@@ -13,7 +13,7 @@ Three steps to your first evaluation:
 **1. Install the SDK**
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 **2. Set your API key**

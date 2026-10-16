@@ -5,7 +5,7 @@ The LayerLens Python SDK ships with 70+ runnable samples covering every API reso
 ## Quick Start
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 export LAYERLENS_API_KEY=your-api-key
 python samples/core/quickstart.py
 ```

@@ -5,6 +5,8 @@ import sys
 import click
 
 from .._client import get_client, handle_errors
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
 from .._formatter import format_output
 from .._completions import complete_judge, complete_model, complete_trace
 
@@ -17,7 +19,7 @@ JUDGE_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def judge() -> None:
     """Manage judges.
 
@@ -46,8 +48,10 @@ def list_judges(ctx: click.Context, page: int | None, page_size: int | None) -> 
     """
     client = get_client(ctx)
     result = client.judges.get_many(page=page, page_size=page_size)
-    if result is None or not result.judges:
-        click.echo("No judges found.")
+    if result is None:
+        exit_unreadable("the judge list")
+    if not result.judges:
+        echo_empty(ctx, "No judges found.")
         return
 
     if ctx.obj["verbose"]:
@@ -104,7 +108,7 @@ def create_judge(ctx: click.Context, name: str, goal: str, model_id: str | None)
         click.echo("Failed to create judge.", err=True)
         sys.exit(1)
 
-    click.echo(f"Judge created: {j.id}")
+    echo_status(ctx, f"Judge created: {j.id}")
     output = format_output(j, ctx.obj["output_format"])
     click.echo(output)
 
@@ -140,7 +144,7 @@ def test_judge(ctx: click.Context, judge_id: str, trace_id: str) -> None:
         click.echo("Failed to create trace evaluation.", err=True)
         sys.exit(1)
 
-    click.echo(f"Trace evaluation created: {te.id}")
+    echo_status(ctx, f"Trace evaluation created: {te.id}")
     # Point users at the right command to retrieve the result. Without this hint
     # they tend to reach for `evaluate get`, which targets the unrelated
     # benchmark-evaluations endpoint and fails on a trace-evaluation ID.

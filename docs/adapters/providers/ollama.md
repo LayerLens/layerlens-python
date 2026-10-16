@@ -8,7 +8,7 @@ and (optionally) attributes compute time as infra cost.
 ## Install
 
 ```bash
-pip install layerlens[providers-ollama]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-ollama]"
 ```
 
 Pulls `ollama>=0.1`. The `ollama` extra is kept as an alias for prior

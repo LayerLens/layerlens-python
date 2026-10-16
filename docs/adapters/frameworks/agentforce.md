@@ -9,7 +9,7 @@ than a callback or filter API.
 ## Install
 
 ```bash
-pip install layerlens[agentforce]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[agentforce]"
 ```
 
 Pulls `httpx>=0.27.0` for the Salesforce REST client.

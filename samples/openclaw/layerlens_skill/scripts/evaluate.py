@@ -14,7 +14,7 @@ Usage:
     echo '{"input": "prompt", "output": "response", "goal": "accuracy"}' | python evaluate.py
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 """
 
@@ -33,7 +33,7 @@ except ImportError:
     print(
         json.dumps(
             {
-                "error": "layerlens package not installed. Run: pip install layerlens --index-url https://sdk.layerlens.ai/package",
+                "error": "layerlens package not installed. Run: uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens",
                 "success": False,
             }
         )

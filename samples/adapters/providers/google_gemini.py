@@ -19,7 +19,7 @@ def main() -> None:
     try:
         from vertexai.generative_models import GenerativeModel  # type: ignore[import-not-found]
     except ImportError:
-        print("Install the Vertex extra: pip install 'layerlens[google-vertex]'")
+        print('Install the Vertex extra: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[google-vertex]"')
         return
 
     if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get(

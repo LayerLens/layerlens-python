@@ -8,7 +8,7 @@ The official Python library for the [LayerLens](https://app.layerlens.ai) evalua
 ## Installation
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 ## Authentication

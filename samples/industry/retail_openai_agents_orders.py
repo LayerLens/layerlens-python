@@ -18,7 +18,7 @@ samples/data/generators/openai_agents.py); this sample uploads it and evaluates
 the answer with domain judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:

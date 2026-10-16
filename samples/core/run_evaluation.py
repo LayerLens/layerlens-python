@@ -15,7 +15,7 @@ layerlens SDK client instead of raw httpx calls.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
 * Set ``LAYERLENS_API_KEY`` environment variable
 * At least one model and benchmark configured in the project
 

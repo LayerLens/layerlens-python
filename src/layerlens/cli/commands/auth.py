@@ -6,8 +6,11 @@ import sys
 
 import click
 
+from .._command import LayerLensCommand
+from .._formatter import format_output
 
-@click.command()
+
+@click.command(cls=LayerLensCommand)
 @click.pass_context
 def login(ctx: click.Context) -> None:
     """Authenticate with LayerLens using email and password."""
@@ -40,7 +43,7 @@ def login(ctx: click.Context) -> None:
         sys.exit(1)
 
 
-@click.command()
+@click.command(cls=LayerLensCommand)
 def logout() -> None:
     """Clear stored authentication credentials."""
     from .._auth import load_credentials, clear_credentials
@@ -53,7 +56,7 @@ def logout() -> None:
     click.echo("Logged out successfully.", err=True)
 
 
-@click.command()
+@click.command(cls=LayerLensCommand)
 @click.pass_context
 def whoami(ctx: click.Context) -> None:
     """Display the currently authenticated user or API key."""
@@ -71,6 +74,10 @@ def whoami(ctx: click.Context) -> None:
     if resolved is not None:
         client = build_client(ctx, resolved.value, use_bearer_auth=False)
         click.echo(f"Authenticated with an API key from {resolved.source}.", err=True)
+        if ctx.obj["output_format"] == "json":
+            identity = {"organization_id": client.organization_id, "project_id": client.project_id}
+            click.echo(format_output({"auth": "api_key", "source": resolved.source, **identity}, "json"))
+            return
         click.echo(f"  Organization: {client.organization_id}")
         click.echo(f"  Project:      {client.project_id}")
         return
@@ -88,6 +95,11 @@ def whoami(ctx: click.Context) -> None:
     info = get_user_info(token)
     if info is None:
         click.echo("Authenticated (could not fetch user details).", err=True)
+        return
+
+    if ctx.obj["output_format"] == "json":
+        user = {"email": info.get("email"), "name": info.get("name") or info.get("given_name"), "id": info.get("sub")}
+        click.echo(format_output({"auth": "login", **user}, "json"))
         return
 
     email = info.get("email", "unknown")

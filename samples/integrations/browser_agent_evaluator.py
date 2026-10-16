@@ -12,7 +12,7 @@ Works in three modes:
   - live: runs Browser Use against the task suite (requires browser-use)
 
 Prerequisites:
-    pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
     export LAYERLENS_API_KEY=your-api-key
 
 Usage:
