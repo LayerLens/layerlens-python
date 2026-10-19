@@ -40,6 +40,8 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 - **`layerlens[marvin]` caps `genai-prices` below 0.1.** pydantic-ai 1.9-1.94 (the `[marvin]` extra caps pydantic-ai below 1.95) raises a `TypeError` extracting usage once genai-prices 0.1 is installed, swallows it, and reports zero tokens for every run. pydantic-ai 1.107.7 applies the same cap itself; it will be removed once marvin supports pydantic-ai >= 1.95
 
+- **strands: the adapter traces only while it is connected**, as the other framework adapters do. An agent built with `Agent(hooks=[adapter])` used to be traced even if `adapter.connect()` was never called. It is now traced from `connect()` until `disconnect()`. Attaching the adapter while it isn't connected logs a warning (once per adapter)
+
 ### Fixed
 
 - **`LAYERLENS_API_KEY` was rejected by every CLI command.** The CLI sent it as a
@@ -119,6 +121,10 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **crewai >= 1.15: a failed Flow uploads its trace, with the error, when it fails.** The adapter did not handle `FlowFailedEvent`, so a failed flow's trace stayed open until `disconnect()` (in a process that never disconnects, it was never uploaded), and the executor flow of each failed agent attempt was left without an end
 
 - **pydantic-ai: no `cost.record` without token counts.** When pydantic-ai reports no tokens for a run (a provider that omits `usage`, or pydantic-ai 1.9-1.94 with genai-prices >= 0.1, which loses usage inside pydantic-ai) the adapter still emitted a `cost.record` carrying only the request count: a cost event with nothing to price. It is now emitted only when token counts are present; `agent.output` still reports `model_requests`
+
+- **strands: `disconnect()` stops tracing.** An agent built with `Agent(hooks=[adapter])` kept being traced after `disconnect()` on every strands-agents version. From strands-agents 1.43.0 the same happened with `connect(target=agent)`, and reconnecting registered every hook a second time, so each event fired twice. `disconnect()` now removes the adapter's hooks from every agent it was attached to, either way. If a hook can't be removed, the adapter logs a warning and that hook no longer starts a trace. To trace an agent again after `disconnect()`, attach the adapter to it again. Attaching the adapter twice to the same agent now registers its hooks once
+
+- **strands: a run in progress at `disconnect()` is uploaded.** Before, a run in progress when hooks were removed (on strands-agents 1.42 with `connect(target=agent)`) was dropped. If that run was in a long-lived asyncio task, the task uploaded nothing again, even after the adapter was reconnected. Now `disconnect()` stops new runs at once, and a run already in progress finishes and uploads before the adapter's hooks leave its agent
 
 ### Deprecated
 

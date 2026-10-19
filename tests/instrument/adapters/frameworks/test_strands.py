@@ -6,7 +6,14 @@ Tests call hook handler methods directly with properly constructed event objects
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import gc
+import asyncio
+import logging
+import weakref
+import threading
+import contextvars
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
 from unittest.mock import Mock
 
 import pytest
@@ -19,6 +26,7 @@ from strands.hooks.events import (  # noqa: E402
     BeforeToolCallEvent,
     AfterInvocationEvent,
     BeforeModelCallEvent,
+    AgentInitializedEvent,
     BeforeInvocationEvent,
 )
 
@@ -103,6 +111,10 @@ def _simulate_invocation(
     result: Optional[Any] = None,
 ) -> None:
     """Simulate a full Strands agent invocation lifecycle via hook calls."""
+    # The adapter only traces agents it is attached to, as with
+    # Agent(hooks=[adapter]); a no-op when it already is.
+    agent.hooks.add_hook(adapter)
+
     # BeforeInvocation
     before_inv = BeforeInvocationEvent(agent=agent, invocation_state={}, messages=messages)
     adapter._on_before_invocation(before_inv)
@@ -175,6 +187,121 @@ def _simulate_invocation(
     adapter._on_after_invocation(after_inv)
 
 
+#: The seven lifecycle events the adapter hooks.
+_HOOK_EVENTS = (
+    AgentInitializedEvent,
+    BeforeInvocationEvent,
+    AfterInvocationEvent,
+    BeforeModelCallEvent,
+    AfterModelCallEvent,
+    BeforeToolCallEvent,
+    AfterToolCallEvent,
+)
+
+
+def _hooks_for(registry: HookRegistry, event_type: type) -> List[Any]:
+    """The callbacks *registry* dispatches for *event_type*.
+
+    Read through the public ``get_callbacks_for`` so the answer doesn't depend
+    on how strands stores them: bare callbacks up to 1.42.0,
+    ``_CallbackEntry(callback=..., order=...)`` from 1.43.0. Dispatch reads only
+    the event's type and ``should_reverse_callbacks``, so an uninitialised
+    instance is enough to ask.
+    """
+    return list(registry.get_callbacks_for(object.__new__(event_type)))
+
+
+def _adapter_hooks(registry: HookRegistry, adapter: StrandsAdapter) -> List[Any]:
+    return [cb for et in _HOOK_EVENTS for cb in _hooks_for(registry, et) if getattr(cb, "__self__", None) is adapter]
+
+
+def _register(adapter: StrandsAdapter, agent: Any, how: str) -> None:
+    """Attach *adapter* to *agent* in one of the two ways a customer can."""
+    if how == "connect(target=agent)":
+        adapter.connect(target=agent)
+    else:
+        # What Agent(hooks=[adapter]) does: HookRegistry.add_hook -> register_hooks.
+        adapter.connect()
+        agent.hooks.add_hook(adapter)
+
+
+_REGISTRATIONS = pytest.mark.parametrize("how", ["connect(target=agent)", "hooks=[adapter]"])
+
+
+class _BareCallbackRegistry:
+    """strands <= 1.42.0 ``HookRegistry`` storage: event type -> list of bare
+    callbacks. 1.43.0 wrapped each one in ``_CallbackEntry``; the matrix row
+    runs a release with the newer layout, so the older one is kept here."""
+
+    def __init__(self) -> None:
+        self._registered_callbacks: Dict[type, List[Any]] = {}
+
+    def add_callback(self, event_type: type, callback: Any) -> None:
+        self._registered_callbacks.setdefault(event_type, []).append(callback)
+
+
+class _OpaqueRegistry:
+    """A hook registry whose storage the adapter can't recognise."""
+
+    def __init__(self) -> None:
+        self._hooks: List[Any] = []
+
+    @property
+    def hooks(self) -> List[Any]:
+        return [callback for _, callback in self._hooks]
+
+    def add_callback(self, event_type: type, callback: Any) -> None:
+        self._hooks.append((event_type, callback))
+
+    def invoke(self, event: Any) -> None:
+        for event_type, callback in self._hooks:
+            if isinstance(event, event_type):
+                callback(event)
+
+
+class _RenamedEntryRegistry:
+    """strands' ``_registered_callbacks`` dict of lists, but each entry keeps
+    the callback under a field the adapter doesn't know: the kind of change
+    1.43.0 made when it introduced ``_CallbackEntry``."""
+
+    def __init__(self) -> None:
+        self._registered_callbacks: Dict[type, List[Any]] = {}
+
+    @property
+    def hooks(self) -> List[Any]:
+        return [entry.fn for entries in self._registered_callbacks.values() for entry in entries]
+
+    def add_callback(self, event_type: type, callback: Any) -> None:
+        self._registered_callbacks.setdefault(event_type, []).append(SimpleNamespace(fn=callback))
+
+    def invoke(self, event: Any) -> None:
+        for entry in self._registered_callbacks.get(type(event), []):
+            entry.fn(event)
+
+
+class _UnhashableRegistry(_OpaqueRegistry):
+    """Can't key a weak dict: defining ``__eq__`` drops ``__hash__``, as making
+    ``HookRegistry`` an ``eq=True`` dataclass would."""
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+
+_ADAPTER_LOGGER = "layerlens.instrument.adapters.frameworks.strands"
+
+
+def _adapter_warnings(caplog: Any) -> List[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == _ADAPTER_LOGGER and r.levelno == logging.WARNING]
+
+
+def _disconnect_from_another_thread(adapter: StrandsAdapter) -> None:
+    """disconnect() as a concurrent caller makes it: from its own thread, so
+    from its own context, while a run is in progress in the caller's."""
+    thread = threading.Thread(target=adapter.disconnect)
+    thread.start()
+    thread.join()
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -192,7 +319,7 @@ class TestLifecycle:
         adapter = StrandsAdapter(mock_client)
         agent = _make_agent()
         adapter.connect(target=agent)
-        assert len(adapter._registered_callbacks) == 7
+        assert len(_adapter_hooks(agent.hooks, adapter)) == 7
         adapter.disconnect()
 
     def test_disconnect_deregisters_hooks(self, mock_client):
@@ -200,7 +327,7 @@ class TestLifecycle:
         agent = _make_agent()
         adapter.connect(target=agent)
         adapter.disconnect()
-        assert len(adapter._registered_callbacks) == 0
+        assert _adapter_hooks(agent.hooks, adapter) == []
 
     def test_disconnect_clears_state(self, mock_client):
         adapter = StrandsAdapter(mock_client)
@@ -209,7 +336,6 @@ class TestLifecycle:
         # Run-scoped state now lives in the per-run RunState (ContextVar),
         # not instance scalars — the invariant is "no run active" (LAY-3576).
         assert adapter._get_run() is None
-        assert adapter._target is None
 
     def test_register_hooks_protocol(self, mock_client):
         """Adapter implements HookProvider protocol (register_hooks)."""
@@ -323,9 +449,9 @@ class TestModelCalls:
     def test_model_error(self, mock_client):
         uploaded = capture_framework_trace(mock_client)
         adapter = StrandsAdapter(mock_client, capture_config=CaptureConfig(capture_content=True))
-        adapter.connect()
-
         agent = _make_agent()
+        adapter.connect(target=agent)
+
         before_inv = BeforeInvocationEvent(agent=agent, invocation_state={}, messages="test")
         adapter._on_before_invocation(before_inv)
 
@@ -394,9 +520,9 @@ class TestToolCalls:
     def test_tool_error(self, mock_client):
         uploaded = capture_framework_trace(mock_client)
         adapter = StrandsAdapter(mock_client, capture_config=CaptureConfig(capture_content=True))
-        adapter.connect()
-
         agent = _make_agent()
+        adapter.connect(target=agent)
+
         before_inv = BeforeInvocationEvent(agent=agent, invocation_state={}, messages="test")
         adapter._on_before_invocation(before_inv)
 
@@ -624,9 +750,9 @@ class TestTraceIntegrity:
 class TestErrorIsolation:
     def test_handlers_dont_crash_on_none_result(self, mock_client):
         adapter = StrandsAdapter(mock_client)
-        adapter.connect()
-
         agent = _make_agent()
+        adapter.connect(target=agent)
+
         before_inv = BeforeInvocationEvent(agent=agent, invocation_state={})
         adapter._on_before_invocation(before_inv)
 
@@ -694,9 +820,8 @@ class TestCostEmitIsolation:
         attestation hashing at emit time. The trace must still upload."""
         uploaded = capture_framework_trace(mock_client)
         adapter = StrandsAdapter(mock_client)
-        adapter.connect()
-
         agent = _make_agent(name="RealisticAgent", model_id="claude-sonnet")
+        adapter.connect(target=agent)
 
         before_inv = BeforeInvocationEvent(agent=agent, invocation_state={}, messages="hi")
         adapter._on_before_invocation(before_inv)
@@ -745,10 +870,14 @@ class TestCostEmitIsolation:
 
 class TestDisconnectLeaveNoTrace:
     """disconnect() must remove only the adapter's own hook callbacks from
-    the agent's hook registry, leaving user hooks registered and functional,
-    and must be safe to call repeatedly."""
+    every hook registry it was added to (``connect(target=agent)`` or
+    ``Agent(hooks=[adapter])``), leaving user hooks registered and functional,
+    and must be safe to call repeatedly. A run already in progress finishes
+    and uploads first. A hook it can't remove is reported and never traces
+    (LAY-4255)."""
 
-    def test_user_hook_survives_disconnect(self, mock_client):
+    @_REGISTRATIONS
+    def test_user_hook_survives_disconnect(self, mock_client, how):
         adapter = StrandsAdapter(mock_client)
         agent = _make_agent()
         calls = []
@@ -757,36 +886,38 @@ class TestDisconnectLeaveNoTrace:
             calls.append(event)
 
         agent.hooks.add_callback(BeforeInvocationEvent, sentinel)
-        adapter.connect(target=agent)
+        _register(adapter, agent, how)
         adapter.disconnect()
 
         # Still registered in the agent's hook registry...
-        assert sentinel in agent.hooks._registered_callbacks.get(BeforeInvocationEvent, [])
+        assert _hooks_for(agent.hooks, BeforeInvocationEvent) == [sentinel]
         # ...and still functional.
         evt = BeforeInvocationEvent(agent=agent, invocation_state={})
         agent.hooks.invoke_callbacks(evt)
         assert calls == [evt]
 
-    def test_adapter_hooks_removed_after_disconnect(self, mock_client):
+    @_REGISTRATIONS
+    def test_adapter_hooks_removed_after_disconnect(self, mock_client, caplog, how):
         uploaded = capture_framework_trace(mock_client)
         adapter = StrandsAdapter(mock_client)
         agent = _make_agent()
-        adapter.connect(target=agent)
-        assert len(adapter._registered_callbacks) == 7
+        _register(adapter, agent, how)
+        # The check below can see the adapter's hooks, so its empty result
+        # after disconnect() means removed, not invisible.
+        assert len(_adapter_hooks(agent.hooks, adapter)) == 7
 
-        adapter.disconnect()
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            adapter.disconnect()
 
-        assert adapter._registered_callbacks == []
-        for cbs in agent.hooks._registered_callbacks.values():
-            for cb in cbs:
-                assert getattr(cb, "__self__", None) is not adapter
-
+        assert _adapter_hooks(agent.hooks, adapter) == []
+        assert _adapter_warnings(caplog) == []  # a clean removal reports nothing
         # Hooks fired after disconnect must not reach the adapter.
         agent.hooks.invoke_callbacks(BeforeInvocationEvent(agent=agent, invocation_state={}))
         assert adapter._get_run() is None
         assert uploaded["events"] == []
 
-    def test_double_disconnect_is_safe(self, mock_client):
+    @_REGISTRATIONS
+    def test_double_disconnect_is_safe(self, mock_client, caplog, how):
         adapter = StrandsAdapter(mock_client)
         agent = _make_agent()
         calls = []
@@ -795,12 +926,14 @@ class TestDisconnectLeaveNoTrace:
             calls.append(event)
 
         agent.hooks.add_callback(BeforeInvocationEvent, sentinel)
-        adapter.connect(target=agent)
-        adapter.disconnect()
-        adapter.disconnect()  # must not raise
+        _register(adapter, agent, how)
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            adapter.disconnect()
+            adapter.disconnect()  # must not raise, or report hooks it already removed
 
-        assert adapter._registered_callbacks == []
-        assert sentinel in agent.hooks._registered_callbacks.get(BeforeInvocationEvent, [])
+        assert _adapter_hooks(agent.hooks, adapter) == []
+        assert _hooks_for(agent.hooks, BeforeInvocationEvent) == [sentinel]
+        assert _adapter_warnings(caplog) == []
 
     def test_reconnect_cycle(self, mock_client):
         uploaded = capture_framework_trace(mock_client)
@@ -811,8 +944,9 @@ class TestDisconnectLeaveNoTrace:
         adapter.disconnect()
         adapter.connect(target=agent)
 
-        # Re-registered after reconnect.
-        assert len(adapter._registered_callbacks) == 7
+        # Re-registered after reconnect, once: hooks left over from the first
+        # connect would make every event fire twice.
+        assert len(_adapter_hooks(agent.hooks, adapter)) == 7
 
         # Events flow again after reconnect.
         _simulate_invocation(adapter, agent, messages="cycle input")
@@ -821,10 +955,305 @@ class TestDisconnectLeaveNoTrace:
 
         # Second disconnect cleans up again.
         adapter.disconnect()
-        assert adapter._registered_callbacks == []
-        for cbs in agent.hooks._registered_callbacks.values():
-            for cb in cbs:
-                assert getattr(cb, "__self__", None) is not adapter
+        assert _adapter_hooks(agent.hooks, adapter) == []
+
+    def test_disconnect_removes_hooks_from_every_agent(self, mock_client):
+        # One adapter passed as hooks=[adapter] to several agents (one per request, say).
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        agents = [_make_agent(name=f"Agent{i}") for i in range(3)]
+        for agent in agents:
+            agent.hooks.add_hook(adapter)
+            assert len(_adapter_hooks(agent.hooks, adapter)) == 7
+
+        adapter.disconnect()
+
+        for agent in agents:
+            assert _adapter_hooks(agent.hooks, adapter) == []
+
+    def test_bare_callback_registry_layout(self, mock_client):
+        """strands <= 1.42.0 stored bare callbacks; those must come out too."""
+        registry = _BareCallbackRegistry()
+
+        def sentinel(event):
+            pass
+
+        registry.add_callback(BeforeInvocationEvent, sentinel)
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        adapter.register_hooks(registry)
+
+        def adapter_entries() -> List[Any]:
+            return [
+                cb
+                for cbs in registry._registered_callbacks.values()
+                for cb in cbs
+                if getattr(cb, "__self__", None) is adapter
+            ]
+
+        assert len(adapter_entries()) == 7
+
+        adapter.disconnect()
+
+        assert adapter_entries() == []
+        assert registry._registered_callbacks[BeforeInvocationEvent] == [sentinel]
+
+    @pytest.mark.parametrize("registry_type", [_OpaqueRegistry, _RenamedEntryRegistry])
+    def test_unremovable_hooks_are_reported_and_never_trace(self, mock_client, caplog, registry_type):
+        uploaded = capture_framework_trace(mock_client)
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        registry = registry_type()
+        adapter.register_hooks(registry)
+        agent = _make_agent()
+
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            adapter.disconnect()
+
+        # The leak is surfaced, not swallowed...
+        assert len(_adapter_warnings(caplog)) == 1
+        # ...the hooks are still registered...
+        assert len(registry.hooks) == 7
+        # ...and a whole invocation through them traces nothing.
+        registry.invoke(BeforeInvocationEvent(agent=agent, invocation_state={}))
+        registry.invoke(AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result()))
+        assert adapter._get_run() is None
+        assert uploaded["events"] == []
+
+    def test_untrackable_registry_is_reported_and_never_traces(self, mock_client, caplog):
+        uploaded = capture_framework_trace(mock_client)
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        registry = _UnhashableRegistry()
+        agent = _make_agent()
+
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            adapter.register_hooks(registry)  # runs inside Agent(...): must not raise
+
+        # Registered (it traces while connected), and the gap is reported up front.
+        assert len(registry.hooks) == 7
+        assert len(_adapter_warnings(caplog)) == 1
+
+        adapter.disconnect()
+        registry.invoke(BeforeInvocationEvent(agent=agent, invocation_state={}))
+        registry.invoke(AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result()))
+        assert adapter._get_run() is None
+        assert uploaded["events"] == []
+
+    def test_disconnect_mid_dispatch_does_not_skip_user_hooks(self, mock_client):
+        """The async dispatcher walks the registry's list lazily, awaiting
+        between callbacks. Removing the adapter's hook (ahead of the cursor)
+        must not shift the list under it and skip the next user hook."""
+        adapter = StrandsAdapter(mock_client)
+        agent = _make_agent()
+        adapter.connect(target=agent)  # the adapter's hook runs first
+        calls = []
+
+        def disconnect_now(event):
+            calls.append("disconnect_now")
+            adapter.disconnect()
+
+        def later(event):
+            calls.append("later")
+
+        agent.hooks.add_callback(BeforeInvocationEvent, disconnect_now)
+        agent.hooks.add_callback(BeforeInvocationEvent, later)
+
+        asyncio.run(agent.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=agent, invocation_state={})))
+
+        assert calls == ["disconnect_now", "later"]
+        assert _hooks_for(agent.hooks, BeforeInvocationEvent) == [disconnect_now, later]
+
+    def test_run_in_flight_at_disconnect_still_uploads(self, mock_client):
+        """disconnect() from another thread while an invocation runs: that run
+        finishes and uploads (its context is left clean), then the adapter's
+        hooks leave the agent."""
+        uploaded = capture_framework_trace(mock_client)
+        adapter = StrandsAdapter(mock_client)
+        agent = _make_agent(name="InFlight")
+        adapter.connect(target=agent)
+
+        def invocation() -> Any:
+            agent.hooks.invoke_callbacks(BeforeInvocationEvent(agent=agent, invocation_state={}))
+            _disconnect_from_another_thread(adapter)
+            agent.hooks.invoke_callbacks(AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result()))
+            return adapter._get_run()
+
+        # Its own context, like the task or thread the agent runs in.
+        assert contextvars.copy_context().run(invocation) is None
+
+        assert mock_client.traces.upload.call_count == 1
+        assert find_event(uploaded["events"], "agent.output")["payload"]["agent_name"] == "InFlight"
+        assert _adapter_hooks(agent.hooks, adapter) == []
+
+    def test_two_runs_in_flight_on_one_agent_both_upload(self, mock_client):
+        """Two invocations of one agent overlap (separate tasks) when
+        disconnect() lands: both finish and upload, so the hooks stay until
+        the second one ends."""
+        adapter = StrandsAdapter(mock_client)
+        agent = _make_agent()
+        adapter.connect(target=agent)
+        before = BeforeInvocationEvent(agent=agent, invocation_state={})
+        after = AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result())
+        first, second = contextvars.copy_context(), contextvars.copy_context()
+
+        first.run(agent.hooks.invoke_callbacks, before)
+        second.run(agent.hooks.invoke_callbacks, before)
+        _disconnect_from_another_thread(adapter)
+        first.run(agent.hooks.invoke_callbacks, after)
+        second.run(agent.hooks.invoke_callbacks, after)
+
+        assert mock_client.traces.upload.call_count == 2
+        assert first.run(adapter._get_run) is None
+        assert second.run(adapter._get_run) is None
+        assert _adapter_hooks(agent.hooks, adapter) == []
+
+    def test_context_traces_again_after_reconnect(self, mock_client):
+        """A long-lived task (a queue worker, say) that was mid-run at
+        disconnect() must trace again after connect(): the run that was in
+        flight must not be left behind in its context."""
+        uploaded = capture_framework_trace(mock_client)
+        adapter = StrandsAdapter(mock_client)
+        first = _make_agent(name="First")
+        adapter.connect(target=first)
+
+        def worker() -> None:
+            first.hooks.invoke_callbacks(BeforeInvocationEvent(agent=first, invocation_state={}))
+            _disconnect_from_another_thread(adapter)
+            first.hooks.invoke_callbacks(AfterInvocationEvent(agent=first, invocation_state={}, result=_make_result()))
+
+            second = _make_agent(name="Second")
+            adapter.connect(target=second)
+            second.hooks.invoke_callbacks(BeforeInvocationEvent(agent=second, invocation_state={}))
+            second.hooks.invoke_callbacks(
+                AfterInvocationEvent(agent=second, invocation_state={}, result=_make_result())
+            )
+
+        contextvars.copy_context().run(worker)
+
+        assert mock_client.traces.upload.call_count == 2
+        names = [e["payload"].get("agent_name") for e in find_events(uploaded["events"], "agent.input")]
+        assert names == ["First", "Second"]
+        adapter.disconnect()
+
+    def test_reconnect_while_a_run_is_in_flight_keeps_one_set_of_hooks(self, mock_client):
+        adapter = StrandsAdapter(mock_client)
+        agent = _make_agent()
+        adapter.connect(target=agent)
+
+        def invocation() -> None:
+            agent.hooks.invoke_callbacks(BeforeInvocationEvent(agent=agent, invocation_state={}))
+            _disconnect_from_another_thread(adapter)
+            adapter.connect(target=agent)  # the hooks never left this agent
+            assert len(_adapter_hooks(agent.hooks, adapter)) == 7
+            agent.hooks.invoke_callbacks(AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result()))
+
+        contextvars.copy_context().run(invocation)
+
+        assert mock_client.traces.upload.call_count == 1
+        assert len(_adapter_hooks(agent.hooks, adapter)) == 7  # attached again, so they stay
+        adapter.disconnect()
+        assert _adapter_hooks(agent.hooks, adapter) == []
+
+    def test_agent_detached_mid_run_stays_detached_after_connect(self, mock_client):
+        """connect() without a target doesn't re-attach an agent disconnect()
+        detached. While the agent's earlier run is still finishing (so its
+        hooks are still there), a new invocation of it isn't traced."""
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        agent = _make_agent()
+        agent.hooks.add_hook(adapter)
+        before = BeforeInvocationEvent(agent=agent, invocation_state={})
+        after = AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result())
+
+        first, second = contextvars.copy_context(), contextvars.copy_context()
+        first.run(agent.hooks.invoke_callbacks, before)
+        _disconnect_from_another_thread(adapter)
+        adapter.connect()
+        second.run(agent.hooks.invoke_callbacks, before)
+        second.run(agent.hooks.invoke_callbacks, after)
+        assert mock_client.traces.upload.call_count == 0
+
+        first.run(agent.hooks.invoke_callbacks, after)  # the earlier run finishes and uploads
+        assert mock_client.traces.upload.call_count == 1
+        assert _adapter_hooks(agent.hooks, adapter) == []
+        adapter.disconnect()
+
+    def test_hook_called_after_its_removal_starts_no_run(self, mock_client):
+        """strands lists an event's hooks when dispatch begins, so a hook
+        removed mid-dispatch is still called that once. Called for an agent
+        the adapter is no longer attached to, it must not start a run: the
+        AfterInvocation hook is gone, so the run would be stranded."""
+        adapter = StrandsAdapter(mock_client)
+        agent = _make_agent()
+
+        def toggle(event):
+            _disconnect_from_another_thread(adapter)
+            adapter.connect()  # tracing back on, but not for this agent
+
+        agent.hooks.add_callback(BeforeInvocationEvent, toggle)  # runs before the adapter's hook
+        adapter.connect()
+        agent.hooks.add_hook(adapter)
+
+        def invocation() -> Any:
+            agent.hooks.invoke_callbacks(BeforeInvocationEvent(agent=agent, invocation_state={}))
+            agent.hooks.invoke_callbacks(AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result()))
+            return adapter._get_run()
+
+        assert contextvars.copy_context().run(invocation) is None
+        assert mock_client.traces.upload.call_count == 0
+        adapter.disconnect()
+
+    def test_attaching_twice_registers_hooks_once(self, mock_client):
+        # Built with hooks=[adapter], then also passed to connect(target=...).
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        agent = _make_agent()
+        agent.hooks.add_hook(adapter)
+
+        adapter.connect(target=agent)
+
+        assert len(_adapter_hooks(agent.hooks, adapter)) == 7
+        adapter.disconnect()
+        assert _adapter_hooks(agent.hooks, adapter) == []
+
+    def test_attached_before_connect_warns_and_traces_once_connected(self, mock_client, caplog):
+        adapter = StrandsAdapter(mock_client)
+        agent = _make_agent(name="Early")
+
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            agent.hooks.add_hook(adapter)  # Agent(hooks=[adapter]) before adapter.connect()
+            # Said once per adapter, not once per agent: a service that keeps
+            # building per-request agents while tracing is off isn't flooded.
+            _make_agent(name="AlsoEarly").hooks.add_hook(adapter)
+        assert len(_adapter_warnings(caplog)) == 1
+
+        def invoke() -> None:
+            agent.hooks.invoke_callbacks(BeforeInvocationEvent(agent=agent, invocation_state={}))
+            agent.hooks.invoke_callbacks(AfterInvocationEvent(agent=agent, invocation_state={}, result=_make_result()))
+
+        contextvars.copy_context().run(invoke)
+        assert mock_client.traces.upload.call_count == 0  # not connected: not traced
+
+        adapter.connect()
+        contextvars.copy_context().run(invoke)
+        assert mock_client.traces.upload.call_count == 1
+        adapter.disconnect()
+
+    def test_adapter_does_not_keep_registries_alive(self, mock_client):
+        """A long-lived adapter passed as hooks=[adapter] to per-request agents
+        must not hold each agent's hook registry in memory until disconnect()."""
+        adapter = StrandsAdapter(mock_client)
+        adapter.connect()
+        registry = HookRegistry()
+        registry.add_hook(adapter)
+        ref = weakref.ref(registry)
+
+        del registry
+        gc.collect()
+
+        assert ref() is None
+        adapter.disconnect()
 
 
 # ---------------------------------------------------------------------------

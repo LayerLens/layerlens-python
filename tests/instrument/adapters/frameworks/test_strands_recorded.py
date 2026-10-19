@@ -19,6 +19,8 @@ True}``). The agent's content ("pong") is the real streamed assistant delta.
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from typing import Any, Dict
 
 import httpx
@@ -28,6 +30,7 @@ pytest.importorskip("strands")
 pytest.importorskip("openai")
 
 from strands import Agent  # noqa: E402
+from strands.hooks.events import BeforeModelCallEvent  # noqa: E402
 from strands.models.openai import OpenAIModel  # noqa: E402
 
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
@@ -35,6 +38,7 @@ from layerlens.instrument.adapters.frameworks.strands import StrandsAdapter  # n
 
 from .conftest import find_event, capture_framework_trace  # noqa: E402
 from ..._recorded import load_recorded, mock_transport  # noqa: E402
+from .test_strands import _adapter_hooks  # noqa: E402
 
 
 def _model(fixture: Dict[str, Any]) -> OpenAIModel:
@@ -82,3 +86,70 @@ class TestStrandsRecorded:
         out = find_event(events, "agent.output")
         assert out["payload"]["agent_name"] == "pong_agent"
         assert out["payload"]["output"]["content"][0]["text"] == "pong"
+
+    @pytest.mark.parametrize("how", ["hooks=[adapter]", "connect(target=agent)"])
+    def test_no_trace_after_disconnect(self, mock_client, how):
+        """A customer who disconnects is no longer traced, whichever way the
+        adapter was attached (LAY-4255)."""
+        fixture = load_recorded("openai", "stream")
+        capture_framework_trace(mock_client)
+
+        adapter = StrandsAdapter(mock_client)
+        if how == "hooks=[adapter]":
+            adapter.connect()
+            agent = Agent(model=_model(fixture), hooks=[adapter], name="pong_agent")
+        else:
+            agent = Agent(model=_model(fixture), name="pong_agent")
+            adapter.connect(target=agent)
+
+        agent("Reply with exactly: pong")
+        assert mock_client.traces.upload.call_count == 1  # it was tracing
+
+        adapter.disconnect()
+        assert _adapter_hooks(agent.hooks, adapter) == []
+        agent.model = _model(fixture)
+        result = agent("Reply with exactly: pong")
+
+        assert str(result).strip() == "pong"  # the agent itself still works
+        assert mock_client.traces.upload.call_count == 1
+
+    @pytest.mark.parametrize("how", ["hooks=[adapter]", "connect(target=agent)"])
+    def test_disconnect_during_a_run_uploads_it_and_the_task_keeps_tracing(self, mock_client, how):
+        """disconnect() from another thread while a long-lived task's agent is
+        mid-run (the model call): that run still uploads, and the same task is
+        traced again once the adapter is reconnected."""
+        fixture = load_recorded("openai", "stream")
+        capture_framework_trace(mock_client)
+        adapter = StrandsAdapter(mock_client)
+
+        def attach(name: str) -> Agent:
+            if how == "hooks=[adapter]":
+                adapter.connect()
+                return Agent(model=_model(fixture), hooks=[adapter], name=name)
+            agent = Agent(model=_model(fixture), name=name)
+            adapter.connect(target=agent)
+            return agent
+
+        async def worker() -> None:
+            agent = attach("first_agent")
+            disconnected = []
+
+            def disconnect_mid_run(event: Any) -> None:
+                if not disconnected:
+                    disconnected.append(True)
+                    thread = threading.Thread(target=adapter.disconnect)
+                    thread.start()
+                    thread.join()
+
+            agent.hooks.add_callback(BeforeModelCallEvent, disconnect_mid_run)
+            await agent.invoke_async("Reply with exactly: pong")
+            assert disconnected
+            assert mock_client.traces.upload.call_count == 1  # the run in flight was uploaded
+            assert _adapter_hooks(agent.hooks, adapter) == []  # then the hooks left
+
+            again = attach("second_agent")
+            await again.invoke_async("Reply with exactly: pong")
+            assert mock_client.traces.upload.call_count == 2  # the same task traces again
+
+        asyncio.run(worker())
+        adapter.disconnect()

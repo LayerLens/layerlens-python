@@ -34,6 +34,7 @@ import pytest
 from .conftest import record_for_schema_lock
 
 strands_mod = pytest.importorskip("strands")
+from strands.hooks import HookRegistry  # noqa: E402
 from strands.hooks.events import (  # noqa: E402
     AfterModelCallEvent,
     AfterInvocationEvent,
@@ -82,6 +83,8 @@ def _make_agent(name: str, model_id: str) -> Mock:
     agent.system_prompt = None
     agent.event_loop_metrics = Mock()
     agent.event_loop_metrics.agent_invocations = []
+    # The adapter traces only agents it is attached to (through agent.hooks).
+    agent.hooks = HookRegistry()
     return agent
 
 
@@ -123,6 +126,8 @@ def test_interleaved_invocations_produce_two_isolated_traces(mock_client, schedu
     adapter = StrandsAdapter(mock_client, capture_config=CaptureConfig.full())
     adapter.connect()
     agents = {k: _make_agent(m["agent"], m["model"]) for k, m in _MARKERS.items()}
+    for agent in agents.values():
+        agent.hooks.add_hook(adapter)  # as Agent(hooks=[adapter]) does
 
     # Each run gets its own Context — the deterministic stand-in for concurrent
     # agent invocations on separate threads/tasks, where ContextVar state is

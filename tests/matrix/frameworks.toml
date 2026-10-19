@@ -98,7 +98,7 @@ tests = [
 
 [frameworks.strands]
 python = "3.11"
-install = ["strands-agents==1.42.0", "openai"]
+install = ["strands-agents==1.61.1", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_strands.py",
     "tests/instrument/adapters/frameworks/test_strands_recorded.py",

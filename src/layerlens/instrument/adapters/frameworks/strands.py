@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+import weakref
+from typing import Any, Dict, List, Tuple, Optional
 
 from ._utils import safe_serialize
 from ..._identity import _API_METHOD_RE, _s, _is_generic
@@ -55,6 +56,12 @@ class StrandsAdapter(FrameworkAdapter):
         result = agent("Hello!")
 
         adapter.disconnect()
+
+    The adapter traces only while connected. ``disconnect()`` stops new runs
+    at once; a run already in progress finishes and uploads, and then the
+    adapter's hooks leave its agent. Agents with no run in progress lose them
+    straight away, whichever way the adapter was attached. To trace an agent
+    again afterwards, attach the adapter to it again.
     """
 
     name = "strands"
@@ -70,8 +77,18 @@ class StrandsAdapter(FrameworkAdapter):
         # scalars — concurrent agent invocations through one adapter instance
         # would otherwise clobber each other's traces (LAY-3576 / D1b).
         self._seen_agents: set = set()  # cross-run config dedup (intentional)
-        self._target: Optional[Any] = None
-        self._registered_callbacks: list = []
+        # Every hook registry this adapter is attached to, with the (event
+        # type, callback) pairs it added there, so disconnect() can take them
+        # back out however it was attached: Agent(hooks=[adapter]) or
+        # connect(target=agent). _draining holds registries disconnect()
+        # detached that keep their hooks until the runs in progress on them
+        # (_runs_in_flight) end. All three are weakly keyed, so a long-lived
+        # adapter neither keeps per-request agents' registries alive nor grows
+        # with them.
+        self._registrations: weakref.WeakKeyDictionary[Any, List[Tuple[Any, Any]]] = weakref.WeakKeyDictionary()
+        self._draining: weakref.WeakKeyDictionary[Any, List[Tuple[Any, Any]]] = weakref.WeakKeyDictionary()
+        self._runs_in_flight: weakref.WeakKeyDictionary[Any, int] = weakref.WeakKeyDictionary()
+        self._warned_attach_while_disconnected = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -81,14 +98,17 @@ class StrandsAdapter(FrameworkAdapter):
         self._check_dependency(_HAS_STRANDS)
         self._metadata["framework_version"] = _get_version()
         if target is not None:
-            self._target = target
             self._register_on_agent(target)
         return target
 
     def _on_disconnect(self) -> None:
-        self._deregister_callbacks()
+        # A run in progress in the caller's own context (disconnect() called
+        # from a hook, say) ends and uploads here.
+        run = self._get_run()
         self._end_run(flush=True)
-        self._target = None
+        if run is not None:
+            self._release_run(run)
+        self._detach()
         self._seen_agents.clear()
 
     # ------------------------------------------------------------------
@@ -97,6 +117,16 @@ class StrandsAdapter(FrameworkAdapter):
 
     def register_hooks(self, registry: Any) -> None:
         """Called by Strands when this adapter is passed as ``hooks=[adapter]``."""
+        with self._lock:
+            # Once per adapter: enough to catch a forgotten connect() without
+            # flooding a service that builds agents while tracing is off.
+            warn = not self._connected and not self._warned_attach_while_disconnected
+            self._warned_attach_while_disconnected |= warn
+        if warn:
+            log.warning(
+                "layerlens: StrandsAdapter was attached to a Strands agent while not connected; "
+                "agents are traced only while the adapter is connected (call connect())"
+            )
         self._add_callbacks(registry)
 
     def _register_on_agent(self, agent: Any) -> None:
@@ -107,35 +137,99 @@ class StrandsAdapter(FrameworkAdapter):
 
     def _add_callbacks(self, registry: Any) -> None:
         callbacks = [
-            (_AgentInitializedEvent, self._on_agent_initialized),
-            (_BeforeInvocationEvent, self._on_before_invocation),
-            (_AfterInvocationEvent, self._on_after_invocation),
-            (_BeforeModelCallEvent, self._on_before_model),
-            (_AfterModelCallEvent, self._on_after_model),
-            (_BeforeToolCallEvent, self._on_before_tool),
-            (_AfterToolCallEvent, self._on_after_tool),
+            (event_type, callback)
+            for event_type, callback in (
+                (_AgentInitializedEvent, self._on_agent_initialized),
+                (_BeforeInvocationEvent, self._on_before_invocation),
+                (_AfterInvocationEvent, self._on_after_invocation),
+                (_BeforeModelCallEvent, self._on_before_model),
+                (_AfterModelCallEvent, self._on_after_model),
+                (_BeforeToolCallEvent, self._on_before_tool),
+                (_AfterToolCallEvent, self._on_after_tool),
+            )
+            if event_type is not None
         ]
-        for event_type, callback in callbacks:
-            if event_type is not None:
+        error = _weak_key_error(registry)
+        if error is not None:
+            log.warning(
+                "layerlens: cannot track Strands hook registry %r (%s); disconnect() won't be able "
+                "to remove this adapter's hooks from it (they will stay registered but stop starting traces)",
+                registry,
+                error,
+            )
+            for event_type, callback in callbacks:
                 registry.add_callback(event_type, callback)
-                self._registered_callbacks.append((event_type, callback))
+            return
+        with self._lock:
+            if registry in self._registrations:
+                return  # already attached: adding the hooks again would fire each one twice
+            pairs = self._draining.pop(registry, None)
+            if pairs is None:
+                for event_type, callback in callbacks:
+                    registry.add_callback(event_type, callback)
+                pairs = callbacks
+            # else: disconnect() left them in place for a run still in
+            # progress, and they are this adapter's attached hooks again.
+            self._registrations[registry] = pairs
 
-    def _deregister_callbacks(self) -> None:
-        agent = self._target
-        if agent is None:
-            self._registered_callbacks.clear()
+    def _detach(self) -> None:
+        """Take the adapter's hooks back out of every registry it's attached
+        to. One with a run still in progress keeps them until that run ends
+        (see _release_run), so the run finishes and uploads instead of being
+        stranded: unflushed, and still set in its task's context, which would
+        stop that task from ever uploading again."""
+        with self._lock:
+            attached = list(self._registrations.items())
+            self._registrations.clear()
+            remove_now = []
+            for registry, pairs in attached:
+                if self._runs_in_flight.get(registry):
+                    self._draining[registry] = pairs
+                else:
+                    remove_now.append((registry, pairs))
+        for registry, pairs in remove_now:
+            _remove_hooks(registry, pairs)
+
+    def _start_run(self, agent: Any) -> Optional[Any]:
+        """Begin the run for one invocation of *agent*, or return None.
+
+        A run starts only while connected, and only on a hook registry the
+        adapter is attached to (strands dispatches an agent's events on
+        ``agent.hooks``). Otherwise the call comes from a hook disconnect()
+        couldn't remove, one still waiting on an earlier run, one attached
+        before connect(), or a dispatch that listed the hooks before they were
+        removed; _begin_run() creates a collector, so such a run would upload
+        a trace the customer turned off, or end up stranded once its
+        AfterInvocation hook is gone. Every other handler no-ops without an
+        active run. The run is counted under the lock disconnect() decides
+        with, so its registry keeps the hooks until it ends.
+        """
+        registry = getattr(agent, "hooks", None)
+        trackable = registry is not None and _weak_key_error(registry) is None
+        with self._lock:
+            if not self._connected or (trackable and registry not in self._registrations):
+                return None
+            run = self._begin_run()
+            if trackable:
+                self._runs_in_flight[registry] = self._runs_in_flight.get(registry, 0) + 1
+                run.data[_RUN_REGISTRY] = registry
+        return run
+
+    def _release_run(self, run: Any) -> None:
+        """Count *run* as ended on its registry. If it was the last run that
+        disconnect() was waiting on there, the adapter's hooks leave now."""
+        registry = run.data.pop(_RUN_REGISTRY, None)
+        if registry is None:
             return
-        hooks = getattr(agent, "hooks", None)
-        if hooks is None or not hasattr(hooks, "_registered_callbacks"):
-            self._registered_callbacks.clear()
-            return
-        for event_type, callback in self._registered_callbacks:
-            cbs = hooks._registered_callbacks.get(event_type, [])
-            try:
-                cbs.remove(callback)
-            except ValueError:
-                pass
-        self._registered_callbacks.clear()
+        with self._lock:
+            left = self._runs_in_flight.get(registry, 1) - 1
+            if left > 0:
+                self._runs_in_flight[registry] = left
+                return
+            self._runs_in_flight.pop(registry, None)
+            pairs = self._draining.pop(registry, None)
+        if pairs is not None:
+            _remove_hooks(registry, pairs)
 
     # ------------------------------------------------------------------
     # Collector + state management
@@ -179,7 +273,9 @@ class StrandsAdapter(FrameworkAdapter):
         try:
             agent = event.agent
             name = _agent_name(agent)
-            run = self._begin_run()
+            run = self._start_run(agent)
+            if run is None:
+                return
             span_id = run.root_span_id
             run.data["agent_name"] = name
             self._start_timer("run")
@@ -244,6 +340,10 @@ class StrandsAdapter(FrameworkAdapter):
                 self._end_run(flush=True)
             except Exception:
                 log.warning("layerlens: error flushing Strands trace", exc_info=True)
+            try:
+                self._release_run(run)
+            except Exception:
+                log.warning("layerlens: error releasing Strands hooks after a run", exc_info=True)
 
     def _on_before_model(self, event: Any) -> None:
         try:
@@ -499,6 +599,57 @@ class StrandsAdapter(FrameworkAdapter):
 
 
 # -- Module-level helpers --------------------------------------------------
+
+#: ``RunState.data`` key: the hook registry a run is counted against.
+_RUN_REGISTRY = "hooks_registry"
+
+
+def _weak_key_error(obj: Any) -> Optional[TypeError]:
+    """Why *obj* can't key a ``WeakKeyDictionary`` (it can't be weakly
+    referenced, or it's unhashable), or None when it can."""
+    try:
+        hash(weakref.ref(obj))
+    except TypeError as exc:
+        return exc
+    return None
+
+
+def _remove_hooks(registry: Any, pairs: List[Tuple[Any, Any]]) -> None:
+    leaked = [pair for pair in pairs if not _remove_callback(registry, *pair)]
+    if leaked:
+        log.warning(
+            "layerlens: disconnect() could not find %d of this adapter's Strands hook callbacks "
+            "in %r to remove them (strands may have changed how HookRegistry stores callbacks); "
+            "they stay registered but no longer start traces",
+            len(leaked),
+            registry,
+        )
+
+
+def _remove_callback(registry: Any, event_type: Any, callback: Any) -> bool:
+    """Remove one callback this adapter added to a strands ``HookRegistry``.
+
+    strands has no public removal API, so this edits the registry's private
+    ``_registered_callbacks`` (event type -> list). strands <= 1.42.0 keeps
+    the bare callback in that list; 1.43.0 and later wrap it in
+    ``_CallbackEntry(callback=..., order=...)``. Either is matched by identity.
+    Returns False when the layout isn't recognized or the callback isn't
+    there, so the caller reports it instead of leaking silently.
+    """
+    by_type = getattr(registry, "_registered_callbacks", None)
+    if not isinstance(by_type, dict):
+        return False
+    entries = by_type.get(event_type)
+    if not isinstance(entries, list):
+        return False
+    for i, entry in enumerate(entries):
+        if entry is callback or getattr(entry, "callback", None) is callback:
+            # Swap in a new list instead of deleting in place: an invocation
+            # mid-dispatch (the async dispatcher awaits between callbacks)
+            # keeps iterating the old list and can't skip a hook.
+            by_type[event_type] = entries[:i] + entries[i + 1 :]
+            return True
+    return False
 
 
 def _get_cycles(agent: Any) -> list:
