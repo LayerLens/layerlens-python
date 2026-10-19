@@ -3,15 +3,17 @@
 Closes the W2 census cells (``error``/``redaction``/``attest``/``cost``) that the
 existing ``test_haystack.py`` proves only via hand-built tag dicts on the tracer
 or a synthetic error string, by driving a *real* ``haystack.Pipeline`` (real
-components, real ``OpenAIGenerator`` over a recorded OpenAI body) so a regression
-fails in plain CI with no credentials and no network:
+components, real ``OpenAIChatGenerator`` over a recorded OpenAI body) so a
+regression fails in plain CI with no credentials and no network. The generator is
+the chat one because haystack-ai 3.0 removed the text ``OpenAIGenerator``; the
+chat generator exists on the 2.x line too, so the floor runs on both:
 
 * Error-paths — a component failure surfaces on ``payload.error`` (Haystack does
                 NOT emit ``agent.error``: a non-generator failure lands on the
                 honest ``tool.result.error`` and the pipeline-level
                 ``agent.output.error``, both verbatim). Two real shapes: a real
                 custom ``@component`` whose ``run()`` raises (Haystack wraps it in
-                a REAL ``PipelineRuntimeError``), and a real ``OpenAIGenerator``
+                a REAL ``PipelineRuntimeError``), and a real ``OpenAIChatGenerator``
                 over a 429 transport whose REAL ``openai.RateLimitError`` is the
                 wrapped ``__cause__`` — the shape a real Haystack generator call
                 actually raises.
@@ -21,37 +23,40 @@ fails in plain CI with no credentials and no network:
                 interior link to prove the check is not vacuous.
 * Redaction   — the same real RAG lifecycle with ``capture_content=False`` keeps
                 every structural event but strips retriever/generator/pipeline
-                content — and a SENTINEL sweep over ``json.dumps(events)`` — from
-                the stored trace, with a ``capture_content=True`` vacuity control
-                proving the same path DOES carry the content otherwise.
-* Cost        — the real recorded token shape (12/1/13 on ``gpt-4o-mini``) prices
-                to a real ``cost_usd`` on ``cost.record`` (the shared framework
+                content — the reply ``ChatMessage`` objects included — and a
+                SENTINEL sweep over ``json.dumps(events)`` — from the stored
+                trace, with a ``capture_content=True`` vacuity control proving the
+                same path DOES carry the content otherwise.
+* Cost        — the real recorded token shape (12/1/13 on ``gpt-4o-mini``), read
+                off the reply's ``ChatMessage.meta``, prices to a real
+                ``cost_usd`` on ``cost.record`` (the shared framework
                 ``_price_cost_record`` fills it from the resolved model rate).
 
 The only mock is the network boundary (``httpx.MockTransport`` for the real
-``OpenAIGenerator``); every Haystack object, component, span, the pipeline run
-and the adapter's own parser are real.
+``OpenAIChatGenerator``); every Haystack object, component, span, the pipeline
+run and the adapter's own parser are real.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import pytest
 
 from tests._optional_deps import importorskip
 
 # The base venv has no haystack-ai; this floor runs in the matrix ``haystack``
-# venv (haystack-ai==2.30.1). importorskip only guards ImportError, which is the
-# whole gate we need here.
+# row's venv. importorskip skips only when haystack is not installed, which is
+# the whole gate we need here.
 importorskip("haystack")
 
 import httpx  # noqa: E402
 from haystack import Pipeline, component  # noqa: E402
 from haystack.utils import Secret  # noqa: E402
 from haystack.core.errors import PipelineRuntimeError  # noqa: E402
-from haystack.components.generators.openai import OpenAIGenerator  # noqa: E402
+from haystack.dataclasses import ChatMessage  # noqa: E402
+from haystack.components.generators.chat.openai import OpenAIChatGenerator  # noqa: E402
 
 import openai  # noqa: E402
 import layerlens.instrument.adapters.frameworks.haystack as _mod  # noqa: E402
@@ -84,12 +89,14 @@ def _arm_haystack_flag():
 @component
 class _ClauseRetriever:
     """A real (non-generator) Haystack component standing in for a document
-    retriever — the recalled clause text carries the SENTINEL, so it drives the
-    adapter's tool.call/tool.result content path with real content."""
+    retriever + chat prompt builder — the recalled clause text carries the
+    SENTINEL, so it drives the adapter's tool.call/tool.result content path with
+    real content, and hands the chat generator the ``ChatMessage`` list it takes."""
 
-    @component.output_types(prompt=str)
-    def run(self, query: str) -> Dict[str, str]:
-        return {"prompt": f"Answer using clause [{SENTINEL}] for query: {query}. Reply with exactly: pong"}
+    @component.output_types(messages=List[ChatMessage])
+    def run(self, query: str) -> Dict[str, List[ChatMessage]]:
+        prompt = f"Answer using clause [{SENTINEL}] for query: {query}. Reply with exactly: pong"
+        return {"messages": [ChatMessage.from_user(prompt)]}
 
 
 @component
@@ -102,13 +109,13 @@ class _FailingRetriever:
         raise RuntimeError(f"{ERR_MARKER}: clause index backend unavailable")
 
 
-def _recorded_generator(fixture: Dict[str, Any]) -> OpenAIGenerator:
-    """A real ``OpenAIGenerator`` whose OpenAI client is backed by the recorded
+def _recorded_generator(fixture: Dict[str, Any]) -> OpenAIChatGenerator:
+    """A real ``OpenAIChatGenerator`` whose OpenAI client is backed by the recorded
     ChatCompletion body — Haystack's ``init_http_client`` forwards
     ``http_client_kwargs`` to ``httpx.Client(**kwargs)`` and ``httpx.Client``
     accepts ``transport=``, so the real SDK client deserializes the real body."""
     transport, _ = mock_transport(fixture)
-    return OpenAIGenerator(
+    return OpenAIChatGenerator(
         api_key=Secret.from_token("test-key"),
         model="gpt-4o-mini",
         http_client_kwargs={"transport": transport},
@@ -121,7 +128,7 @@ def _rag_pipeline(fixture: Dict[str, Any]) -> Pipeline:
     pipe = Pipeline()
     pipe.add_component("retriever", _ClauseRetriever())
     pipe.add_component("llm", _recorded_generator(fixture))
-    pipe.connect("retriever.prompt", "llm.prompt")
+    pipe.connect("retriever.messages", "llm.messages")
     return pipe
 
 
@@ -162,8 +169,8 @@ class TestRealErrorShape:
 
     def test_real_provider_error_surfaces_at_pipeline(self, mock_client):
         # A genuine 429 body -> the real OpenAI SDK raises RateLimitError, the shape
-        # a real Haystack OpenAIGenerator call actually raises. max_retries=0 so the
-        # SDK surfaces it instead of retrying the retryable status.
+        # a real Haystack OpenAIChatGenerator call actually raises. max_retries=0 so
+        # the SDK surfaces it instead of retrying the retryable status.
         def _handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 429,
@@ -179,7 +186,7 @@ class TestRealErrorShape:
         uploaded = capture_framework_trace(mock_client)
         adapter = HaystackAdapter(mock_client, capture_config=CaptureConfig.full())
         adapter.connect()
-        gen = OpenAIGenerator(
+        gen = OpenAIChatGenerator(
             api_key=Secret.from_token("test-key"),
             model="gpt-4o-mini",
             http_client_kwargs={"transport": httpx.MockTransport(_handler)},
@@ -188,7 +195,7 @@ class TestRealErrorShape:
         pipe = Pipeline()
         pipe.add_component("llm", gen)
         with pytest.raises(PipelineRuntimeError) as exc_info:
-            pipe.run({"llm": {"prompt": "hi"}})
+            pipe.run({"llm": {"messages": [ChatMessage.from_user("hi")]}})
         adapter.disconnect()
 
         # The REAL openai SDK exception is the wrapped cause (proves the real
@@ -221,7 +228,7 @@ class TestAttestationOffline:
         result = pipe.run({"retriever": {"query": "indemnification obligations"}})
         adapter.disconnect()
 
-        assert result["llm"]["replies"][0] == "pong"
+        assert result["llm"]["replies"][0].text == "pong"
 
         events = uploaded["events"]
         assert events, "real pipeline run must flush a non-empty trace"
@@ -265,7 +272,7 @@ class TestRedactionFloor:
         pipe = _rag_pipeline(fixture)
         result = pipe.run({"retriever": {"query": f"clause about {SENTINEL}"}})
         adapter.disconnect()
-        assert result["llm"]["replies"][0] == "pong"
+        assert result["llm"]["replies"][0].text == "pong"
         return uploaded
 
     def test_content_present_when_capturing(self, mock_client):
@@ -279,6 +286,12 @@ class TestRedactionFloor:
         assert "output" in find_event(events, "tool.result")["payload"]
         assert "input" in find_event(events, "model.invoke")["payload"]
         assert "output" in find_event(events, "agent.output")["payload"]
+        # The generator's replies are real ``ChatMessage`` objects: captured, they
+        # land on model.invoke as structured data carrying the reply text (not a
+        # Python repr), which is what the redaction run below must strip.
+        replies = find_event(events, "model.invoke")["payload"]["output"]
+        assert isinstance(replies[0], dict)
+        assert "pong" in json.dumps(replies)
 
     def test_content_absent_when_not_capturing(self, mock_client):
         """capture_content=False keeps every structural event but strips
@@ -321,14 +334,14 @@ class TestCostFloor:
         adapter.connect()
         pipe = Pipeline()
         pipe.add_component("llm", _recorded_generator(fixture))
-        result = pipe.run({"llm": {"prompt": "Reply with exactly: pong"}})
+        result = pipe.run({"llm": {"messages": [ChatMessage.from_user("Reply with exactly: pong")]}})
         adapter.disconnect()
 
-        assert result["llm"]["replies"][0] == "pong"
+        assert result["llm"]["replies"][0].text == "pong"
 
         cost = find_event(uploaded["events"], "cost.record")
-        # The real recorded token shape (12/1/13) parsed off the real generator
-        # meta, on the response model id.
+        # The real recorded token shape (12/1/13) parsed off the real reply's
+        # ChatMessage.meta, on the response model id.
         assert cost["payload"]["tokens_prompt"] == 12
         assert cost["payload"]["tokens_completion"] == 1
         assert cost["payload"]["tokens_total"] == 13

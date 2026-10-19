@@ -380,36 +380,54 @@ def _honest_component_name(name: Any) -> Optional[str]:
     return n
 
 
+def _generator_meta(output: Any) -> Optional[Dict[str, Any]]:
+    """The response metadata (model, usage, finish_reason) of a generator's first reply.
+
+    Haystack generators return it in one of two shapes:
+
+    * text generators (``OpenAIGenerator``, haystack 2.x only) return
+      ``{"replies": [str], "meta": [dict]}``, one meta dict per reply;
+    * chat generators (``OpenAIChatGenerator`` and the other ChatGenerators; on
+      haystack 3 the only OpenAI generator) return ``{"replies": [ChatMessage]}``
+      and keep it on each reply's ``ChatMessage.meta``. A top-level ``meta`` one
+      of them adds (``FallbackChatGenerator``'s dict of fallback bookkeeping) is
+      not it, which is why only a list counts as the text generator's.
+
+    The first reply speaks for the call: the provider reports usage once per
+    request and haystack copies it onto every reply, so summing them would count
+    the same tokens once per reply.
+    """
+    if not isinstance(output, dict):
+        return None
+    meta_list = output.get("meta")
+    if isinstance(meta_list, list) and meta_list and isinstance(meta_list[0], dict):
+        return meta_list[0]
+    replies = output.get("replies")
+    if isinstance(replies, list) and replies:
+        reply_meta = getattr(replies[0], "meta", None)
+        if isinstance(reply_meta, dict):
+            return reply_meta
+    return None
+
+
 def _extract_model(tags: Dict[str, Any]) -> Optional[str]:
     model = tags.get("haystack.model")
     if model:
         return str(model)
-    output = tags.get("haystack.component.output", {})
-    if isinstance(output, dict):
-        meta_list = output.get("meta")
-        if isinstance(meta_list, list) and meta_list:
-            m = meta_list[0].get("model") if isinstance(meta_list[0], dict) else None
-            if m:
-                return str(m)
+    meta = _generator_meta(tags.get("haystack.component.output"))
+    if meta and meta.get("model"):
+        return str(meta["model"])
     return None
 
 
 def _extract_usage(output: Any) -> Optional[Dict[str, int]]:
-    if not isinstance(output, dict):
-        return None
-    meta_list = output.get("meta")
-    if isinstance(meta_list, list) and meta_list and isinstance(meta_list[0], dict):
-        return meta_list[0].get("usage")
-    return None
+    meta = _generator_meta(output)
+    return meta.get("usage") if meta else None
 
 
 def _extract_finish_reason(output: Any) -> Optional[str]:
-    if not isinstance(output, dict):
-        return None
-    meta_list = output.get("meta")
-    if isinstance(meta_list, list) and meta_list and isinstance(meta_list[0], dict):
-        return meta_list[0].get("finish_reason")
-    return None
+    meta = _generator_meta(output)
+    return meta.get("finish_reason") if meta else None
 
 
 def _get_version() -> str:

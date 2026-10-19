@@ -131,7 +131,9 @@ tests = [
 
 [frameworks.haystack]
 python = "3.11"
-install = ["haystack-ai==2.30.1", "openai"]
+# haystack-ai 3.0 removed the text OpenAIGenerator; the suites drive
+# OpenAIChatGenerator, which the 2.x line has too.
+install = ["haystack-ai==3.4.0", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_haystack.py",
     "tests/instrument/adapters/frameworks/test_haystack_recorded.py",

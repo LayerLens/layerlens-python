@@ -182,6 +182,49 @@ class TestPipelineSpans:
 # ---------------------------------------------------------------------------
 
 
+class _ChatReply:
+    """Stands in for ``haystack.dataclasses.ChatMessage``, which a chat generator
+    puts in ``replies`` (haystack-ai is not installed in this venv). It exposes the
+    two members the adapter touches: the ``meta`` dict and the ``to_dict()`` form
+    the output is captured in. ``test_haystack_recorded.py`` drives a real one."""
+
+    def __init__(self, text: str, meta: dict) -> None:
+        self.text = text
+        self.meta = meta
+
+    def to_dict(self) -> dict:
+        return {"role": "assistant", "meta": self.meta, "name": None, "content": [{"text": self.text}]}
+
+
+#: ``ChatMessage.meta`` of a real ``OpenAIChatGenerator`` reply to the recorded
+#: OpenAI body (tests/fixtures/recorded/openai/default.json), identical on
+#: haystack-ai 2.30.1 and 3.4.0.
+_REAL_CHAT_REPLY_META = {
+    "model": "gpt-4o-mini-2024-07-18",
+    "index": 0,
+    "finish_reason": "stop",
+    "usage": {
+        "completion_tokens": 1,
+        "prompt_tokens": 12,
+        "total_tokens": 13,
+        "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "text_tokens": None,
+        },
+        "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cache_write_tokens": None,
+            "cached_tokens": 0,
+            "image_tokens": None,
+            "text_tokens": None,
+        },
+    },
+}
+
+
 class TestGeneratorComponents:
     def _gen_component(self, **overrides: Any) -> dict:
         base = {
@@ -271,6 +314,39 @@ class TestGeneratorComponents:
         invoke = find_event(uploaded["events"], "model.invoke")
         assert "input" not in invoke["payload"]
         assert "output" not in invoke["payload"]
+        adapter.disconnect()
+
+    def test_chat_generator_reply_meta(self, mock_client):
+        """A chat generator (``OpenAIChatGenerator``, the only OpenAI generator
+        haystack 3 has) returns ``{"replies": [ChatMessage]}`` with no top-level
+        ``meta`` list: model, usage and finish_reason sit on each reply's ``meta``.
+        No ``haystack.model`` tag is set either, so all of them must come from
+        there, onto model.invoke and cost.record."""
+        uploaded = capture_framework_trace(mock_client)
+        adapter = _make_adapter(mock_client)
+        _simulate_pipeline(
+            adapter._tracer,
+            components=[
+                {
+                    "name": "llm",
+                    "type": "OpenAIChatGenerator",
+                    "output": {"replies": [_ChatReply("pong", _REAL_CHAT_REPLY_META)]},
+                }
+            ],
+        )
+
+        invoke = find_event(uploaded["events"], "model.invoke")
+        assert invoke["payload"]["model"] == "gpt-4o-mini-2024-07-18"
+        assert invoke["payload"]["tokens_prompt"] == 12
+        assert invoke["payload"]["tokens_completion"] == 1
+        assert invoke["payload"]["tokens_total"] == 13
+        assert invoke["payload"]["finish_reason"] == "stop"
+
+        cost = find_event(uploaded["events"], "cost.record")
+        assert cost["payload"]["model"] == "gpt-4o-mini-2024-07-18"
+        assert cost["payload"]["tokens_prompt"] == 12
+        assert cost["payload"]["tokens_completion"] == 1
+        assert cost["payload"]["tokens_total"] == 13
         adapter.disconnect()
 
     def test_model_from_output_meta(self, mock_client):

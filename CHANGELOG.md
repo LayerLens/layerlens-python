@@ -126,6 +126,8 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 - **strands: a run in progress at `disconnect()` is uploaded.** Before, a run in progress when hooks were removed (on strands-agents 1.42 with `connect(target=agent)`) was dropped. If that run was in a long-lived asyncio task, the task uploaded nothing again, even after the adapter was reconnected. Now `disconnect()` stops new runs at once, and a run already in progress finishes and uploads before the adapter's hooks leave its agent
 
+- **Haystack: model calls through a chat generator had no model, token counts or cost.** Chat generators such as `OpenAIChatGenerator` (on haystack-ai 3, the only OpenAI generator) report the model, token usage and finish reason on each reply, not in the separate `meta` list the adapter read, so their `model.invoke` events had none of the three and no `cost.record` was emitted. The adapter now reads them from the reply, on haystack-ai 2.x and 3.x, so these calls carry their model, token counts and a priced `cost.record`. The haystack-ai 2.x text generator (`OpenAIGenerator`) was not affected
+
 ### Deprecated
 
 - `Stratix`, `AsyncStratix`, `StratixError` and the older `Atlas`, `AsyncAtlas`,
