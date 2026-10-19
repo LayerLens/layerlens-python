@@ -405,6 +405,7 @@ import time as _time
 import pytest
 
 from layerlens.instrument import trace
+from tests._optional_deps import importorskip
 from tests.instrument.conftest import find_event as _find_event
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.providers.ollama import OllamaProvider as _OLP
@@ -836,7 +837,7 @@ class TestAnthropicStreamingTTFT:
 
 class TestOllamaStreaming:
     def test_stream_aggregates_content_usage_and_ttft(self, mock_client, capture_trace):
-        ollama = pytest.importorskip("ollama")
+        ollama = importorskip("ollama")
 
         def fake_stream():
             _time.sleep(0.03)  # measurable pre-first-chunk delay for TTFT

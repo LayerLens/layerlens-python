@@ -14,6 +14,12 @@
 # block PRs or redden main: the re-lock, install and suite steps are
 # continue-on-error, each reports its own verdict, and this workflow has no PR
 # trigger. Read the verdicts in the run's step summary.
+#
+# A red row reaches a person anyway (LAY-4242): the rows (re-lock, python-3.9 ...
+# python-3.12) record their results, and the report job opens a "drift-canary"
+# tracking issue (or comments on the open one) listing the red rows, the versions
+# that moved and this run. A green run makes no GitHub call. To test the alert,
+# run this workflow by hand with force_red_row.
 
 name: Lock Drift Canary
 
@@ -21,12 +27,45 @@ on:
   schedule:
     - cron: "11 6 * * 1" # weekly, Monday 06:11 UTC (after the adapter drift canary)
   workflow_dispatch:
+    inputs:
+      force_red_row:
+        description: "Test the alert: report this row (re-lock or python-3.X) red without running it"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
+# One run at a time, so two runs can't both find no open issue and open two.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      pythons: ${{ steps.rows.outputs.pythons }}
+      rows: ${{ steps.rows.outputs.rows }}
+    steps:
+      - name: List rows
+        id: rows
+        env:
+          FORCED: ${{ inputs.force_red_row }}
+        run: |
+          # The suite's Python versions (CI's, see run-tests.yaml), and every row the report expects.
+          PYTHONS='["3.9", "3.10", "3.11", "3.12"]'
+          ROWS=$(python3 -c 'import json, sys; print(json.dumps(["re-lock"] + ["python-" + v for v in json.loads(sys.argv[1])]))' "$PYTHONS")
+          echo "pythons=${PYTHONS}" >> "$GITHUB_OUTPUT"
+          echo "rows=${ROWS}" >> "$GITHUB_OUTPUT"
+          # A force_red_row that names no row would force nothing, and the alert test would pass silently.
+          if [ -n "$FORCED" ] && ! python3 -c 'import json, sys; sys.exit(sys.argv[1] not in json.loads(sys.argv[2]))' "$FORCED" "$ROWS"; then
+            echo "::error title=Unknown force_red_row::'$FORCED' is not a row; rows: $ROWS"
+            exit 1
+          fi
+
   relock:
+    needs: plan
     runs-on: ubuntu-latest
     outputs:
       outcome: ${{ steps.relock.outcome }}
@@ -41,6 +80,7 @@ jobs:
 
       - name: Re-lock to the latest releases
         id: relock
+        if: inputs.force_red_row != 're-lock'
         continue-on-error: true # advisory: an unresolvable upgrade is reported, not raised
         run: |
           set -o pipefail
@@ -50,15 +90,22 @@ jobs:
         if: always()
         env:
           OUTCOME: ${{ steps.relock.outcome }}
+          FORCED: ${{ inputs.force_red_row }}
         run: |
           touch "$RUNNER_TEMP/relock.log"
+          mkdir -p "$RUNNER_TEMP/result"
           if [ "$OUTCOME" = "success" ]; then
             {
               echo "### Versions that moved from the committed uv.lock"
               echo '```'
               grep -E '^(Updated|Added|Removed) ' "$RUNNER_TEMP/relock.log" || echo "(none)"
               echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+            } | tee "$RUNNER_TEMP/result/moved.md" >> "$GITHUB_STEP_SUMMARY"
+            python3 scripts/drift_canary_report.py record --out "$RUNNER_TEMP/result/re-lock.json" \
+              --row re-lock --verdict "re-locked to the latest releases"
+          elif [ "$FORCED" = "re-lock" ]; then
+            python3 scripts/drift_canary_report.py record --out "$RUNNER_TEMP/result/re-lock.json" --row re-lock \
+              --red --verdict "FAIL (forced by workflow_dispatch to test the alert; the re-lock did not run)"
           else
             echo "::warning title=Upstream drift: re-lock failed::The latest releases can't be resolved together (uv lock --upgrade failed), so no suite ran. See this job's log."
             {
@@ -67,7 +114,17 @@ jobs:
               tail -n 40 "$RUNNER_TEMP/relock.log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            python3 scripts/drift_canary_report.py record --out "$RUNNER_TEMP/result/re-lock.json" --row re-lock \
+              --red --verdict "FAIL: the latest releases can't be resolved together (uv lock --upgrade failed)"
           fi
+
+      - name: Upload the re-lock result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-result-re-lock
+          path: ${{ runner.temp }}/result/
+          if-no-files-found: ignore # the report counts a missing result as red
 
       - uses: actions/upload-artifact@v4
         if: steps.relock.outcome == 'success'
@@ -76,13 +133,13 @@ jobs:
           path: uv.lock
 
   suite:
-    needs: relock
+    needs: [plan, relock]
     if: needs.relock.outputs.outcome == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ${{ fromJSON(needs.plan.outputs.pythons) }}
     env:
       UV_MANAGED_PYTHON: "1"
     steps:
@@ -105,7 +162,7 @@ jobs:
 
       - name: Run the full suite against the latest releases
         id: suite
-        if: steps.install.outcome == 'success'
+        if: steps.install.outcome == 'success' && inputs.force_red_row != format('python-{0}', matrix.python-version)
         continue-on-error: true # advisory: a red canary never blocks anything
         env:
           UV_NO_SYNC: "1"
@@ -117,13 +174,64 @@ jobs:
           INSTALL: ${{ steps.install.outcome }}
           SUITE: ${{ steps.suite.outcome }}
           PYTHON_VERSION: ${{ matrix.python-version }}
+          FORCED: ${{ inputs.force_red_row }}
         run: |
-          if [ "$INSTALL" != "success" ]; then
+          row="python-${PYTHON_VERSION}"
+          record() { python3 scripts/drift_canary_report.py record --out "$RUNNER_TEMP/$row.json" --row "$row" "$@"; }
+          if [ "$FORCED" = "$row" ]; then
+            record --red --verdict "FAIL (forced by workflow_dispatch to test the alert; the suite did not run)"
+          elif [ "$INSTALL" != "success" ]; then
             echo "::warning title=Upstream drift on Python ${PYTHON_VERSION}::The upgraded lock doesn't install (no wheel, failed build, ...), so the suite didn't run."
             echo "Python ${PYTHON_VERSION}: upgraded lock does NOT INSTALL, suite not run (see the job log)" >> "$GITHUB_STEP_SUMMARY"
+            record --red --verdict "FAIL: the upgraded lock does not install, so the suite didn't run"
           elif [ "$SUITE" = "success" ]; then
             echo "Python ${PYTHON_VERSION}: suite green on the latest releases" >> "$GITHUB_STEP_SUMMARY"
+            record --verdict "suite green on the latest releases"
           else
             echo "::warning title=Upstream drift on Python ${PYTHON_VERSION}::The suite fails against the latest releases. Triage before moving uv.lock forward."
             echo "Python ${PYTHON_VERSION}: suite RED on the latest releases (see the job log)" >> "$GITHUB_STEP_SUMMARY"
+            record --red --verdict "FAIL: the suite fails against the latest releases"
           fi
+
+      - name: Upload the row result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-result-python-${{ matrix.python-version }}
+          path: ${{ runner.temp }}/python-${{ matrix.python-version }}.json
+          if-no-files-found: ignore # the report counts a missing result as red
+
+  report:
+    needs: [plan, relock, suite]
+    # Also after a failed or timed-out job; not when the run was cancelled or planning failed.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open or comment on the tracking issue
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the row results
+        # One directory per row under results/. A failed download leaves results/
+        # empty, so every expected row reports as red below.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: drift-result-*
+          path: results
+
+      - name: Notify on red rows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # The suite rows run only when the re-lock succeeded.
+          ROWS: ${{ needs.relock.outputs.outcome == 'success' && needs.plan.outputs.rows || '["re-lock"]' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ASSIGNEES: ${{ vars.DRIFT_CANARY_ASSIGNEES }}
+        run: |
+          set -o pipefail # a failed notification must fail this job, not vanish into tee
+          mkdir -p results
+          python3 scripts/drift_canary_report.py notify --canary "Lock Drift Canary" --results results \
+            --expect-json "$ROWS" --run-url "$RUN_URL" --assignees "$ASSIGNEES" \
+            --append-markdown results/drift-result-re-lock/moved.md | tee -a "$GITHUB_STEP_SUMMARY"

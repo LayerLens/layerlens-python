@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests._optional_deps import importorskip
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.frameworks.ms_agent_framework import (
     MSAgentFrameworkAdapter,
@@ -452,7 +453,7 @@ class TestPydanticChatWrapping:
     (found wiring the live SK AgentGroupChat scenario; LAY-3567 follow-up)."""
 
     def _make_pydantic_chat(self):
-        pydantic = pytest.importorskip("pydantic", minversion="2")
+        pydantic = importorskip("pydantic", minversion="2")
 
         class _PydanticChat(pydantic.BaseModel):
             model_config = pydantic.ConfigDict(validate_assignment=True)
@@ -526,7 +527,7 @@ class TestDisconnectLeaveNoTrace:
         assert not hasattr(chat.invoke, "_layerlens_original")
 
     def test_pydantic_chat_restored_to_exact_original(self, mock_client):
-        pydantic = pytest.importorskip("pydantic", minversion="2")
+        pydantic = importorskip("pydantic", minversion="2")
 
         class _PydanticChat(pydantic.BaseModel):
             model_config = pydantic.ConfigDict(validate_assignment=True)

@@ -7,7 +7,7 @@ Three pieces keep ~30 fast-moving framework integrations honest
 |---|---|---|
 | Coverage manifest | `tests/adapter_manifest.toml` + `tests/test_adapter_manifest.py` | Declares the required test tiers per adapter; the gate fails on undeclared adapters, missing tier files, or dangling cross-references. Runs in base CI. |
 | Real-framework matrix | `tests/matrix/frameworks.toml` + `run_matrix.py` + `.github/workflows/adapter-matrix.yaml` | One isolated uv venv per framework at the pinned **verified** version, running that framework's real test modules. A row fails on any failure, on empty collection, or on ANY skip — a skip while the framework is installed means coverage silently died (the B2 failure mode). PRs run only rows their diff touches; nightly runs everything. Zero LLM spend, no API keys. |
-| Drift canary | `.github/workflows/adapter-drift-canary.yaml` | Weekly advisory rerun of the matrix with pins removed (latest upstream releases). Failures appear in the run's step summary and never block PRs or main. |
+| Drift canary | `.github/workflows/adapter-drift-canary.yaml` | Weekly advisory rerun of the matrix with pins removed (latest upstream releases). Failures never block PRs or main. A red row opens a `drift-canary` tracking issue (or comments on the open one) with the row, its versions and the run link; see CONTRIBUTING.md > "Dependencies and the lock". |
 
 ## Running locally
 
@@ -35,6 +35,14 @@ Requires `uv` on PATH. Each row builds a throwaway venv (`--keep-venv` /
 4. If the adapter has a live scenario, register it in the relevant
    `tests/e2e/live/_*_registry.py` and reference the id as `live_id` in the
    manifest.
+
+## Rows that aren't frameworks
+
+The shared dev lock (`uv.lock`) holds every extra at once, so it can't hold a
+release that another extra caps out. The `openai` (openai 3.x), `openai_agents`
+(0.24 needs openai 3), `mcp` (mcp 2.x) and `core` (the SDK without extras, on the
+newest pydantic and httpx) rows pin those releases here instead. See
+CONTRIBUTING.md > "Dependencies and the lock".
 
 ## Updating pins
 

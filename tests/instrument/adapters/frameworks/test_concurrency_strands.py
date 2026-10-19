@@ -31,9 +31,11 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
-strands_mod = pytest.importorskip("strands")
+strands_mod = importorskip("strands")
 from strands.hooks import HookRegistry  # noqa: E402
 from strands.hooks.events import (  # noqa: E402
     AfterModelCallEvent,

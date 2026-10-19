@@ -26,8 +26,10 @@ from typing import Any, Dict
 import httpx
 import pytest
 
-pytest.importorskip("strands")
-pytest.importorskip("openai")
+from tests._optional_deps import importorskip
+
+importorskip("strands")
+importorskip("openai")
 
 from strands import Agent  # noqa: E402
 from strands.hooks.events import BeforeModelCallEvent  # noqa: E402

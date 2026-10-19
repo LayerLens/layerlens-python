@@ -46,7 +46,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-smolagents = pytest.importorskip("smolagents")  # base venv has no smolagents; matrix installs it
+from tests._optional_deps import importorskip
+
+smolagents = importorskip("smolagents")  # base venv has no smolagents; matrix installs it
 
 import httpx  # noqa: E402
 from smolagents import (  # noqa: E402

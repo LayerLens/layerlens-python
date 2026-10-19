@@ -80,6 +80,8 @@ Build backends are resolved in isolated build environments, outside the lock, so
 - **Adapter Drift Canary** runs the adapter matrix rows against the latest framework releases.
 - **Lock Drift Canary** re-locks to the latest releases of everything (`uv lock --upgrade`, never committed) and runs the full suite on every CI Python version.
 
+Both run every row as `continue-on-error`, so the run itself stays green. A red row instead opens a tracking issue labelled `drift-canary`, one per canary, listing the red rows, their versions and the run link. If that issue is already open, the canary comments on it. A green run makes no GitHub call and never closes the issue: close it yourself once the canary is green. To assign new issues to people, set the repository variable `DRIFT_CANARY_ASSIGNEES` to comma-separated GitHub logins. To test the alert, run either workflow by hand with `force_red_row` set to a row name (a `tests/matrix/frameworks.toml` row, or `re-lock` / `python-3.12` for the Lock Drift Canary). That row reports red without running.
+
 A red canary means a customer installing the latest release may hit the failure, so triage it and fix real breaks test-first. To move the lock forward, open a dedicated PR:
 
 ```bash
@@ -98,6 +100,10 @@ done
 ```
 
 To upgrade only as far as a known date, add `--exclude-newer 2026-10-05T10:09:00Z` to the `uv lock --upgrade…` command. The cutoff is recorded in `uv.lock` (and Check Lock fails while it is), so run a plain `uv lock` afterwards: it drops the cutoff and keeps every pin.
+
+**One lock holds every extra, so check what an upgrade picked.** Where extras disagree about a shared dependency, `uv lock --upgrade` trades versions between them, and it can choose a much older release of one package to get a newer release of another. Without the floors in the `dev` dependency group it picks semantic-kernel 1.8.0, dspy 2.6 and crewai 1.6, and the dspy and crewai suites then skip. When you move the lock forward, compare the versions that moved with what `pip install layerlens[<extra>]` gets today, and raise those floors if needed (`tests/test_dev_lock_floors.py` fails when crewai or dspy drop below what their suites need).
+
+Some current releases can't be in this lock at all, because another extra caps them: crewai and litellm cap openai below 3, crewai caps pydantic below 2.13 and mcp at 1.28. The `openai`, `openai_agents`, `mcp` and `core` rows in `tests/matrix/frameworks.toml` pin those releases in their own venvs, so CI still runs them.
 
 A few rules keep the lock trustworthy:
 

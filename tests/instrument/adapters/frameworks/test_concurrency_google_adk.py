@@ -29,9 +29,11 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
-pytest.importorskip("google.adk")
+importorskip("google.adk")
 
 from layerlens.models import CreateTracesResponse  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402

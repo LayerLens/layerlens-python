@@ -58,7 +58,9 @@ import asyncio
 
 import pytest
 
-pytest.importorskip("browser_use")  # skips in the base venv (not installed there)
+from tests._optional_deps import importorskip
+
+importorskip("browser_use")  # skips in the base venv (not installed there)
 
 # browser-use pings its own telemetry/cloud-sync endpoints unless this is off.
 # Set before importing the package: ``CONFIG`` reads the environment lazily, but

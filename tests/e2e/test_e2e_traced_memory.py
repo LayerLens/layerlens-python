@@ -7,10 +7,10 @@ turn. Also exercises MemoryMutationTracker as the context-manager variant.
 
 from __future__ import annotations
 
-import pytest
+from tests._optional_deps import importorskip
 
 # langchain is optional; skip cleanly when it isn't installed.
-langchain_memory = pytest.importorskip("langchain.memory")
+langchain_memory = importorskip("langchain.memory")
 ConversationBufferMemory = langchain_memory.ConversationBufferMemory
 
 from layerlens.instrument import trace_context

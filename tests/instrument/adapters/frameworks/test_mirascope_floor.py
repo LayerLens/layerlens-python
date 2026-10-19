@@ -25,11 +25,13 @@ import json
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):  # pragma: no cover - matrix pins 3.11
     pytest.skip("mirascope 2.x requires Python >= 3.10", allow_module_level=True)
 
-pytest.importorskip("mirascope.llm", reason="mirascope not installed")
-pytest.importorskip("openai", reason="mirascope[openai] not installed")
+importorskip("mirascope.llm", reason="mirascope not installed")
+importorskip("openai", reason="mirascope[openai] not installed")
 
 import mirascope.llm as llm  # noqa: E402  # pyright: ignore[reportMissingImports]
 

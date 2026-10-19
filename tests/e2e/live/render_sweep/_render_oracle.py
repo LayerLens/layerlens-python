@@ -88,7 +88,7 @@ def resolve_event_agent(em: Dict[str, Any]) -> str:
 def expected_node_ids(events: List[Dict[str, Any]]) -> List[str]:
     """The SORTED set of node ``agent_id``s the server renders for these events,
     including the G1 handoff/delegation endpoint-ensuring pass."""
-    evs = sorted(events, key=lambda e: (e.get("sequence_id") or 0))
+    evs = sorted(events, key=lambda e: e.get("sequence_id") or 0)
     seen: Set[str] = set()
     for e in evs:
         a = resolve_event_agent(e)

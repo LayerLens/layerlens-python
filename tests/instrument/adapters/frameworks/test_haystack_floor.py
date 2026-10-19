@@ -40,10 +40,12 @@ from typing import Any, Dict
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 # The base venv has no haystack-ai; this floor runs in the matrix ``haystack``
 # venv (haystack-ai==2.30.1). importorskip only guards ImportError, which is the
 # whole gate we need here.
-pytest.importorskip("haystack")
+importorskip("haystack")
 
 import httpx  # noqa: E402
 from haystack import Pipeline, component  # noqa: E402

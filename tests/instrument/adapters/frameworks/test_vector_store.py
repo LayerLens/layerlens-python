@@ -5,9 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pytest
-
 from layerlens.instrument import trace_context
+from tests._optional_deps import importorskip
 from layerlens.instrument.adapters.frameworks.vector_store import VectorStoreAdapter
 
 from .conftest import find_event, capture_framework_trace
@@ -153,7 +152,7 @@ class TestAutoWrap:
     def test_routes_real_chroma_collection_to_chroma(self, mock_client):
         # Use a REAL chromadb Collection (no mock): this is the backend the live
         # suite exercises, and the one the bug mislabels.
-        chromadb = pytest.importorskip("chromadb")
+        chromadb = importorskip("chromadb")
         uploaded = capture_framework_trace(mock_client)
         adapter = VectorStoreAdapter(mock_client)
 

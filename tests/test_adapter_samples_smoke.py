@@ -26,6 +26,8 @@ import subprocess
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 _SAMPLE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
     "samples",
@@ -109,7 +111,7 @@ def test_sample_runs_cleanly_credless(name: str, filename: str) -> None:
 def test_vector_store_captures_real_events_offline() -> None:
     """The offline ``vector_store`` sample captures a real ``retrieval.query``
     event with no creds and no network (Chroma ``EphemeralClient``)."""
-    pytest.importorskip("chromadb")
+    importorskip("chromadb")
 
     result = _run_credless(SAMPLE_FILES["vector_store"])
     output = result.stdout + result.stderr

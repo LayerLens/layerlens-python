@@ -12,9 +12,10 @@ the provider's response).
 from __future__ import annotations
 
 import httpx
-import pytest
 
-pytest.importorskip("langchain_openai")  # skips in envs without langchain-openai
+from tests._optional_deps import importorskip
+
+importorskip("langchain_openai")  # skips in envs without langchain-openai
 
 from langchain_openai import ChatOpenAI  # noqa: E402
 from langchain_core.prompts import ChatPromptTemplate  # noqa: E402

@@ -19,10 +19,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("semantic-kernel requires Python >= 3.10", allow_module_level=True)
 
-sk_contents = pytest.importorskip("semantic_kernel.contents")
+sk_contents = importorskip("semantic_kernel.contents")
 ChatMessageContent = sk_contents.ChatMessageContent
 FunctionCallContent = sk_contents.FunctionCallContent
 FunctionResultContent = sk_contents.FunctionResultContent

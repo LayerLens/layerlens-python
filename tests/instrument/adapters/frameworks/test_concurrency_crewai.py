@@ -41,12 +41,14 @@ from collections import Counter
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
 if sys.version_info < (3, 10):
     pytest.skip("crewai requires Python >= 3.10", allow_module_level=True)
 
-pytest.importorskip("crewai.events")
+importorskip("crewai.events")
 
 from crewai.events import (  # noqa: E402
     TaskStartedEvent,
@@ -57,15 +59,15 @@ from crewai.events import (  # noqa: E402
 )
 
 # crewai stamps the event_id / parent_event_id lineage this isolation guard keys
-# on only from ~1.14 onward; the base lock can resolve an older crewai (e.g.
-# 1.6.x) whose events carry no lineage, so per-run isolation cannot be expressed
-# or tested there. The adapter degrades gracefully on such versions (it falls
-# back to a generated span id — see crewai.py), and this invariant is exercised
-# against the pinned crewai==1.15.27 in the adapter matrix (frameworks.toml).
+# on only from ~1.14 onward; an older crewai (what Intel Macs resolve, where
+# crewai >= 1.14 can't install) carries no lineage, so per-run isolation cannot be
+# expressed or tested there. The adapter degrades gracefully on such versions (it
+# falls back to a generated span id — see crewai.py). The dev lock and the matrix
+# row install crewai 1.15.28, so CI runs this invariant.
 if "event_id" not in CrewKickoffStartedEvent.model_fields:
     pytest.skip(
         "crewai lacks event_id/parent_event_id lineage (<1.14); per-run isolation "
-        "requires it — exercised in the matrix on crewai==1.15.27",
+        "requires it — CI runs it on crewai 1.15.28",
         allow_module_level=True,
     )
 

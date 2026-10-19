@@ -156,12 +156,23 @@ dev = [
     "build",
     "twine==6.1.0",
     "click>=8.0.0",
-    # crewai>=1.14 (the version compatible with openai 2.x) requires Python 3.10+,
-    # so gate it. Pre-3.10 dev envs simply skip crewai-backed tests.
-    "crewai>=0.5.0; python_version >= '3.10'",
     "openai>=2.31.0",
     "anthropic>=0.94.0",
     "langchain-core>=0.3.84",
+    # The openinference suites build real OpenTelemetry spans (and decode OTLP
+    # protobuf). The adapter itself needs neither package, so list them here: on
+    # Python 3.9 they used to arrive only through pydantic-ai's mistral client.
+    "opentelemetry-sdk",
+    "opentelemetry-proto",
+    # Floors that keep the lock on current releases (LAY-4242). One lock holds every
+    # extra, so `uv lock --upgrade` trades versions between them, and without these it
+    # picks semantic-kernel 1.8.0 (which breaks on pydantic >= 2.12), dspy 2.6 and
+    # crewai 1.6, so the dspy-3 and crewai >= 1.14 suites would skip. They bound only
+    # this environment, never what customers install. Every crewai >= 1.14 needs
+    # lancedb, which ships no Intel-mac wheels, so Intel Macs keep an older crewai.
+    "crewai>=1.15.28; python_version >= '3.10' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
+    "dspy>=3.4.1; python_version >= '3.10'",
+    "semantic-kernel>=1.45.0; python_version >= '3.10'",
 ]
 # Mutation testing for the bite-check and nightly mutation workflows. Not a default
 # group: install it with `uv sync --all-extras --group mutation`.
@@ -204,7 +215,9 @@ build-constraint-dependencies = [
 line-length = 120
 output-format = "grouped"
 target-version = "py37"
-exclude = ["samples"]
+# Markdown stays out of ruff: from 0.17 ruff also formats the Python blocks in .md
+# files, which would rewrite every code example in the docs.
+exclude = ["samples", "*.md"]
 
 [tool.ruff.format]
 docstring-code-format = true

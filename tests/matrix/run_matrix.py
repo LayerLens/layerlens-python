@@ -10,6 +10,10 @@ anything skipped — a skip inside a row whose framework IS installed means the
 suite silently stopped covering something (the B2 failure mode this matrix
 exists to catch).
 
+``--result-json PATH`` also writes the row's result (row, red, verdict, installed
+versions) for ``scripts/drift_canary_report.py``, which the drift canary uses to
+open a tracking issue when a row is red (LAY-4242).
+
 Usage:
     python tests/matrix/run_matrix.py --framework crewai
     python tests/matrix/run_matrix.py --framework crewai --latest   # drift canary
@@ -66,7 +70,48 @@ def _installed_versions(python: str, names: List[str]) -> Dict[str, str]:
         return {}
 
 
-def run_row(name: str, row: Dict[str, Any], *, latest: bool, keep_venv: bool, venv_dir: str | None) -> int:
+def row_result(name: str, versions: Dict[str, str], returncode: int, stdout: str) -> Dict[str, Any]:
+    """The row's verdict from pytest's exit code and terminal summary ("N passed, M skipped, ...")."""
+
+    def _count(label: str) -> int:
+        m = re.search(rf"(\d+) {label}\b", stdout)  # \b: "error" must not also match "2 errors"
+        return int(m.group(1)) if m else 0
+
+    passed = _count("passed")
+    failed = _count("failed") + _count("error") + _count("errors")
+    skipped = _count("skipped")
+    xfailed = _count("xfailed")
+    tests = passed + failed + skipped + xfailed
+
+    if tests == 0:
+        verdict = "FAIL (collected nothing)"
+    elif returncode != 0 or failed:
+        verdict = f"FAIL: {failed} failed, {skipped} skipped of {tests}"
+    elif skipped > 0:
+        verdict = f"FAIL (skips inside an installed-framework row): {skipped} skipped of {tests}"
+    else:
+        verdict = "pass"
+    return {"row": name, "red": verdict != "pass", "verdict": verdict, "versions": versions}
+
+
+def install_failed_result(name: str) -> Dict[str, Any]:
+    return {"row": name, "red": True, "verdict": "FAIL: dependency install failed", "versions": {}}
+
+
+def write_result(path: str, result: Dict[str, Any]) -> None:
+    with open(path, "w") as f:
+        json.dump(result, f)
+
+
+def run_row(
+    name: str,
+    row: Dict[str, Any],
+    *,
+    latest: bool,
+    keep_venv: bool,
+    venv_dir: str | None,
+    result_json: str | None = None,
+) -> int:
     workdir = venv_dir or tempfile.mkdtemp(prefix=f"layerlens-matrix-{name}-")
     venv = os.path.join(workdir, "venv")
     python = os.path.join(venv, "bin", "python")
@@ -85,10 +130,13 @@ def run_row(name: str, row: Dict[str, Any], *, latest: bool, keep_venv: bool, ve
     project = f"{REPO_ROOT}[{','.join(extras)}]" if extras else REPO_ROOT
 
     try:
-        if _run(["uv", "venv", "--python", str(row.get("python", "3.11")), venv]).returncode != 0:
-            return 2
-        if _run(["uv", "pip", "install", "--python", python, "-e", project, "pytest", *pins]).returncode != 0:
+        if (
+            _run(["uv", "venv", "--python", str(row.get("python", "3.11")), venv]).returncode != 0
+            or _run(["uv", "pip", "install", "--python", python, "-e", project, "pytest", *pins]).returncode != 0
+        ):
             print(f"::error::[{name}] dependency install failed (pins={pins})")
+            if result_json:
+                write_result(result_json, install_failed_result(name))
             return 2
 
         dist_names = [re.split(r"[=<>!~\[]", p, maxsplit=1)[0] for p in row["install"]]
@@ -104,32 +152,17 @@ def run_row(name: str, row: Dict[str, Any], *, latest: bool, keep_venv: bool, ve
         sys.stdout.write(proc.stdout)
         sys.stderr.write(proc.stderr)
 
-        # Parse the terminal summary ("N passed, M skipped, K failed in ...").
-        def _count(label: str) -> int:
-            m = re.search(rf"(\d+) {label}", proc.stdout)
-            return int(m.group(1)) if m else 0
-
-        passed = _count("passed")
-        failed = _count("failed") + _count("error") + _count("errors")
-        skipped = _count("skipped")
-        xfailed = _count("xfailed")
-        tests = passed + failed + skipped + xfailed
-
-        verdict = "pass"
-        if proc.returncode != 0 or failed:
-            verdict = "FAIL"
-        elif tests == 0:
-            verdict = "FAIL (collected nothing)"
-        elif skipped > 0:
-            verdict = "FAIL (skips inside an installed-framework row)"
-
-        line = f"| {name} | {', '.join(f'{k}=={v}' for k, v in versions.items()) or '?'} | {tests} | {skipped} | {failed} | {verdict} |"
-        print(f"[{name}] tests={tests} skipped={skipped} failed={failed} -> {verdict}")
+        result = row_result(name, versions, proc.returncode, proc.stdout)
+        verdict = result["verdict"]
+        line = f"| {name} | {', '.join(f'{k}=={v}' for k, v in versions.items()) or '?'} | {verdict} |"
+        print(f"[{name}] -> {verdict}")
         if summary_path:
             with open(summary_path, "a") as f:
                 f.write(line + "\n")
+        if result_json:
+            write_result(result_json, result)
 
-        return 0 if verdict == "pass" else 1
+        return 1 if result["red"] else 0
     finally:
         if not keep_venv and venv_dir is None:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -153,6 +186,10 @@ _ROW_ALIASES = {
     # The marvin row also runs the pydantic-ai adapter's tests in the
     # pydantic-ai the `[marvin]` extra installs.
     "marvin": ["marvin", "pydantic_ai"],
+    # The OpenRouter adapter runs on the openai SDK too.
+    "openai": ["openai", "openrouter"],
+    # The SDK without extras: any source change, or a change to its dependency bounds.
+    "core": ["src/layerlens/", "pyproject.toml"],
 }
 
 
@@ -180,6 +217,7 @@ def main() -> int:
         help="read changed file paths on stdin, print the JSON list of rows to run (PR path filter)",
     )
     parser.add_argument("--keep-venv", action="store_true")
+    parser.add_argument("--result-json", default=None, help="also write the row's result here (drift canary)")
     parser.add_argument("--venv-dir", default=None)
     args = parser.parse_args()
 
@@ -197,7 +235,7 @@ def main() -> int:
 
     if os.environ.get("GITHUB_STEP_SUMMARY") and os.environ.get("MATRIX_SUMMARY_HEADER"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-            f.write("| framework | versions | tests | skipped | failed | verdict |\n|---|---|---|---|---|---|\n")
+            f.write("| framework | versions | verdict |\n|---|---|---|\n")
 
     return run_row(
         args.framework,
@@ -205,6 +243,7 @@ def main() -> int:
         latest=args.latest,
         keep_venv=args.keep_venv,
         venv_dir=args.venv_dir,
+        result_json=args.result_json,
     )
 
 

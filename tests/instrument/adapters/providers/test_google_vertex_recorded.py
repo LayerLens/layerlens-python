@@ -13,9 +13,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from layerlens.instrument import trace
+from tests._optional_deps import importorskip
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.providers.google_vertex import GoogleVertexProvider
 
@@ -31,7 +30,7 @@ def _model(response, model_name):
 
 class TestGoogleVertexRecorded:
     def test_real_proto_response(self, mock_client, capture_trace):
-        gm = pytest.importorskip("vertexai.generative_models")
+        gm = importorskip("vertexai.generative_models")
         fixture = load_recorded("google_vertex", "default")
         response = gm.GenerationResponse.from_dict(fixture["response"])
         model = _model(response, fixture["model_name"])

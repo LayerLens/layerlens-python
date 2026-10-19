@@ -41,6 +41,7 @@ redaction = { path = "tests/instrument/test_capture_config.py" }
 disconnect_restore = { path = "tests/instrument/adapters/test_disconnect_invariants.py" }
 recorded = { path = "tests/instrument/adapters/providers/test_openai_recorded.py" }
 live_id = "openai"
+matrix_row = "openai"
 
 [adapters.anthropic]
 family = "provider"
@@ -61,6 +62,7 @@ doubles = { path = "tests/instrument/adapters/providers/test_azure_openai.py" }
 # seeded body over MockTransport. captured_at='pending-creds' in the fixture.
 recorded = { path = "tests/instrument/adapters/providers/test_azure_openai_recorded.py" }
 live_id = "azure_openai"
+matrix_row = "openai"
 
 [adapters.google_vertex]
 family = "provider"
@@ -293,6 +295,7 @@ unit = { path = "tests/instrument/adapters/protocols/test_mcp_invariants.py" }
 redaction = { path = "tests/instrument/adapters/protocols/test_protocol_redaction.py" }
 disconnect_restore = { path = "tests/instrument/adapters/test_disconnect_invariants.py" }
 live_id = "mcp"
+matrix_row = "mcp"
 
 [adapters.a2a]
 family = "protocol"
@@ -434,3 +437,4 @@ attestation = { path = "tests/instrument/adapters/providers/test_openrouter_floo
 # a catalog guess. Live 🔒 deferred: no OpenRouter key exists.
 cost = { path = "tests/instrument/adapters/providers/test_openrouter_floor.py", pattern = "TestCostFloor" }
 disconnect_restore = { path = "tests/instrument/adapters/providers/test_openrouter.py", pattern = "TestLifecycle" }
+matrix_row = "openai"

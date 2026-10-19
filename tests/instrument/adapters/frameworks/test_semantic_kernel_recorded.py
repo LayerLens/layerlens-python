@@ -27,11 +27,11 @@ from __future__ import annotations
 import asyncio
 
 import httpx
-import pytest
 
 from openai import AsyncOpenAI
+from tests._optional_deps import importorskip
 
-pytest.importorskip("semantic_kernel")  # skips in the base venv (not installed there)
+importorskip("semantic_kernel")  # skips in the base venv (not installed there)
 
 from semantic_kernel import Kernel  # noqa: E402
 from semantic_kernel.connectors.ai.open_ai import (

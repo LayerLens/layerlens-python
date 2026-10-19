@@ -32,7 +32,9 @@ from typing import Any, Dict
 
 import pytest
 
-pytest.importorskip("haystack")  # skips in the base venv (not installed there)
+from tests._optional_deps import importorskip
+
+importorskip("haystack")  # skips in the base venv (not installed there)
 
 from haystack import Pipeline  # noqa: E402
 from haystack.utils import Secret

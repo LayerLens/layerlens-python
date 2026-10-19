@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from ._framework_harness import run_framework_case
 from ._protocol_registry import PROTOCOLS
 
@@ -33,6 +35,6 @@ _IDS = [f"{c.id}-{v}" for c, v in _CASES]
 @pytest.mark.live
 @pytest.mark.parametrize("case, variant", _CASES, ids=_IDS)
 def test_protocol_live(case, variant, layerlens_live_client, record_result) -> None:
-    pytest.importorskip(case.import_name, reason=f"{case.id}: '{case.import_name}' not installed")
+    importorskip(case.import_name, reason=f"{case.id}: '{case.import_name}' not installed")
     row = run_framework_case(layerlens_live_client, case, variant)
     record_result(row)

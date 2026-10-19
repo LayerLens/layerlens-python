@@ -15,10 +15,9 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock
 
-import pytest
-
 from layerlens.benchmarks import BenchmarkImporter
 from layerlens.instrument import trace_context
+from tests._optional_deps import importorskip
 from layerlens.instrument.adapters.frameworks.embedding import EmbeddingAdapter
 from layerlens.instrument.adapters.frameworks.vector_store import VectorStoreAdapter
 
@@ -68,7 +67,7 @@ class TestVectorStoreE2E:
     """Use a real in-process Chroma collection. No network, no mocks."""
 
     def setup_method(self, method):
-        chromadb = pytest.importorskip("chromadb")
+        chromadb = importorskip("chromadb")
         # Unique collection name per test — Chroma's rust backend keeps state
         # across EphemeralClient instances within a process, so naming a
         # collection "e2e_test" twice raises InternalError.

@@ -57,7 +57,9 @@ import dataclasses
 
 import pytest
 
-sk = pytest.importorskip("semantic_kernel")
+from tests._optional_deps import importorskip
+
+sk = importorskip("semantic_kernel")
 
 import httpx  # noqa: E402
 from semantic_kernel import Kernel  # noqa: E402

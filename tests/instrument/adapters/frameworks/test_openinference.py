@@ -19,7 +19,9 @@ from unittest.mock import Mock
 
 import pytest
 
-pytest.importorskip("opentelemetry.sdk")
+from tests._optional_deps import importorskip
+
+importorskip("opentelemetry.sdk")
 
 from opentelemetry.trace import Status, StatusCode  # noqa: E402
 from opentelemetry.sdk.trace import TracerProvider  # noqa: E402

@@ -39,12 +39,11 @@ from collections import Counter
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("crewai requires Python >= 3.10", allow_module_level=True)
-try:
-    import crewai  # noqa: F401
-except (ImportError, TypeError):
-    pytest.skip("crewai not installed or incompatible", allow_module_level=True)
+crewai = importorskip("crewai")
 
 from packaging.version import Version  # noqa: E402
 

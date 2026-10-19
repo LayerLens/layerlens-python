@@ -57,7 +57,7 @@ def make_responses_object(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
-            input_tokens_details=InputTokensDetails(cached_tokens=0),
+            input_tokens_details=InputTokensDetails(cached_tokens=0, cache_write_tokens=0),
             output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
         ),
     )
@@ -84,7 +84,7 @@ def make_responses_tool_call_object(model: str = "gpt-4.1") -> Response:
             input_tokens=8,
             output_tokens=4,
             total_tokens=12,
-            input_tokens_details=InputTokensDetails(cached_tokens=0),
+            input_tokens_details=InputTokensDetails(cached_tokens=0, cache_write_tokens=0),
             output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
         ),
     )

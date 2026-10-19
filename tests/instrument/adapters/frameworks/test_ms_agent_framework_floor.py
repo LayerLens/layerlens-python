@@ -63,7 +63,9 @@ from unittest.mock import patch
 
 import pytest
 
-pytest.importorskip("semantic_kernel.agents")
+from tests._optional_deps import importorskip
+
+importorskip("semantic_kernel.agents")
 
 import httpx  # noqa: E402
 from semantic_kernel.agents import ChatCompletionAgent  # noqa: E402

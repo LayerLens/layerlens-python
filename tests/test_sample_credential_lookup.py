@@ -18,6 +18,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from layerlens import LayerLens
+from tests._optional_deps import importorskip
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,7 +82,7 @@ class TestAdapterSamplesSharedHelper:
 class TestVendoredLangGraphRunner:
     @pytest.fixture
     def runner(self) -> ModuleType:
-        pytest.importorskip("langchain_openai", reason="the vendored LangGraph sample imports it at module load")
+        importorskip("langchain_openai", reason="the vendored LangGraph sample imports it at module load")
         return _load(
             "samples/vendor/langgraph/customer-support-with-handoffs/run_instrumented.py",
             "_vendored_langgraph_runner_under_test",

@@ -47,7 +47,9 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-boto3 = pytest.importorskip("boto3")
+from tests._optional_deps import importorskip
+
+boto3 = importorskip("boto3")
 from botocore.exceptions import EventStreamError  # noqa: E402
 
 from layerlens.instrument import trace_context  # noqa: E402

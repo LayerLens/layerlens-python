@@ -18,17 +18,18 @@ import sys
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("crewai requires Python >= 3.10", allow_module_level=True)
 
 # crewai needs to be importable in full
-crewai = pytest.importorskip("crewai")
-crewai_events = pytest.importorskip("crewai.events")
-pytest.importorskip("crewai.tasks.task_output")
+crewai = importorskip("crewai")
+crewai_events = importorskip("crewai.events")
+importorskip("crewai.tasks.task_output")
 
-# The adapter needs crewai's modern typed event bus (the 1.14 line); the base lock
-# resolves whatever the cross-adapter solve allows (0.193.2 or 1.6.1 by platform),
-# both too old. Only the pinned matrix (crewai==1.15.27) row is supported; skip below.
+# The adapter needs crewai's modern typed event bus (the 1.14 line). The dev lock
+# and the matrix row install 1.15.28; only Intel Macs resolve an older crewai.
 from packaging.version import Version  # noqa: E402
 
 if Version(crewai.__version__) < Version("1.14"):

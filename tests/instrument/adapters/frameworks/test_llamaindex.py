@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-llama_index_core = pytest.importorskip("llama_index.core")
+from tests._optional_deps import importorskip, is_installed
+
+llama_index_core = importorskip("llama_index.core")
 
 from llama_index.core.schema import TextNode, NodeWithScore
 from llama_index.core.tools.types import ToolMetadata
@@ -52,18 +54,15 @@ from llama_index.core.instrumentation.events.retrieval import (
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.frameworks.llamaindex import LlamaIndexAdapter
 
-# AgentWorkflow event classes (the multi-agent path). Guard the import: older
-# llama-index-core releases predate the ``agent.workflow`` package.
-try:
+# AgentWorkflow event classes (the multi-agent path). Older llama-index-core
+# releases predate the ``agent.workflow`` package.
+_HAS_AGENT_WORKFLOW = is_installed("llama_index.core.agent.workflow")
+if _HAS_AGENT_WORKFLOW:
     from llama_index.core.agent.workflow import (
         ToolCall as _WFToolCall,
         AgentInput as _WFAgentInput,
         AgentOutput as _WFAgentOutput,
     )
-
-    _HAS_AGENT_WORKFLOW = True
-except ImportError:  # pragma: no cover - depends on llama-index version
-    _HAS_AGENT_WORKFLOW = False
 
 # -- Fixtures --
 

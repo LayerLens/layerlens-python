@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from layerlens.instrument import trace
+from tests._optional_deps import importorskip
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.providers.google_vertex import GoogleVertexProvider
 
@@ -289,7 +290,7 @@ class TestRealVertexSdkResponse:
     def test_extractors_against_proto_backed_response(self):
         """Cross-check the doubles above against a REAL proto-backed
         GenerationResponse (built via from_dict — needs the SDK, not creds)."""
-        gm = pytest.importorskip("vertexai.generative_models")
+        gm = importorskip("vertexai.generative_models")
         response = gm.GenerationResponse.from_dict(
             {
                 "candidates": [

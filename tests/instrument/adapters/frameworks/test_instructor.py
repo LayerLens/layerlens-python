@@ -19,7 +19,9 @@ from typing import Any, Dict, List, Callable, Optional
 import httpx
 import pytest
 
-instructor = pytest.importorskip("instructor")
+from tests._optional_deps import importorskip
+
+instructor = importorskip("instructor")
 
 from pydantic import BaseModel, field_validator  # noqa: E402
 
@@ -408,7 +410,7 @@ class TestHonestySkips:
     def test_tenacity_retrying_object_does_not_break_the_call(self, mock_client):
         """A tenacity Retrying's stop-condition semantics cannot be honestly
         flattened to a number — omit the field, never break the call."""
-        tenacity = pytest.importorskip("tenacity")
+        tenacity = importorskip("tenacity")
         uploaded = capture_framework_trace(mock_client)
         client = _sync_client(_ok_handler())
         adapter = InstructorAdapter(mock_client, capture_config=CaptureConfig.full())

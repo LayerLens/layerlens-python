@@ -27,11 +27,11 @@ content as the final answer — a fixed, network-free, deterministic run.
 from __future__ import annotations
 
 import httpx
-import pytest
 
 import openai
+from tests._optional_deps import importorskip
 
-pytest.importorskip("smolagents")  # skips in the base venv (not installed there)
+importorskip("smolagents")  # skips in the base venv (not installed there)
 
 from smolagents import CodeAgent, OpenAIServerModel  # noqa: E402
 

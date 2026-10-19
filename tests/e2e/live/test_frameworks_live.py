@@ -18,6 +18,8 @@ import os
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from . import _framework_scenarios as fs
 from ._framework_harness import run_framework_case, run_self_flushing_case
 from ._framework_registry import FRAMEWORKS, missing_credentials
@@ -45,9 +47,9 @@ _SELF_FLUSH_IDS = [f"{c.id}-{v}" for c, v in _SELF_FLUSH_CASES]
 
 
 def _skip_unless_ready(case) -> None:
-    pytest.importorskip(case.import_name, reason=f"{case.id}: '{case.import_name}' not installed")
+    importorskip(case.import_name, reason=f"{case.id}: '{case.import_name}' not installed")
     for extra in case.extra_imports:
-        pytest.importorskip(extra, reason=f"{case.id}: '{extra}' not installed")
+        importorskip(extra, reason=f"{case.id}: '{extra}' not installed")
     reason = missing_credentials(case)
     if reason:
         pytest.skip(f"{case.id}: {reason}")
@@ -83,7 +85,7 @@ def test_bedrock_agents_trace_completeness_live(layerlens_live_client, record_re
     """
     if os.environ.get("LAYERLENS_LIVE_BEDROCK_FEATURES") != "1":
         pytest.skip("set LAYERLENS_LIVE_BEDROCK_FEATURES=1 with a feature-configured Bedrock agent")
-    pytest.importorskip("boto3", reason="boto3 not installed")
+    importorskip("boto3", reason="boto3 not installed")
     for env in ("BEDROCK_AGENT_ID", "BEDROCK_AGENT_ALIAS_ID"):
         if not os.environ.get(env):
             pytest.skip(f"bedrock_agents features: {env} not set")

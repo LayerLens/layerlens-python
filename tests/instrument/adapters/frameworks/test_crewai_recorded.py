@@ -49,14 +49,13 @@ import httpx
 import pytest
 
 import openai
+from tests._optional_deps import importorskip
 
-crewai = pytest.importorskip("crewai")  # py>=3.10 + crewai installed (skips in the base venv)
+crewai = importorskip("crewai")  # py>=3.10 + crewai installed (skips in the base venv)
 
 # The replay drives a real crewai native OpenAI provider via the keyless
 # client_params seam and the modern typed event bus, both of which the 1.14 line
-# ships. The combined base lock resolves whatever the cross-adapter solve allows
-# (0.193.2 or 1.6.1 by platform), which lack the seam/event surface; the pinned
-# matrix (crewai==1.15.27) row exercises this replay. Skip below 1.14.
+# ships; the dev lock and the matrix row install 1.15.28. Skip below 1.14.
 from packaging.version import Version  # noqa: E402
 
 if Version(crewai.__version__) < Version("1.14"):
@@ -86,14 +85,6 @@ def _llm(fixture: Dict[str, Any]) -> LLM:
             model="openai/gpt-4o-mini",
             client_params={"http_client": httpx.Client(transport=transport)},
         )
-    except ImportError as exc:
-        # The matrix pins crewai==1.15.27, whose native provider builds lazily and
-        # accepts this keyless client_params seam. The base ``test`` job resolves
-        # crewai unpinned on py>=3.10 and can pull an old release (e.g. 1.6.1)
-        # whose provider demands OPENAI_API_KEY at construction and lacks the
-        # seam — skip there rather than fail on an unsupported version (the matrix
-        # row still exercises this replay on the pinned version).
-        pytest.skip(f"crewai native-provider client_params seam unavailable: {exc}")
     finally:
         if prior_key is not None:
             os.environ["OPENAI_API_KEY"] = prior_key

@@ -45,7 +45,9 @@ from typing import Any, Dict, List, Tuple, Callable
 
 import pytest
 
-pytest.importorskip("a2a")
+from tests._optional_deps import importorskip
+
+importorskip("a2a")
 
 from a2a.types import (
     Task as A2ATask,  # noqa: E402

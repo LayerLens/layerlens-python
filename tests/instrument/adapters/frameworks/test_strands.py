@@ -18,7 +18,9 @@ from unittest.mock import Mock
 
 import pytest
 
-strands_mod = pytest.importorskip("strands")
+from tests._optional_deps import importorskip
+
+strands_mod = importorskip("strands")
 from strands.hooks import HookRegistry  # noqa: E402
 from strands.hooks.events import (  # noqa: E402
     AfterToolCallEvent,

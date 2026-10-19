@@ -26,7 +26,9 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-pytest.importorskip("ap2")
+from tests._optional_deps import importorskip
+
+importorskip("ap2")
 
 from ap2.models.cart import Cart  # noqa: E402,F401  (proves the convenience model imports)
 from ap2.models.mandate import (  # noqa: E402

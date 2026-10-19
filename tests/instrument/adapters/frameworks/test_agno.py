@@ -12,7 +12,9 @@ from typing import Any, Iterator, Optional
 
 import pytest
 
-agno = pytest.importorskip("agno")
+from tests._optional_deps import importorskip
+
+agno = importorskip("agno")
 
 from agno.metrics import RunMetrics, ModelMetrics, ToolCallMetrics  # noqa: E402
 from agno.team.team import Team  # noqa: E402

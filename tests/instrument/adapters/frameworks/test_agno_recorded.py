@@ -22,9 +22,10 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import httpx
-import pytest
 
-pytest.importorskip("agno")  # skips in the base venv (not installed there)
+from tests._optional_deps import importorskip
+
+importorskip("agno")  # skips in the base venv (not installed there)
 
 from agno.agent import Agent  # noqa: E402
 from agno.models.openai import OpenAIChat

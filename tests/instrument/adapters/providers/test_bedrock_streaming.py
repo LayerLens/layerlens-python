@@ -40,9 +40,9 @@ from __future__ import annotations
 import json
 from typing import Any, List
 
-import pytest
+from tests._optional_deps import importorskip
 
-boto3 = pytest.importorskip("boto3")
+boto3 = importorskip("boto3")
 from botocore.stub import ANY, Stubber  # noqa: E402
 
 from layerlens.instrument import trace  # noqa: E402

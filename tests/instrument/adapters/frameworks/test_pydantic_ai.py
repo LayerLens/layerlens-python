@@ -11,7 +11,9 @@ from typing import Optional
 
 import pytest
 
-pydantic_ai = pytest.importorskip("pydantic_ai")
+from tests._optional_deps import importorskip
+
+pydantic_ai = importorskip("pydantic_ai")
 
 from pydantic_ai import Agent  # noqa: E402
 from pydantic_ai.models.test import TestModel  # noqa: E402

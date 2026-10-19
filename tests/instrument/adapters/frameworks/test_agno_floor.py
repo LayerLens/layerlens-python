@@ -51,7 +51,9 @@ from typing import Any, Iterator, Optional
 import httpx
 import pytest
 
-agno = pytest.importorskip("agno")
+from tests._optional_deps import importorskip
+
+agno = importorskip("agno")
 
 from agno.metrics import RunMetrics  # noqa: E402
 from agno.run.agent import RunContentEvent, RunCompletedEvent  # noqa: E402

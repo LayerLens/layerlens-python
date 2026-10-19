@@ -45,6 +45,8 @@ from typing import Any, Dict, List
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import (  # noqa: F401
     find_event,
     find_events,
@@ -52,7 +54,7 @@ from .conftest import (  # noqa: F401
     capture_framework_trace,
 )
 
-pytest.importorskip("langchain_core")
+importorskip("langchain_core")
 
 from langchain_core.outputs import LLMResult, Generation  # noqa: E402
 from langchain_core.runnables import RunnableLambda  # noqa: E402

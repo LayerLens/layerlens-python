@@ -25,6 +25,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 
@@ -1416,8 +1418,8 @@ class TestAllSamplesWithMockedSDK:
         via ``useCopilotAction``). No ``interrupt()``, so no ag-ui-langgraph
         protocol bugs to work around.
         """
-        pytest.importorskip("langchain")
-        pytest.importorskip("langchain_core")
+        importorskip("langchain")
+        importorskip("langchain_core")
 
         from types import SimpleNamespace
 
@@ -1556,12 +1558,12 @@ class TestAllSamplesWithMockedSDK:
         the rollout plan) actually works against a real LLM, not just
         against mocks.
         """
-        pytest.importorskip("ag_ui_langgraph")
-        pytest.importorskip("copilotkit")
-        pytest.importorskip("fastapi")
-        pytest.importorskip("httpx")
-        pytest.importorskip("langchain")
-        pytest.importorskip("langchain_openai")
+        importorskip("ag_ui_langgraph")
+        importorskip("copilotkit")
+        importorskip("fastapi")
+        importorskip("httpx")
+        importorskip("langchain")
+        importorskip("langchain_openai")
 
         # Load env from any local .env files.
         candidate_envs = [

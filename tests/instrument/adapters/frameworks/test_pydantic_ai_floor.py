@@ -50,7 +50,9 @@ from dataclasses import dataclass
 
 import pytest
 
-pydantic_ai = pytest.importorskip("pydantic_ai")
+from tests._optional_deps import importorskip
+
+pydantic_ai = importorskip("pydantic_ai")
 
 import httpx  # noqa: E402
 from pydantic_ai import Agent  # noqa: E402
