@@ -221,6 +221,82 @@ def capture_openai_stream() -> None:
     )
 
 
+def _cacheable_prefix(tag: str) -> str:
+    """A developer prompt well over OpenAI's 1,024-token minimum cacheable prefix
+    (https://developers.openai.com/api/docs/guides/prompt-caching). It opens with
+    ``tag`` so the request carrying it is the first one for that prefix, and
+    therefore writes it to the cache instead of reading an earlier run's entry."""
+    lines = [f"Capture {tag}. You are a terse assistant. A reference catalogue follows."]
+    lines += [
+        f"Entry {i:03d}: the item labelled {i:03d} is filed on shelf {i % 17}, bin {i % 29}, row {i % 7}."
+        for i in range(1, 121)
+    ]
+    return "\n".join(lines)
+
+
+def _require_cache_write(interaction: Dict[str, Any], details_key: str) -> None:
+    """Refuse a capture whose usage reports no prompt-cache write: committed, it
+    would replay a shape that never exercises ``cache_write_tokens``."""
+    usage = (interaction["response"].get("json") or {}).get("usage") or {}
+    if not (usage.get(details_key) or {}).get("cache_write_tokens"):
+        raise RuntimeError(
+            f"the API reported no prompt-cache write, so no fixture was written. usage={json.dumps(usage)}"
+        )
+
+
+def capture_openai_cache_write() -> None:
+    """Real prompt-cache WRITES (LAY-4259) on Chat Completions and the Responses API.
+
+    OpenAI reports them as ``cache_write_tokens`` in ``prompt_tokens_details`` /
+    ``input_tokens_details``. Only GPT-5.6 and later bill a write above the input
+    rate, so the default model is the cheapest of those, gpt-6-luna ($0.10 input,
+    $0.125 cache writes, $0.50 output per 1M; https://developers.openai.com/api/docs/pricing).
+    Each request opens with its own unique prefix of about 2,900 tokens, well over
+    the 1,024-token minimum, so each is the first request for its prefix and
+    writes it. Two calls cost under $0.002.
+    """
+    import uuid
+
+    import openai
+
+    model = os.environ.get("LL_OPENAI_CACHE_MODEL", "gpt-6-luna")
+
+    rec = _RecordingTransport()
+    client = openai.OpenAI(http_client=httpx.Client(transport=rec))
+    client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "developer", "content": _cacheable_prefix(uuid.uuid4().hex)},
+            {"role": "user", "content": "Reply with exactly: pong"},
+        ],
+        # A reasoning model: leave room for its default reasoning before "pong".
+        max_completion_tokens=1024,
+    )
+    _require_cache_write(rec.interactions[-1], "prompt_tokens_details")
+    _write(
+        "openai",
+        "cache_write",
+        _http_fixture("openai", openai.__version__, model, "cache_write", rec.interactions[-1:]),
+    )
+
+    rec2 = _RecordingTransport()
+    client2 = openai.OpenAI(http_client=httpx.Client(transport=rec2))
+    client2.responses.create(
+        model=model,
+        input=[
+            {"role": "developer", "content": _cacheable_prefix(uuid.uuid4().hex)},
+            {"role": "user", "content": "Reply with exactly: pong"},
+        ],
+        max_output_tokens=1024,
+    )
+    _require_cache_write(rec2.interactions[-1], "input_tokens_details")
+    _write(
+        "openai",
+        "cache_write_responses",
+        _http_fixture("openai", openai.__version__, model, "cache_write_responses", rec2.interactions[-1:]),
+    )
+
+
 def capture_anthropic() -> None:
     import anthropic
 
@@ -532,6 +608,7 @@ CAPTURES: Dict[str, Callable[[], None]] = {
     "openai": capture_openai,
     "openai_embeddings": capture_openai_embeddings,
     "openai_stream": capture_openai_stream,
+    "openai_cache_write": capture_openai_cache_write,
     "google_genai": capture_google_genai,
     "anthropic": capture_anthropic,
     "bedrock": capture_bedrock,

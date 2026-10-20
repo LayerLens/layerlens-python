@@ -311,6 +311,37 @@ class TestProviderCost:
         # The gateway's raw usage vocabulary must not leak into the nested block.
         assert "cost" not in cost
 
+    def test_cache_write_tokens_ride_the_invoke_and_the_reported_cost(self, mock_client, capture_trace):
+        """OpenRouter reports prompt-cache writes as
+        ``prompt_tokens_details.cache_write_tokens``; the counts here are the
+        example in https://openrouter.ai/docs/use-cases/usage-accounting (prompt
+        194, written 100). The adapter inherits OpenAIProvider.extract_meta, so the
+        count must ride along (LAY-4259); the price stays the gateway's own charge."""
+        body = _chat_json(prompt_tokens=194, completion_tokens=2, cost=0.0004)
+        body["usage"]["prompt_tokens_details"] = {"cached_tokens": 0, "cache_write_tokens": 100, "audio_tokens": 0}
+        client, _ = _make_client(body)
+        OpenRouterProvider().connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            client.chat.completions.create(model=_ROUTED_SLUG, messages=[{"role": "user", "content": "Hi"}])
+            return "done"
+
+        my_agent()
+        events = capture_trace["events"]
+        mi = find_event(events, "model.invoke")["payload"]
+        assert mi["usage"] == {
+            "prompt_tokens": 194,
+            "completion_tokens": 2,
+            "total_tokens": 196,
+            "cached_tokens": 0,
+            "cache_write_tokens": 100,
+        }
+        cost = find_event(events, "cost.record")["payload"]
+        assert cost["cache_write_tokens"] == 100
+        assert cost["cost_usd"] == pytest.approx(0.0004)
+        assert cost["cost_source"] == "provider"
+
     def test_no_cost_record_when_gateway_reports_no_cost(self, mock_client, capture_trace):
         """Usage accounting off => the charge is unknowable => emit NOTHING.
 

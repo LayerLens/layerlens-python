@@ -610,6 +610,7 @@ _SAFE_METADATA_KEYS = frozenset(
         "completion_tokens",
         "total_tokens",
         "cached_tokens",
+        "cache_write_tokens",
         "latency_ms",
         "duration_ms",
         "ttft_ms",

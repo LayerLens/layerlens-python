@@ -26,7 +26,11 @@ from layerlens.instrument.adapters.providers.pricing import (
     CostRecord,
     PricingTable,
     calculate_cost,
+    price_cost_record,
+    priced_token_count,
+    usage_from_payload,
     reset_pricing_cache,
+    unpriced_token_count,
 )
 from layerlens.instrument.adapters.providers.token_usage import NormalizedTokenUsage
 
@@ -478,6 +482,153 @@ class TestCacheCreationPricing:
         )
         # both have 1000 full-rate input; read adds 1000 @0.1x, write adds 1000 @1.25x
         assert calculate_cost("claude-3-5-sonnet", write) > calculate_cost("claude-3-5-sonnet", read)
+
+
+# ---------------------------------------------------------------------------
+# Cache-write rate by provider (LAY-4259). A premium applies only where the
+# provider documents one: Anthropic's 5-minute write (1.25x input) and OpenAI
+# GPT-5.6 and later (1.25x input). OpenAI's earlier models have "No additional
+# cache-write charge" (https://developers.openai.com/api/docs/guides/prompt-caching).
+# ---------------------------------------------------------------------------
+
+#: One flat rate for every model below, so each expectation differs only by the
+#: write multiplier.
+_FLAT_RATE = {"input": 0.001, "output": 0.002}
+
+
+def _writes_only(tokens: int = 1000) -> NormalizedTokenUsage:
+    return NormalizedTokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=tokens, cache_creation_tokens=tokens)
+
+
+@pytest.mark.invariant
+class TestCacheWriteRateByProvider:
+    @pytest.mark.parametrize(
+        "model, input_per_m, published_write_per_m",
+        [
+            ("gpt-6-astra", 10.00, 12.50),
+            ("gpt-6.1-sol", 2.00, 2.50),
+            ("gpt-6-luna", 0.10, 0.125),
+            ("gpt-6-sol", 2.00, 2.50),
+            ("gpt-5.6-sol", 4.00, 5.00),
+            ("gpt-5.6-terra", 2.00, 2.50),
+            ("gpt-5.6-luna", 0.20, 0.25),
+        ],
+    )
+    def test_gpt_5_6_and_later_writes_cost_the_published_cache_write_price(
+        self, model: str, input_per_m: float, published_write_per_m: float
+    ) -> None:
+        # The "Short context input" and "Short context cache writes" columns of
+        # https://developers.openai.com/api/docs/pricing (standard tier): one
+        # million written tokens cost exactly the published write price.
+        table = {model: {"input": input_per_m / 1000, "output": 0.0}}
+        assert calculate_cost(model, _writes_only(1_000_000), table) == pytest.approx(published_write_per_m)
+
+    @pytest.mark.parametrize("model", ["gpt-5.6", "gpt-5.6-sol-2026-07-09", "gpt-6.1-sol-2026-09-29"])
+    def test_the_gpt_5_6_alias_and_dated_ids_carry_the_premium(self, model: str) -> None:
+        assert calculate_cost(model, _writes_only(), {model: _FLAT_RATE}) == pytest.approx(1000 * 0.001 * 1.25 / 1000)
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-5.5",
+            "gpt-5.5-pro",
+            "gpt-5.4-mini",
+            "gpt-5",
+            "gpt-5-nano",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-3.5-turbo",
+            "gpt-35-turbo",  # Azure's name for GPT-3.5: not "generation 35"
+            "o1",
+            "o3",
+            "o4-mini",
+            "gpt-rosalind-research",  # pricing page: "Cache-write pricing does not apply"
+        ],
+    )
+    def test_openai_models_before_gpt_5_6_bill_writes_as_plain_input(self, model: str) -> None:
+        assert calculate_cost(model, _writes_only(), {model: _FLAT_RATE}) == pytest.approx(1000 * 0.001 / 1000)
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-3-5-sonnet",
+            "claude-sonnet-4-5-20250929",
+            "anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "anthropic/claude-sonnet-4",
+        ],
+    )
+    def test_anthropic_writes_keep_the_5_minute_write_premium(self, model: str) -> None:
+        assert calculate_cost(model, _writes_only(), {model: _FLAT_RATE}) == pytest.approx(1000 * 0.001 * 1.25 / 1000)
+
+    def test_a_model_with_no_documented_premium_bills_writes_as_plain_input(self) -> None:
+        # A custom model an ops team priced through a table: nothing documents a
+        # write premium for it, so charging one would be an analogy, not a bill.
+        assert calculate_cost(
+            "my-internal-llm-v2", _writes_only(), {"my-internal-llm-v2": _FLAT_RATE}
+        ) == pytest.approx(1000 * 0.001 / 1000)
+
+
+@pytest.mark.invariant
+class TestOpenAICacheWritesAreInsidePromptTokens:
+    """OpenAI counts ``cache_write_tokens`` INSIDE ``prompt_tokens`` (as it does
+    ``cached_tokens``); Anthropic reports ``cache_creation_input_tokens`` beside
+    them. ``usage_from_payload`` is the one place a payload's keys become a
+    :class:`NormalizedTokenUsage`, and it keeps the cache writes outside
+    ``prompt_tokens`` for both, so the formula rates each token once."""
+
+    #: Chat Completions usage: 1,500 input tokens, 1,024 of them written to the
+    #: cache and 476 ordinary, plus 12 output tokens.
+    OPENAI_WRITE = {
+        "prompt_tokens": 1500,
+        "completion_tokens": 12,
+        "total_tokens": 1512,
+        "cached_tokens": 0,
+        "cache_write_tokens": 1024,
+    }
+
+    def test_openai_writes_move_out_of_prompt_tokens(self) -> None:
+        usage = usage_from_payload(dict(self.OPENAI_WRITE))
+        assert usage.cache_creation_tokens == 1024
+        assert usage.prompt_tokens == 476
+        assert usage.cached_tokens == 0
+        assert usage.completion_tokens == 12
+        assert usage.total_tokens == 1512
+
+    def test_anthropic_creation_stays_beside_prompt_tokens(self) -> None:
+        # anthropic.py reports prompt_tokens = input_tokens + cache reads; the
+        # cache writes were never part of it.
+        usage = usage_from_payload(
+            {
+                "prompt_tokens": 1050,
+                "input_tokens": 50,
+                "cached_tokens": 1000,
+                "cache_read_input_tokens": 1000,
+                "cache_creation_input_tokens": 2000,
+                "completion_tokens": 100,
+                "output_tokens": 100,
+            }
+        )
+        assert usage.prompt_tokens == 1050
+        assert usage.cache_creation_tokens == 2000
+
+    def test_each_reported_token_is_rated_exactly_once(self) -> None:
+        # 476 ordinary + 1,024 written + 12 output = the 1,512 OpenAI reported.
+        assert priced_token_count(usage_from_payload(dict(self.OPENAI_WRITE))) == 1512
+        assert unpriced_token_count(dict(self.OPENAI_WRITE)) == 0
+
+    def test_an_earlier_model_bills_its_writes_at_the_plain_input_rate(self) -> None:
+        # gpt-4o-mini from the bundled table ($0.15 input, $0.60 output per 1M):
+        # all 1,500 input tokens at the input rate, the writes neither repeated
+        # nor marked up.
+        cost = price_cost_record({"provider": "openai", "model": "gpt-4o-mini", **self.OPENAI_WRITE})
+        assert cost == pytest.approx(1500 * 0.15 / 1_000_000 + 12 * 0.60 / 1_000_000)
+
+    def test_a_payload_that_reports_only_cache_writes_is_priced(self) -> None:
+        # Written tokens are billed input: their key alone is reported usage.
+        cost = price_cost_record({"provider": "openai", "model": "gpt-4o", "cache_write_tokens": 1000})
+        assert cost == pytest.approx(1000 * 2.50 / 1_000_000)
 
 
 class TestUnpriceableTokenShapes:

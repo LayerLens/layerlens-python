@@ -265,6 +265,10 @@ def gen_ai_attributes(
         if cache_read is not None:
             attrs["gen_ai.usage.cache_read_input_tokens"] = int(cache_read)
         cache_creation = usage.get("cache_creation_input_tokens")
+        if cache_creation is None:
+            # OpenAI's name for the same quantity: input tokens written to the
+            # prompt cache (GPT-5.6 and later).
+            cache_creation = usage.get("cache_write_tokens")
         if cache_creation is not None:
             attrs["gen_ai.usage.cache_creation_input_tokens"] = int(cache_creation)
         reasoning = usage.get("reasoning_tokens") or usage.get("thinking_tokens")

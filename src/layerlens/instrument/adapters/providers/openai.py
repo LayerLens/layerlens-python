@@ -77,6 +77,14 @@ class OpenAIProvider(MonkeyPatchProvider):
                 usage, "input_tokens_details", None
             )
             cached = _opt_int(getattr(prompt_details, "cached_tokens", None)) if prompt_details is not None else None
+            # Prompt-cache WRITES ride in the same details object (openai >= 2.45;
+            # an undeclared extra on older SDKs, so read it with getattr). Like
+            # ``cached_tokens`` they are counted INSIDE prompt_tokens; pricing
+            # moves them out (pricing.usage_from_payload), so the raw count is
+            # reported here unchanged.
+            cache_write = (
+                _opt_int(getattr(prompt_details, "cache_write_tokens", None)) if prompt_details is not None else None
+            )
             # Reasoning-token details: chat -> completion_tokens_details;
             # responses -> output_tokens_details.
             completion_details = getattr(usage, "completion_tokens_details", None) or getattr(
@@ -92,6 +100,7 @@ class OpenAIProvider(MonkeyPatchProvider):
                 "completion_tokens": completion or 0,
                 "total_tokens": total or 0,
                 **({"cached_tokens": cached} if cached is not None else {}),
+                **({"cache_write_tokens": cache_write} if cache_write is not None else {}),
                 **({"reasoning_tokens": reasoning} if reasoning is not None else {}),
             }
         for attr in ("model", "id", "system_fingerprint", "service_tier"):

@@ -185,6 +185,50 @@ TIER_MULTIPLIERS: dict[str, float] = {
 # this — a systematic under-bill on the canonical long-running-agent pattern.
 CACHE_WRITE_MULTIPLIER = 1.25
 
+# OpenAI prompt-cache WRITES (LAY-4259), reported as ``cache_write_tokens``.
+# Checked 2026-10-16 against https://developers.openai.com/api/docs/guides/prompt-caching:
+#
+# * They are part of the input tokens, not an extra count: "Cache-write pricing
+#   is not an additive fee: input tokens use the uncached-input, cached-input, or
+#   cache-write rate". The guide's own cost function computes
+#   ``ordinary_input_tokens = input_tokens - cached_tokens - cache_write_tokens``.
+#   usage_from_payload therefore moves them out of prompt_tokens before the
+#   formula runs, or they would be rated twice.
+# * Only GPT-5.6 and later charge for them: "For GPT-5.6 and later, cache writes
+#   cost 1.25x the standard, uncached input-token rate". GPT-5.5 and every earlier
+#   model has "No additional cache-write charge". The pricing page lists a cache-write
+#   price only for gpt-5.6-* and gpt-6* models, each 1.25x that model's input price
+#   (https://developers.openai.com/api/docs/pricing).
+OPENAI_CACHE_WRITE_MULTIPLIER = 1.25
+
+# OpenAI GPT generation of a model id: ``gpt-5.6-luna`` -> (5, 6), ``gpt-6-sol`` ->
+# (6, 0). One digit, an optional ``.minor``, then ``-`` or the end, so ``gpt-4o`` and
+# Azure's ``gpt-35-turbo`` (GPT-3.5) are not read as generations 4 and 35.
+_OPENAI_GPT_GENERATION_RE = re.compile(r"^gpt-(\d)(?:\.(\d+))?(?=-|$)")
+
+
+def _cache_write_multiplier(model: str) -> float:
+    """Cache-WRITE rate as a multiple of the uncached input price.
+
+    A premium applies only where the provider documents one. Anywhere else a
+    token written to the cache is billed as ordinary input, and charging a premium
+    by analogy would report a cost nobody billed.
+
+    - Anthropic: :data:`CACHE_WRITE_MULTIPLIER` (the 5-minute write). Matched on
+      ``claude``/``anthropic`` anywhere in the id, so the Bedrock
+      (``anthropic.``, ``us.anthropic.``) and gateway (``anthropic/``) spellings
+      keep it.
+    - OpenAI GPT-5.6 and later: :data:`OPENAI_CACHE_WRITE_MULTIPLIER`.
+    - Everything else, including every OpenAI model before GPT-5.6: 1.0.
+    """
+    lower = model.lower()
+    if "claude" in lower or "anthropic" in lower:
+        return CACHE_WRITE_MULTIPLIER
+    generation = _OPENAI_GPT_GENERATION_RE.match(lower)
+    if generation and (int(generation.group(1)), int(generation.group(2) or 0)) >= (5, 6):
+        return OPENAI_CACHE_WRITE_MULTIPLIER
+    return 1.0
+
 
 def _tier_multiplier(service_tier: Optional[str]) -> float:
     if not service_tier:
@@ -199,8 +243,9 @@ def _cost_from_rates(
     service_tier: Optional[str] = None,
 ) -> Optional[float]:
     """The single cost formula: tier-scaled input/output + cache READ (discount)
-    + cache WRITE (1.25x) + completion. Shared by :func:`calculate_cost` and
-    :class:`PricingTable` so the math can never drift between the two paths.
+    + cache WRITE (:func:`_cache_write_multiplier`) + completion. Shared by
+    :func:`calculate_cost` and :class:`PricingTable` so the math can never drift
+    between the two paths.
 
     Returns ``None`` for a token shape this formula CANNOT price (LAY-3622 / A4b).
     The formula reads prompt / cached / cache_creation / completion and never
@@ -259,7 +304,7 @@ def _cost_from_rates(
     cost = (
         (non_cached * input_rate / 1000)
         + (cached * cached_rate / 1000)
-        + (cache_creation * input_rate * CACHE_WRITE_MULTIPLIER / 1000)
+        + (cache_creation * input_rate * _cache_write_multiplier(model) / 1000)
         + (usage.completion_tokens * output_rate / 1000)
     )
     return round(cost, 8)
@@ -358,9 +403,11 @@ def calculate_cost(
     fuzzy date-suffix and longest-prefix fallback (LAY-3330).
 
     ``service_tier`` (flex/batch/priority/standard) scales the per-token rate
-    (A2 / LAY-3626); cache-write tokens (``usage.cache_creation_tokens``) are
-    priced at 1.25x input (A3). Both default to no-op so existing callers are
-    unaffected.
+    (A2 / LAY-3626); cache-write tokens (``usage.cache_creation_tokens``, never
+    part of ``usage.prompt_tokens``) are priced at the provider's documented
+    write rate: 1.25x input for Anthropic and OpenAI GPT-5.6+, plain input
+    elsewhere (A3 / LAY-4259, :func:`_cache_write_multiplier`). Both default to
+    no-op so existing callers are unaffected.
     """
     rates: dict[str, float] | None = None
     env_overrides = _load_env_overrides()
@@ -432,16 +479,32 @@ def usage_from_payload(payload: dict) -> NormalizedTokenUsage:
     itself lives in exactly one place.
 
     Accepts the provider vocabulary (``prompt_tokens``/``input_tokens``), the raw
-    provider-wire names (``cache_creation_input_tokens``) and the framework flat
-    vocabulary (``tokens_prompt``/``tokens_completion``/``tokens_total``) — all three
-    reach the collector chokepoint.
+    provider-wire names (``cache_creation_input_tokens``, ``cache_write_tokens``)
+    and the framework flat vocabulary (``tokens_prompt``/``tokens_completion``/
+    ``tokens_total``) — all three reach the collector chokepoint.
+
+    Cache writes arrive in two shapes. Anthropic reports
+    ``cache_creation_input_tokens`` BESIDE its input (``anthropic.py`` builds
+    ``prompt_tokens`` from input + cache reads only). OpenAI reports
+    ``cache_write_tokens`` INSIDE ``prompt_tokens`` (see
+    :data:`OPENAI_CACHE_WRITE_MULTIPLIER`). :class:`NormalizedTokenUsage` keeps
+    ``cache_creation_tokens`` outside ``prompt_tokens`` for both, so OpenAI's count
+    is moved out of the prompt here, once for every caller; the formula then rates
+    each reported token exactly once.
     """
+    prompt_tokens = _payload_int(payload, "prompt_tokens", "input_tokens", "tokens_prompt")
+    openai_cache_writes = _payload_opt_int(payload, "cache_write_tokens")
+    if openai_cache_writes is not None:
+        prompt_tokens = max(prompt_tokens - openai_cache_writes, 0)
+        cache_creation_tokens: Optional[int] = openai_cache_writes
+    else:
+        cache_creation_tokens = _payload_opt_int(payload, "cache_creation_tokens", "cache_creation_input_tokens")
     return NormalizedTokenUsage(
-        prompt_tokens=_payload_int(payload, "prompt_tokens", "input_tokens", "tokens_prompt"),
+        prompt_tokens=prompt_tokens,
         completion_tokens=_payload_int(payload, "completion_tokens", "output_tokens", "tokens_completion"),
         total_tokens=_payload_int(payload, "total_tokens", "tokens_total"),
         cached_tokens=_payload_opt_int(payload, "cached_tokens", "cache_read_input_tokens"),
-        cache_creation_tokens=_payload_opt_int(payload, "cache_creation_tokens", "cache_creation_input_tokens"),
+        cache_creation_tokens=cache_creation_tokens,
     )
 
 
@@ -451,6 +514,9 @@ def priced_token_count(usage: NormalizedTokenUsage) -> int:
     Mirrors that formula's four legs EXACTLY — non-cached prompt, cached read,
     cache write, completion — and must be updated in lockstep with it. Pinned
     against the real formula in ``test_pricing.py``.
+
+    ``cache_creation`` is its own leg: :func:`usage_from_payload` has already moved
+    OpenAI's ``cache_write_tokens`` out of ``prompt_tokens``.
 
     The ``max(prompt - cached, 0)`` term is load-bearing, not defensive. A naive
     ``prompt + completion + cached + cache_creation`` double-counts the cached read
@@ -524,6 +590,7 @@ def price_cost_record(payload: dict) -> Optional[float]:
             "cache_read_input_tokens",
             "cache_creation_tokens",
             "cache_creation_input_tokens",
+            "cache_write_tokens",
         )
     ):
         # No usage was reported at all. There is nothing to price, and a 0.0 here

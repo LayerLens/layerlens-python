@@ -264,6 +264,34 @@ class TestEmitsEvents:
         assert mi["payload"]["finish_reason"] == "tool_calls"
         provider.disconnect()
 
+    def test_cache_write_tokens_flow_through_and_are_priced_once(self, mock_client, capture_trace):
+        """Azure reuses OpenAIProvider.extract_meta, so OpenAI's prompt-cache writes
+        (``prompt_tokens_details.cache_write_tokens``, LAY-4259) must reach Azure
+        traces too, priced from AZURE_PRICING without being counted twice."""
+        body = _chat_completion_json(prompt_tokens=1536, completion_tokens=6)
+        body["usage"]["prompt_tokens_details"] = {"audio_tokens": 0, "cache_write_tokens": 1024, "cached_tokens": 0}
+        client, _ = _make_client(response_json=body)
+        provider = AzureOpenAIProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": "Hello?"}])
+            return "done"
+
+        my_agent()
+        events = capture_trace["events"]
+        mi = find_event(events, "model.invoke")["payload"]
+        assert mi["usage"]["cache_write_tokens"] == 1024
+        assert mi["usage"]["prompt_tokens"] == 1536
+
+        cost = find_event(events, "cost.record")["payload"]
+        assert cost["cache_write_tokens"] == 1024
+        # gpt-4o predates GPT-5.6, so its writes bill as plain input: all 1,536
+        # input tokens at the Azure gpt-4o rate, once. 1536 * 0.00275/1k + 6 * 0.011/1k.
+        assert cost["cost_usd"] == pytest.approx(0.00429)
+        provider.disconnect()
+
     def test_error_emits_agent_error(self, mock_client, capture_trace):
         client, _ = _make_client(
             response_json={

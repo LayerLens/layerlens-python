@@ -5,7 +5,7 @@ from typing import Any, Dict, Callable, Optional
 
 from ..._w3c import gen_ai_attributes
 from .._base import AdapterInfo  # noqa: F401  (re-exported for typing)
-from .pricing import PRICING, calculate_cost
+from .pricing import PRICING, calculate_cost, usage_from_payload
 from ..._events import (
     TOOL_CALL,
     AGENT_ERROR,
@@ -267,15 +267,11 @@ def _emit_cost(
         normalized = usage
         usage_payload = usage.as_event_dict()
     elif isinstance(usage, dict):
-        normalized = NormalizedTokenUsage(
-            prompt_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-            completion_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
-            total_tokens=int(usage.get("total_tokens") or 0),
-            cached_tokens=_opt_int(usage.get("cached_tokens") or usage.get("cache_read_input_tokens")),
-            cache_creation_tokens=_opt_int(usage.get("cache_creation_input_tokens")),
-            reasoning_tokens=_opt_int(usage.get("reasoning_tokens")),
-            thinking_tokens=_opt_int(usage.get("thinking_tokens")),
-        )
+        # The same payload -> usage mapping the collector chokepoint prices and
+        # audits this record with, so the two can never disagree about a key. It
+        # matters for OpenAI's ``cache_write_tokens``, which sit INSIDE
+        # prompt_tokens and must be moved out before pricing (LAY-4259).
+        normalized = usage_from_payload(usage)
         usage_payload = dict(usage)
     else:
         return
@@ -346,15 +342,6 @@ def _flat_token_fields(usage: Any) -> Dict[str, int]:
         "completion_tokens": normalized.completion_tokens,
         "total_tokens": normalized.total_tokens,
     }
-
-
-def _opt_int(val: Any) -> Optional[int]:
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
 
 
 def _extract_messages(kwargs: Dict[str, Any]) -> Any:

@@ -12,11 +12,18 @@ unpriced/tier/cache cases go RED.
 
 from __future__ import annotations
 
+import json
+from typing import Any, Iterator
+
 import pytest
 
 from layerlens.instrument._collector import TraceCollector
 from layerlens.instrument._capture_config import CaptureConfig
-from layerlens.instrument.adapters.providers.pricing import calculate_cost
+from layerlens.instrument.adapters.providers.pricing import (
+    PRICING_OVERRIDE_ENV,
+    calculate_cost,
+    reset_pricing_cache,
+)
 from layerlens.instrument.adapters.providers.token_usage import NormalizedTokenUsage
 
 pytestmark = pytest.mark.invariant
@@ -116,6 +123,99 @@ def test_chokepoint_prices_cache_creation_centrally() -> None:
         "claude-3-5-sonnet", NormalizedTokenUsage(prompt_tokens=1000, completion_tokens=100, total_tokens=1100)
     )
     assert ev["payload"]["cost_usd"] > base, "cache_creation not priced at the chokepoint"
+
+
+class TestOpenAICacheWrites:
+    """OpenAI's ``cache_write_tokens`` are part of ``prompt_tokens`` (LAY-4259).
+
+    "Cache-write pricing is not an additive fee: input tokens use the
+    uncached-input, cached-input, or cache-write rate", and only GPT-5.6 and later
+    charge 1.25x input for a write; earlier models have "No additional cache-write
+    charge" (https://developers.openai.com/api/docs/guides/prompt-caching). The
+    chokepoint must rate every reported input token exactly once, at the rate its
+    model is billed. Expected costs are worked by hand from published per-1M prices.
+    """
+
+    @pytest.fixture
+    def gpt_6_luna_priced(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        # gpt-6-luna is not in the bundled table; price it the way a customer
+        # prices a new model ($0.10 input, $0.50 output per 1M, from
+        # https://developers.openai.com/api/docs/pricing).
+        path = tmp_path / "pricing.json"
+        path.write_text(json.dumps({"gpt-6-luna": {"input": 0.0001, "output": 0.0005}}))
+        monkeypatch.setenv(PRICING_OVERRIDE_ENV, str(path))
+        reset_pricing_cache()
+        yield
+        monkeypatch.delenv(PRICING_OVERRIDE_ENV, raising=False)
+        reset_pricing_cache()
+
+    def test_a_gpt_5_6_or_later_write_is_priced_at_the_published_write_price(self, gpt_6_luna_priced: None) -> None:
+        c = _collector()
+        c.emit(
+            "cost.record",
+            {
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "prompt_tokens": 1500,
+                "completion_tokens": 12,
+                "total_tokens": 1512,
+                "cached_tokens": 0,
+                "cache_write_tokens": 1024,
+            },
+            span_id="s1",
+        )
+        payload = _cost_event(c)["payload"]
+        # 476 ordinary input at $0.10 + 1,024 written at the published $0.125
+        # cache-write price + 12 output at $0.50 (all per 1M).
+        expected = 476 * 0.10 / 1_000_000 + 1024 * 0.125 / 1_000_000 + 12 * 0.50 / 1_000_000
+        assert payload["cost_usd"] == pytest.approx(expected)  # 0.0001816
+        assert "cost_status" not in payload
+
+    def test_an_earlier_model_write_is_priced_at_the_plain_input_rate(self) -> None:
+        # gpt-4o-mini from the bundled table: $0.15 input, $0.075 cached input,
+        # $0.60 output per 1M, and no cache-write charge. 2,048 input tokens:
+        # 1,024 read from the cache, 1,024 written to it, none ordinary.
+        c = _collector()
+        c.emit(
+            "cost.record",
+            {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "prompt_tokens": 2048,
+                "completion_tokens": 16,
+                "total_tokens": 2064,
+                "cached_tokens": 1024,
+                "cache_write_tokens": 1024,
+            },
+            span_id="s1",
+        )
+        payload = _cost_event(c)["payload"]
+        expected = 1024 * 0.075 / 1_000_000 + 1024 * 0.15 / 1_000_000 + 16 * 0.60 / 1_000_000
+        assert payload["cost_usd"] == pytest.approx(expected)  # 0.00024
+        assert "cost_status" not in payload
+
+    def test_anthropic_cache_creation_is_priced_exactly_as_before(self) -> None:
+        # Regression guard. anthropic.py's payload for claude-3-5-sonnet ($3
+        # input, $15 output per 1M): 50 uncached input, 1,000 read at 0.1x,
+        # 2,000 written at the 5-minute 1.25x, 100 output.
+        c = _collector()
+        c.emit(
+            "cost.record",
+            {
+                "provider": "anthropic",
+                "model": "claude-3-5-sonnet",
+                "prompt_tokens": 1050,
+                "input_tokens": 50,
+                "cached_tokens": 1000,
+                "cache_read_input_tokens": 1000,
+                "cache_creation_input_tokens": 2000,
+                "completion_tokens": 100,
+                "output_tokens": 100,
+            },
+            span_id="s1",
+        )
+        expected = 50 * 3.0 / 1_000_000 + 1000 * 0.30 / 1_000_000 + 2000 * 3.75 / 1_000_000 + 100 * 15.0 / 1_000_000
+        assert _cost_event(c)["payload"]["cost_usd"] == pytest.approx(expected)  # 0.00945
 
 
 def test_chokepoint_leaves_unpriced_model_unpriced() -> None:
