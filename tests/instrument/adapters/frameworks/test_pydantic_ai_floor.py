@@ -14,7 +14,7 @@ fails in plain CI with no credentials and no network:
                 isolate the model-level ``agent.error`` (the one WITHOUT an
                 ``agent_name`` — the run-level ``_finish_run_error`` adds it) so
                 the assertion bites that specific handler.
-* Attestation — a REAL ``pydantic_ai.Agent`` (real ``OpenAIModel`` over a mocked
+* Attestation — a REAL ``pydantic_ai.Agent`` (real ``OpenAIChatModel`` over a mocked
                 transport serving the recorded OpenAI body) flushes a trace whose
                 attestation chain reconstructs and ``verify_chain(...)`` returns
                 valid; a tamper control breaking link 1 proves the check is not
@@ -58,7 +58,11 @@ import httpx  # noqa: E402
 from pydantic_ai import Agent  # noqa: E402
 from pydantic_ai.exceptions import ModelHTTPError  # noqa: E402
 from pydantic_ai.models.test import TestModel  # noqa: E402
-from pydantic_ai.models.openai import OpenAIModel  # noqa: E402
+
+# ``OpenAIChatModel`` is the Chat Completions model, the API the recorded body comes
+# from. pydantic-ai 0.8.1 (the extra's floor) already has it, with ``OpenAIModel`` as
+# its deprecated alias; 2.0 removed ``OpenAIModel``.
+from pydantic_ai.models.openai import OpenAIChatModel  # noqa: E402
 from pydantic_ai.providers.openai import OpenAIProvider  # noqa: E402
 
 from layerlens.attestation._verify import verify_chain  # noqa: E402
@@ -76,12 +80,12 @@ SENTINEL = "LL-SENTINEL-7f3a9c2e"
 # Helpers
 # ---------------------------------------------------------------------------
 def _recorded_agent(fixture, name: str) -> Agent:
-    """A real ``Agent`` whose real ``OpenAIModel`` is backed by a MockTransport
+    """A real ``Agent`` whose real ``OpenAIChatModel`` is backed by a MockTransport
     serving the recorded OpenAI ChatCompletion — the proven seam from
     ``test_pydantic_ai_recorded.py`` (no key, no network)."""
     transport, _ = mock_transport(fixture)
     provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-    model = OpenAIModel("gpt-4o-mini", provider=provider)
+    model = OpenAIChatModel("gpt-4o-mini", provider=provider)
     return Agent(model, name=name)
 
 
@@ -95,7 +99,7 @@ def _sentinel_tool(city: str) -> str:
 # ---------------------------------------------------------------------------
 class TestRealErrorShape:
     def test_real_model_http_error_surfaces_as_agent_error(self, mock_client):
-        # A real 404 from the provider makes the REAL pydantic-ai OpenAIModel raise
+        # A real 404 from the provider makes the REAL pydantic-ai OpenAIChatModel raise
         # a REAL ``ModelHTTPError`` inside ``super().request(...)`` — caught by the
         # instrumented ``_InstrumentedModel.request`` except branch. NOT a synthetic
         # string, NOT a hand-built exception.
@@ -113,7 +117,7 @@ class TestRealErrorShape:
 
         transport = httpx.MockTransport(handler)
         provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-        model = OpenAIModel("gpt-4o-mini", provider=provider)
+        model = OpenAIChatModel("gpt-4o-mini", provider=provider)
         agent = Agent(model, name="billing_agent")
 
         uploaded = capture_framework_trace(mock_client)
@@ -328,7 +332,7 @@ class TestDepsPrivacyFloor:
 
         transport, _ = mock_transport(fixture)
         provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-        agent = Agent(OpenAIModel("gpt-4o-mini", provider=provider), name="deps_agent", deps_type=_Deps)
+        agent = Agent(OpenAIChatModel("gpt-4o-mini", provider=provider), name="deps_agent", deps_type=_Deps)
         adapter = PydanticAIAdapter(mock_client, capture_config=CaptureConfig.full())
         adapter.connect(target=agent)
         agent.run_sync("Reply with exactly: pong", deps=_Deps(api_token=SENTINEL, user_id=7))

@@ -42,6 +42,8 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 - **strands: the adapter traces only while it is connected**, as the other framework adapters do. An agent built with `Agent(hooks=[adapter])` used to be traced even if `adapter.connect()` was never called. It is now traced from `connect()` until `disconnect()`. Attaching the adapter while it isn't connected logs a warning (once per adapter)
 
+- **`layerlens[pydantic-ai]` and `layerlens[all-frameworks]` now install pydantic-ai 2.x.** Both extras capped pydantic-ai below 2.0, although the adapter works on 2.x. They now resolve 2.17 or later on Python 3.10+. Python 3.9 stays on 0.8.1, the last release that supports it, and `[marvin]` still keeps pydantic-ai below 1.95. If you pin pydantic-ai 2.0-2.16 yourself, also pin `genai-prices<0.1` or upgrade: with genai-prices 0.1 or later, those releases report zero tokens for responses that include a reasoning-token count, as OpenAI chat completions do (an upstream bug, fixed in 2.17).
+
 ### Fixed
 
 - **`LAYERLENS_API_KEY` was rejected by every CLI command.** The CLI sent it as a

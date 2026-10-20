@@ -62,7 +62,11 @@ agentforce = ["httpx>=0.27.0"]
 litellm = ["litellm>=1.0.0"]
 # Canonical M3 name; `litellm` kept as alias for prior installs.
 providers-litellm = ["litellm>=1.0.0"]
-pydantic-ai = ["pydantic-ai>=0.8.1,<2"]
+# No upper bound: the adapter is verified on 0.8.1 through 2.x. With genai-prices >= 0.1,
+# pydantic-ai 2.0-2.16 report zero tokens for responses that include a reasoning-token
+# count, as OpenAI chat completions do (an upstream bug, fixed in 2.17). A fresh install
+# does not resolve those: it gets 0.8.1 on Python 3.9 and 2.17 or later on 3.10+.
+pydantic-ai = ["pydantic-ai>=0.8.1"]
 openai-agents = ["openai-agents>=0.1.0"]
 semantic-kernel = ["semantic-kernel>=1.0.0; python_version >= '3.10'"]
 # mcp SDK requires Python 3.10+, so we gate the optional-dep on the interpreter
@@ -131,7 +135,7 @@ all-frameworks = [
   "autogen-agentchat>=0.4.0; python_version >= '3.10'",
   "httpx>=0.27.0",
   "semantic-kernel>=1.0.0; python_version >= '3.10'",
-  "pydantic-ai>=0.8.1,<2",
+  "pydantic-ai>=0.8.1",
   "openai-agents>=0.1.0",
 ]
 
