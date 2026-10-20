@@ -250,6 +250,7 @@ Use the documented extras where they exist; the rest install the upstream packag
 | ms_agent_framework | `layerlens[semantic-kernel]` (instruments SK `AgentGroupChat`) | **3.10+** |
 | autogen | `layerlens[autogen]` + `'autogen-ext[openai]'` | **3.10+** |
 | mcp, a2a | `layerlens[mcp]` / `[a2a]` | **3.10+** |
+| ap2 | `"ap2 @ git+https://github.com/google-agentic-commerce/AP2@b4587ac1d055888a73b4b21750973cffba961793"` (the pinned AP2 SDK; not on PyPI). The lane skips where it is missing | **3.11+** |
 | llamaindex, haystack, vector_store | `llama-index` / `haystack-ai` / `chromadb` | 3.8+ |
 | smolagents, agno | `smolagents openai` / `agno openai` (no extra) | 3.10+ |
 | strands | `'strands-agents[openai]'` (no extra) | 3.10+ |
@@ -260,6 +261,7 @@ Heavy adapters conflict — give each its own venv:
 
 ```bash
 uv venv --python 3.11 .venv-crewai && uv pip install --python .venv-crewai/bin/python -e . 'crewai>=0.30'
+uv venv --python 3.11 .venv-ap2 && uv pip install --python .venv-ap2/bin/python -e . pytest "ap2 @ git+https://github.com/google-agentic-commerce/AP2@b4587ac1d055888a73b4b21750973cffba961793"
 ```
 
 ### Run
@@ -323,7 +325,8 @@ set -a; source tests/e2e/live/.env; set +a
 # 1. Base venv: providers (incl. async variants) + protocols + py3.9 frameworks
 ./scripts/test tests/e2e/live
 
-# 2. Each isolated framework venv, one at a time (3.10+ / conflicting deps)
+# 2. Each isolated framework venv, one at a time (3.10+ / conflicting deps);
+#    the ap2 protocol lane runs from the ap2 venv (§7 Install) and skips in the base venv
 arch -arm64 .venv-<framework>/bin/python -m pytest tests/e2e/live -k <framework>
 
 # 3. Read the report: tests/e2e/live/.report/live-run-<UTC>.md (+ terminal summary)

@@ -1,7 +1,8 @@
 """Live L1 + L2 + linkage verification, one test per protocol adapter (LLM-free).
 
-Opt-in: see ``conftest.py``. Built-in protocols (agui/a2ui/ap2/ucp) always run;
-mcp/a2a skip unless their optional package is installed (Python 3.10+).
+Opt-in: see ``conftest.py``. Built-in protocols (agui/a2ui/ucp) always run; ap2
+skips unless the ``ap2`` SDK is installed (Python 3.11+), and mcp/a2a unless
+their optional package is (Python 3.10+).
 
     LAYERLENS_LIVE=1 LAYERLENS_BASE_URL=http://localhost:8080/api/v1 \\
     LAYERLENS_API_KEY=... LAYERLENS_LIVE_INTEGRATION_ID=<id> \\
