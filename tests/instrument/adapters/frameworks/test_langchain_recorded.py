@@ -58,11 +58,11 @@ class TestLangChainRecorded:
 
     def test_chain_over_recorded_tool_call(self, mock_client):
         # The default-fixture test above never exercises on_llm_end's tool_calls
-        # extraction (langchain.py:362-380 -> 434-444): its response has no
-        # tool_calls, and the hand-built unit doubles set no gen.message at all.
-        # This drives a REAL tool-calling OpenAI response shape through the real
-        # ChatOpenAI parser + the real handler, biting the tool.call path that has
-        # ZERO coverage in any dimension.
+        # extraction (langchain.py:363-381 -> 435-452): its response has no
+        # tool_calls. test_langchain.py::TestModelRequestedToolCalls hand-builds the
+        # message each langchain-openai version returns; this drives a REAL
+        # tool-calling OpenAI response through the real ChatOpenAI parser + the real
+        # handler, so it follows whatever shape the installed version produces.
         fixture = load_recorded("openai", "tool_call")
         uploaded = capture_framework_trace(mock_client)
         # capture_content=True so the tool-call arguments (content) are retained;
@@ -85,5 +85,7 @@ class TestLangChainRecorded:
         tc = find_event(events, "tool.call")
         assert tc["payload"]["tool_name"] == "get_weather"
         assert tc["payload"]["id"] == "call_N0cYZsPSiRm7o3khCvuy6J3M"
-        assert "Paris" in tc["payload"]["arguments"], "raw tool-call arguments (JSON string) not carried through"
+        # The wire carries '{"city":"Paris"}'. langchain-openai < 1.7 hands the adapter
+        # that string, 1.7+ the parsed dict; the event carries the object either way.
+        assert tc["payload"]["arguments"] == {"city": "Paris"}
         assert tc["payload"]["model"] == "gpt-4o-mini-2024-07-18"

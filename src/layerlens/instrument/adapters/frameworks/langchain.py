@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from ..._identity import _API_METHOD_RE, _is_generic
 from ._base_framework import FrameworkAdapter
+from .._tool_arguments import parse_tool_arguments
 from ..._capture_config import CaptureConfig
 from ._langchain_memory import TracedMemory, MemoryMutationTracker, wrap_memory
 from ....attestation._hash import canonical_json
@@ -433,9 +434,16 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
 
         # Emit tool.call events for any tool calls the model requested
         for tc in tool_calls:
-            tc_payload = self._payload(**tc)
+            tc_payload = self._payload(id=tc["id"], tool_name=tc["tool_name"])
             if model_name:
                 tc_payload["model"] = model_name
+            # Before langchain-openai 1.7 the arguments are the provider's JSON string
+            # (additional_kwargs); from 1.7, langchain's parsed dict (message.tool_calls).
+            # Emit the object either way, as the provider adapters do. They are content,
+            # and parsing logs a snippet of a malformed string, so with capture_content
+            # off they are not even read.
+            arguments = parse_tool_arguments(tc["arguments"]) if self._config.capture_content else None
+            self._set_if_capturing(tc_payload, "arguments", arguments)
             self._emit(
                 "tool.call",
                 tc_payload,

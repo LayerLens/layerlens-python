@@ -343,9 +343,9 @@ class TestStreamingFloor:
         return ChatPromptTemplate.from_messages([("user", "{q}")]) | model
 
     def test_streaming_run_emits_streamed_chunk_count_and_ttft(self, mock_client):
-        # Real on_llm_new_token callbacks (langchain.py:318-334) -> on_llm_end
+        # Real on_llm_new_token callbacks (langchain.py:319-335) -> on_llm_end
         # surfaces streaming=True, streamed_chunks=tokens_accum, ttft_ms
-        # (langchain.py:410-417). The existing single-token test can't catch an
+        # (langchain.py:411-418). The existing single-token test can't catch an
         # off-by-one / hardcoded count; a genuine multi-chunk stream can.
         uploaded = capture_framework_trace(mock_client)
         handler = LangChainCallbackHandler(mock_client, capture_config=CaptureConfig.full())

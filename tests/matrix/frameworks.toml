@@ -15,7 +15,9 @@
 
 [frameworks.langchain]
 python = "3.11"
-install = ["langchain-core==0.3.84", "langchain==0.3.28", "langchain-openai==0.3.35"]
+# langchain-openai 1.7 no longer copies OpenAI's raw tool call into additional_kwargs.
+# test_langchain.py builds the message of both versions, so the older one stays covered.
+install = ["langchain-core==1.6.11", "langchain==1.4.6", "langchain-openai==1.7.2"]
 tests = [
     "tests/instrument/adapters/frameworks/test_langchain.py",
     "tests/instrument/adapters/frameworks/test_langchain_memory.py",

@@ -13,7 +13,10 @@ See ``tests/instrument/_recorded.py`` for the corpus design + its snapshot limit
 
 from __future__ import annotations
 
+import logging
+
 import httpx
+import pytest
 
 import openai
 from layerlens.instrument import trace
@@ -108,6 +111,46 @@ class TestOpenAIRecorded:
         assert mi["payload"]["finish_reason"] == "tool_calls"
         assert mi["payload"]["usage"]["prompt_tokens"] == 54
         assert mi["payload"]["usage"]["completion_tokens"] == 14
+        provider.disconnect()
+
+    @pytest.mark.parametrize(
+        "arguments",
+        [
+            # Valid JSON that Python still cannot decode, and neither failure is a
+            # JSONDecodeError: an integer longer than int() converts (ValueError)
+            # and nesting deeper than the decoder recurses (RecursionError).
+            pytest.param('{"n": ' + "1" * 5000 + "}", id="integer-over-digit-limit"),
+            pytest.param("[" * 50_000 + "]" * 50_000, id="nesting-over-recursion-limit"),
+        ],
+    )
+    def test_undecodable_tool_arguments_do_not_fail_the_call(
+        self, mock_client, capture_trace, caplog, default_int_str_digit_limit, arguments
+    ):
+        # The request succeeded and the reply arrived intact; instrumenting it must
+        # not turn it into an exception raised from the caller's create().
+        fixture = load_recorded("openai", "tool_call")
+        fixture["interactions"][0]["response"]["json"]["choices"][0]["message"]["tool_calls"][0]["function"][
+            "arguments"
+        ] = arguments
+        client, _ = _client(fixture)
+        provider = OpenAIProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def agent():
+            return client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "What's the weather in Paris? Use the tool."}],
+            )
+
+        with caplog.at_level(logging.WARNING):
+            response = agent()
+
+        assert response.choices[0].message.tool_calls[0].function.arguments == arguments
+        tool_call = find_event(capture_trace["events"], "tool.call")
+        assert tool_call["payload"]["tool_name"] == "get_weather"
+        assert tool_call["payload"]["arguments"] == arguments
+        assert any("malformed tool_call JSON arguments" in r.getMessage() for r in caplog.records)
         provider.disconnect()
 
     def test_provenance_is_stamped(self):

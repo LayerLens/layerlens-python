@@ -549,7 +549,7 @@ class TestMalformedToolCallJSON:
             finish_reason="tool_calls",
         )
         agg = _StreamedChatResponse.from_chunks([chunk])
-        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters.providers.openai"):
+        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters._tool_arguments"):
             tool_calls = _OP.extract_tool_calls(agg)
         # Raw string returned on parse failure — caller still gets *something*.
         assert tool_calls[0]["arguments"] == "{not valid json"
@@ -566,7 +566,7 @@ class TestMalformedToolCallJSON:
             finish_reason="tool_calls",
         )
         agg = _StreamedChatResponse.from_chunks([chunk])
-        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters.providers.openai"):
+        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters._tool_arguments"):
             tool_calls = _OP.extract_tool_calls(agg)
         assert tool_calls[0]["arguments"] == {"x": 1}
         # No warnings emitted for valid JSON.

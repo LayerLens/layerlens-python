@@ -130,6 +130,10 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 - **Haystack: model calls through a chat generator had no model, token counts or cost.** Chat generators such as `OpenAIChatGenerator` (on haystack-ai 3, the only OpenAI generator) report the model, token usage and finish reason on each reply, not in the separate `meta` list the adapter read, so their `model.invoke` events had none of the three and no `cost.record` was emitted. The adapter now reads them from the reply, on haystack-ai 2.x and 3.x, so these calls carry their model, token counts and a priced `cost.record`. The haystack-ai 2.x text generator (`OpenAIGenerator`) was not affected
 
+- **langchain: `tool.call` arguments are an object on every langchain-openai version.** With langchain-openai before 1.7, a tool call the model requested carried its `arguments` as the raw JSON string (`"{\"city\": \"Paris\"}"`); from 1.7 they were already an object (`{"city": "Paris"}`), as they are from the OpenAI, Anthropic, Vertex and Bedrock adapters. They are now parsed whichever version is installed, so the field has one type. LangGraph uses the same handler and gets the same fix. Arguments that cannot be decoded keep the string the model sent and log a warning with their first 200 characters; with `capture_content` off they are not read at all
+
+- **OpenAI: tool-call arguments Python cannot decode no longer make your call fail.** Arguments holding an integer longer than Python's 4300-digit default limit, or nested deeper than Python's JSON decoder goes, made `client.chat.completions.create(...)` and `client.responses.create(...)` raise `ValueError` or `RecursionError` after the request had succeeded (a streamed response raised after its last chunk). They are now kept as the string the model sent and logged as a warning, like malformed JSON. Azure OpenAI, OpenRouter and LiteLLM, which reuse this parsing, are fixed too
+
 ### Deprecated
 
 - `Stratix`, `AsyncStratix`, `StratixError` and the older `Atlas`, `AsyncAtlas`,

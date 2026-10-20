@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 from uuid import uuid4
+from typing import Any, Dict, List
 from unittest.mock import Mock
 
+import pytest
+from langchain_core.outputs import LLMResult, ChatGeneration
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.callbacks import BaseCallbackHandler
 
 from layerlens.instrument._capture_config import CaptureConfig
@@ -440,6 +446,145 @@ class TestToolsAndRetrievers:
 
         error = find_event(uploaded["events"], "agent.error")
         assert error["payload"]["error"] == "down"
+
+
+# ---------------------------------------------------------------------------
+# Tool calls the model requested (on_llm_end -> tool.call)
+# ---------------------------------------------------------------------------
+
+_TOOL_CALL_ID = "call_N0cYZsPSiRm7o3khCvuy6J3M"
+
+
+def _raw_openai_tool_call_message(arguments: str) -> AIMessage:
+    """The message langchain-openai before 1.7 returns for a tool call.
+
+    It copies OpenAI's raw tool call, whose ``arguments`` is a JSON string, into
+    ``additional_kwargs["tool_calls"]``, and langchain-core derives the parsed
+    ``tool_calls`` from it, so the message carries both, as on 0.3.35.
+    """
+    return AIMessage(
+        content="",
+        additional_kwargs={
+            "tool_calls": [
+                {"id": _TOOL_CALL_ID, "type": "function", "function": {"name": "get_weather", "arguments": arguments}}
+            ]
+        },
+    )
+
+
+def _parsed_tool_call_message(args: Dict[str, Any]) -> AIMessage:
+    """The message langchain-openai 1.7+ returns: no ``additional_kwargs["tool_calls"]``,
+    only langchain's ``tool_calls``, whose ``args`` is already a dict."""
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": "get_weather", "args": args, "id": _TOOL_CALL_ID, "type": "tool_call"}],
+    )
+
+
+def _model_requests_tool_call(handler: LangChainCallbackHandler, message: AIMessage) -> None:
+    """One chain whose chat model answers with *message*, through the real callback API."""
+    chain_id, llm_id = uuid4(), uuid4()
+    handler.on_chain_start({"name": "Chain"}, {"q": "weather?"}, run_id=chain_id)
+    handler.on_chat_model_start(
+        {"name": "ChatOpenAI"},
+        [[HumanMessage(content="What's the weather in Paris?")]],
+        run_id=llm_id,
+        parent_run_id=chain_id,
+    )
+    handler.on_llm_end(
+        LLMResult(generations=[[ChatGeneration(message=message)]], llm_output={"model_name": "gpt-4o-mini"}),
+        run_id=llm_id,
+    )
+    handler.on_chain_end({"output": ""}, run_id=chain_id)
+
+
+def _malformed_arguments_warnings(caplog: pytest.LogCaptureFixture) -> List[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "malformed tool_call JSON arguments" in r.getMessage()
+    ]
+
+
+class TestModelRequestedToolCalls:
+    """A tool call the model requested reaches the trace as ``tool.call`` from ``on_llm_end``.
+
+    Before langchain-openai 1.7 the adapter reads OpenAI's raw tool call from
+    ``additional_kwargs`` (``arguments`` is a JSON string); from 1.7 that copy is gone
+    and it reads langchain's ``tool_calls`` (``args`` is a dict). ``arguments`` must be
+    the same object either way, as it is from the provider adapters.
+    """
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param(_raw_openai_tool_call_message('{"city": "Paris"}'), id="before-1.7-json-string"),
+            pytest.param(_parsed_tool_call_message({"city": "Paris"}), id="from-1.7-parsed-args"),
+        ],
+    )
+    def test_arguments_are_the_parsed_object(self, mock_client, message):
+        uploaded = capture_framework_trace(mock_client)
+        handler = LangChainCallbackHandler(mock_client, capture_config=CaptureConfig(capture_content=True))
+
+        _model_requests_tool_call(handler, message)
+
+        tc = find_event(uploaded["events"], "tool.call")
+        assert tc["payload"]["tool_name"] == "get_weather"
+        assert tc["payload"]["id"] == _TOOL_CALL_ID
+        assert tc["payload"]["arguments"] == {"city": "Paris"}
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            pytest.param('{"note": "' + "x" * 300, id="syntax-error"),
+            # Valid JSON that Python still cannot decode: an integer longer than
+            # int() converts (ValueError) and nesting deeper than the decoder
+            # recurses (RecursionError). Neither is a JSONDecodeError.
+            pytest.param('{"n": ' + "1" * 5000 + "}", id="integer-over-digit-limit"),
+            pytest.param("[" * 50_000 + "]" * 50_000, id="nesting-over-recursion-limit"),
+        ],
+    )
+    def test_unparseable_arguments_keep_the_raw_string_and_log_a_truncated_warning(
+        self, mock_client, caplog, default_int_str_digit_limit, raw
+    ):
+        uploaded = capture_framework_trace(mock_client)
+        handler = LangChainCallbackHandler(mock_client, capture_config=CaptureConfig(capture_content=True))
+
+        with caplog.at_level(logging.WARNING):
+            _model_requests_tool_call(handler, _raw_openai_tool_call_message(raw))
+
+        events = uploaded["events"]
+        assert find_event(events, "model.invoke")["payload"]["model"] == "gpt-4o-mini"
+        # The tool call still reaches the trace, with exactly what the model sent.
+        assert find_event(events, "tool.call")["payload"]["arguments"] == raw
+        warnings = _malformed_arguments_warnings(caplog)
+        assert len(warnings) == 1, warnings
+        # The log carries the first 200 characters of the arguments and no more.
+        assert raw[:200] in warnings[0]
+        assert raw[:201] not in warnings[0]
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param(_raw_openai_tool_call_message('{"city": "LL-SENTINEL-4256"}'), id="before-1.7-json-string"),
+            pytest.param(_raw_openai_tool_call_message('{"city": "LL-SENTINEL-4256'), id="before-1.7-malformed"),
+            pytest.param(_parsed_tool_call_message({"city": "LL-SENTINEL-4256"}), id="from-1.7-parsed-args"),
+        ],
+    )
+    def test_capture_content_false_keeps_arguments_out_of_the_trace_and_the_log(self, mock_client, caplog, message):
+        uploaded = capture_framework_trace(mock_client)
+        handler = LangChainCallbackHandler(mock_client, capture_config=CaptureConfig(capture_content=False))
+
+        with caplog.at_level(logging.WARNING):
+            _model_requests_tool_call(handler, message)
+
+        tc = find_event(uploaded["events"], "tool.call")
+        assert tc["payload"]["tool_name"] == "get_weather"
+        assert tc["payload"]["id"] == _TOOL_CALL_ID
+        assert "arguments" not in tc["payload"]
+        assert "LL-SENTINEL-4256" not in json.dumps(uploaded["events"])
+        # Arguments are not even read: a malformed string would log a snippet.
+        assert _malformed_arguments_warnings(caplog) == []
 
 
 # ---------------------------------------------------------------------------
