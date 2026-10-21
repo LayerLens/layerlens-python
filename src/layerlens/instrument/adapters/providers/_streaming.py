@@ -17,14 +17,21 @@ The flow:
 3. If the underlying stream raises, the wrapper emits an ``agent.error``
    event with ``partial_meta`` reflecting whatever was accumulated before
    the failure (LAY-3329 / LAY-3332 partial-event ACs).
+
+4. Step 2 never raises into the caller: it runs when the caller's loop asks for
+   the chunk after the last one, over a stream that succeeded
+   (:func:`emit_streamed_events`).
 """
 
 from __future__ import annotations
 
 import time
+import logging
 from typing import Any, Dict, Callable, Iterator, Optional, AsyncIterator
 
 from ._emit_helpers import emit_llm_error, emit_llm_events
+
+log: logging.Logger = logging.getLogger(__name__)
 
 
 class StreamingResponseWrapper:
@@ -84,6 +91,93 @@ def _safe_partial_meta(
         return None
 
 
+def _no_output(response: Any) -> Any:  # noqa: ARG001
+    return None
+
+
+def _no_meta(response: Any) -> Dict[str, Any]:  # noqa: ARG001
+    return {}
+
+
+def emit_streamed_events(
+    *,
+    event_name: str,
+    kwargs: Dict[str, Any],
+    chunks: list[Any],
+    aggregate: Callable[[list[Any]], Any],
+    extract_output: Callable[[Any], Any],
+    extract_meta: Callable[[Any], Dict[str, Any]],
+    extract_tool_calls: Callable[[Any], list[dict[str, Any]]],
+    capture_params: frozenset[str],
+    pricing_table: Optional[dict[str, dict[str, float]]],
+    extra_params: Dict[str, Any],
+    latency_ms: float,
+    ttft_ms: Optional[float],
+    provider: Optional[str] = None,
+    framework: Optional[str] = None,
+    extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
+    provider_cost_only: bool = False,
+    tool_arguments_json: bool = False,
+) -> None:
+    """Emit the events of a stream the caller has read to the end. Never raises.
+
+    It runs when the caller's loop asks for the chunk after the last one, so an
+    exception here would surface in the caller's own code over a stream that
+    succeeded. When the chunks cannot be aggregated into a reply, the call is still
+    recorded with what does not depend on the reply (the request, the latency, the
+    time to the first chunk) and the failure is logged; a failure while emitting
+    is logged too.
+    """
+    try:
+        try:
+            response = aggregate(chunks)
+        except Exception:  # noqa: BLE001 — must not reach the caller's loop
+            log.warning(
+                "layerlens: could not aggregate the %s stream; recording the call without its reply",
+                event_name,
+                exc_info=True,
+            )
+            emit_llm_events(
+                event_name,
+                kwargs,
+                None,
+                _no_output,
+                _no_meta,
+                capture_params,
+                latency_ms,
+                pricing_table=pricing_table,
+                extra_params=extra_params,
+                ttft_ms=ttft_ms,
+                streaming_duration_ms=latency_ms,
+                provider=provider,
+                framework=framework,
+            )
+            return
+        if response is None:
+            return
+        emit_llm_events(
+            event_name,
+            kwargs,
+            response,
+            extract_output,
+            extract_meta,
+            capture_params,
+            latency_ms,
+            pricing_table=pricing_table,
+            extract_tool_calls=extract_tool_calls,
+            extra_params=extra_params,
+            ttft_ms=ttft_ms,
+            streaming_duration_ms=latency_ms,
+            provider=provider,
+            framework=framework,
+            extract_provider_cost=extract_provider_cost,
+            provider_cost_only=provider_cost_only,
+            tool_arguments_json=tool_arguments_json,
+        )
+    except Exception:  # noqa: BLE001 — must not reach the caller's loop
+        log.warning("layerlens: could not record the %s stream", event_name, exc_info=True)
+
+
 def stream_chunks_sync(
     *,
     event_name: str,
@@ -101,6 +195,7 @@ def stream_chunks_sync(
     framework: Optional[str] = None,
     extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
     provider_cost_only: bool = False,
+    tool_arguments_json: bool = False,
 ) -> Iterator[Any]:
     """Generator that yields every chunk and emits the consolidated event on close.
 
@@ -124,27 +219,24 @@ def stream_chunks_sync(
                 partial_chunks=len(wrapper.chunks),
             )
             raise
-        latency_ms = wrapper.total_duration_ms()
-        response = aggregate(wrapper.chunks)
-        if response is None:
-            return
-        emit_llm_events(
-            event_name,
-            kwargs,
-            response,
-            extract_output,
-            extract_meta,
-            capture_params,
-            latency_ms,
-            pricing_table=pricing_table,
+        emit_streamed_events(
+            event_name=event_name,
+            kwargs=kwargs,
+            chunks=wrapper.chunks,
+            aggregate=aggregate,
+            extract_output=extract_output,
+            extract_meta=extract_meta,
             extract_tool_calls=extract_tool_calls,
+            capture_params=capture_params,
+            pricing_table=pricing_table,
             extra_params=extra_params,
+            latency_ms=wrapper.total_duration_ms(),
             ttft_ms=wrapper.ttft_ms,
-            streaming_duration_ms=latency_ms,
             provider=provider,
             framework=framework,
             extract_provider_cost=extract_provider_cost,
             provider_cost_only=provider_cost_only,
+            tool_arguments_json=tool_arguments_json,
         )
 
     return generator()
@@ -167,6 +259,7 @@ def stream_chunks_async(
     framework: Optional[str] = None,
     extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
     provider_cost_only: bool = False,
+    tool_arguments_json: bool = False,
 ) -> AsyncIterator[Any]:
     """Async sibling of :func:`stream_chunks_sync`."""
     wrapper = StreamingResponseWrapper(event_name, kwargs, start)
@@ -186,27 +279,24 @@ def stream_chunks_async(
                 partial_chunks=len(wrapper.chunks),
             )
             raise
-        latency_ms = wrapper.total_duration_ms()
-        response = aggregate(wrapper.chunks)
-        if response is None:
-            return
-        emit_llm_events(
-            event_name,
-            kwargs,
-            response,
-            extract_output,
-            extract_meta,
-            capture_params,
-            latency_ms,
-            pricing_table=pricing_table,
+        emit_streamed_events(
+            event_name=event_name,
+            kwargs=kwargs,
+            chunks=wrapper.chunks,
+            aggregate=aggregate,
+            extract_output=extract_output,
+            extract_meta=extract_meta,
             extract_tool_calls=extract_tool_calls,
+            capture_params=capture_params,
+            pricing_table=pricing_table,
             extra_params=extra_params,
+            latency_ms=wrapper.total_duration_ms(),
             ttft_ms=wrapper.ttft_ms,
-            streaming_duration_ms=latency_ms,
             provider=provider,
             framework=framework,
             extract_provider_cost=extract_provider_cost,
             provider_cost_only=provider_cost_only,
+            tool_arguments_json=tool_arguments_json,
         )
 
     return generator()

@@ -85,9 +85,12 @@ KNOWN_SKIP_TARGETS = {
     "copilotkit",
     "ag_ui_langgraph",
     # protocol SDKs the rewritten adapters test against (installed per-venv:
-    # mcp + a2a in the sk venv, ap2 pinned in the ap2 venv; absent on base by design)
+    # mcp + a2a in the sk venv; absent on base by design)
     "mcp",
     "a2a",
+    # Not in uv.lock, which cannot hold it (it requires Python >= 3.11 and pins
+    # pydantic and pytest), so its suites skip in the lock environment. The ap2
+    # row of tests/matrix/frameworks.toml installs it and runs them.
     "ap2",
 }
 

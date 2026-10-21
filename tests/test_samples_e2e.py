@@ -25,10 +25,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import layerlens
 from tests._optional_deps import importorskip
 
 SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+# The sys.path entry this session imports ``layerlens`` from: under ``uv sync``, the
+# editable ``src`` of this checkout, whatever the checkout directory is called.
+LAYERLENS_IMPORT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(layerlens.__file__)))
 
 # ---- Sample file lists (all 58) ----
 
@@ -865,15 +869,20 @@ def _run_openclaw_demo(
     since openclaw demos use relative imports.
     """
     args_list = extra_args or []
-    # Write a temporary runner script to handle relative imports properly
+    # Write a temporary runner script to handle relative imports properly. It must
+    # import ``samples`` from this checkout and ``layerlens`` from where this session
+    # imported it, never another copy on the interpreter's path. Python takes the
+    # first match, so putting both locations first is enough and nothing is removed.
+    # The runner used to drop every entry naming "layerlens" but not
+    # "stratix-python": that removed the venv and the editable src of any checkout
+    # under ~/code/layerlens/ with another name, and kept a copy anywhere else
+    # (LAY-4267).
     script_content = (
         f"import sys\n"
         f"import os\n"
         f"sys.argv = ['test'] + {args_list!r}\n"
-        f"# Ensure our project root is first in sys.path\n"
         f"project_root = {PROJECT_ROOT!r}\n"
-        f"sys.path = [p for p in sys.path if 'layerlens' not in p.replace(os.sep, '/').lower() or 'stratix-python' in p.replace(os.sep, '/').lower()]\n"
-        f"sys.path.insert(0, project_root)\n"
+        f"sys.path[:0] = [project_root, {LAYERLENS_IMPORT_ROOT!r}]\n"
         f"# Create samples/__init__.py if missing (needed for package imports)\n"
         f"init_path = os.path.join(project_root, 'samples', '__init__.py')\n"
         f"created = not os.path.exists(init_path)\n"
@@ -1952,11 +1961,41 @@ class TestOpenClawOfflineMode:
             f"OpenClaw demo {demo} failed in verbose offline mode.\nstderr: {result.stderr[:500]}"
         )
 
+    def test_runner_imports_this_checkout_ahead_of_any_other_copy(self, tmp_path_factory):
+        """The runner imports ``samples`` from this checkout and ``layerlens`` from where
+        this session imported it, even with another copy of either on PYTHONPATH (an
+        installed ``layerlens``, another checkout). Both copies here refuse to import,
+        so a demo that loaded either one exits non-zero.
+
+        The copies sit in a directory whose path names no project. The runner used to
+        filter ``sys.path`` by directory name, which let such a copy through and, in a
+        worktree under ``~/code/layerlens/``, removed this checkout's own environment
+        instead (LAY-4267).
+        """
+        shadow = tmp_path_factory.mktemp("shadow")
+        for package in ("layerlens", "samples"):
+            (shadow / package).mkdir()
+            (shadow / package / "__init__.py").write_text(f"raise ImportError('imported the shadow {package}')\n")
+        pythonpath = os.pathsep.join(filter(None, [str(shadow), os.environ.get("PYTHONPATH")]))
+
+        result = _run_openclaw_demo(
+            "cage_match", extra_args=["--no-sdk", "--json"], env_override={"PYTHONPATH": pythonpath}
+        )
+
+        assert result.returncode == 0, f"the demo did not run from this checkout.\nstderr: {result.stderr[-800:]}"
+        assert "imported the shadow" not in result.stderr
+
     @pytest.mark.parametrize("demo", OPENCLAW_DIRECT_DEMOS)
     def test_direct_without_key(self, demo):
         """Direct LayerLens OpenClaw demos should fail gracefully without API key."""
         result = _run_openclaw_demo(demo)
         assert result.returncode != 0, f"Expected {demo} to fail without API key but it exited 0"
+        # Its own missing-key exit, not a crash before it: a demo that cannot even
+        # import layerlens exits non-zero too, and this test used to pass on that.
+        assert "ERROR: Failed to initialize LayerLens client" in result.stdout, (
+            f"{demo} did not report a failed client init.\nstdout: {result.stdout[-500:]}\nstderr: {result.stderr[-500:]}"
+        )
+        assert "LAYERLENS_API_KEY" in result.stdout, f"{demo} failed for a reason other than the missing key"
 
     def test_skill_script_without_key(self):
         """OpenClaw skill evaluate.py should fail gracefully without API key."""

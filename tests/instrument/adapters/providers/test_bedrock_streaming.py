@@ -38,7 +38,10 @@ left intact.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, List
+
+import pytest
 
 from tests._optional_deps import importorskip
 
@@ -364,6 +367,104 @@ class TestConverseStream:
 
 
 # ---------------------------------------------------------------------------
+# converse_stream tool input Python cannot decode
+# ---------------------------------------------------------------------------
+
+#: Valid JSON nested deeper than Python's JSON decoder recurses.
+_DEEP = "[" * 50_000 + "]" * 50_000
+#: Valid JSON whose integer is longer than ``int()`` converts by default.
+_BIG_INT = '{"n": ' + "1" * 5000 + "}"
+
+
+def _converse_stream_tool_use_response(tool_input: str) -> dict:
+    """``converse_stream`` output for a turn that calls a tool: ``contentBlockStart``
+    names it, then two ``delta.toolUse.input`` fragments join to *tool_input*."""
+    half = len(tool_input) // 2
+    stream_events: List[dict] = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockStart": {
+                "start": {"toolUse": {"toolUseId": "tu_stream_1", "name": "get_forecast"}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": tool_input[:half]}}, "contentBlockIndex": 0}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": tool_input[half:]}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 20, "outputTokens": 15, "totalTokens": 35},
+                "metrics": {"latencyMs": 9},
+            }
+        },
+    ]
+    return {"stream": iter(stream_events), "ResponseMetadata": {"RequestId": "conv-stream-tool"}}
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [pytest.param(_DEEP, id="nested-past-recursion-limit"), pytest.param(_BIG_INT, id="integer-past-digit-limit")],
+)
+class TestConverseStreamUndecodableToolInput:
+    """The tool call and the rest of the turn reach the trace; the input stays the
+    string the model sent, decoded (and logged) only when content is captured."""
+
+    @staticmethod
+    def _stream(mock_client: Any, capture_content: bool, tool_input: str) -> int:
+        client = _make_client()
+        provider, stubber = _connect(client)
+        stubber.add_response(
+            "converse_stream",
+            _converse_stream_tool_use_response(tool_input),
+            {"modelId": _MODEL_ID, "messages": ANY},
+        )
+
+        @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+        def my_agent():
+            r = client.converse_stream(modelId=_MODEL_ID, messages=[{"role": "user", "content": [{"text": "Hi"}]}])
+            return len(list(r["stream"]))
+
+        try:
+            return my_agent()
+        finally:
+            provider.disconnect()
+
+    @staticmethod
+    def _malformed_warnings(caplog: Any) -> List[str]:
+        return [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
+
+    def test_with_capture_content_the_string_is_kept_and_logged_once(
+        self, mock_client, capture_trace, caplog, default_int_str_digit_limit, tool_input
+    ):
+        with caplog.at_level(logging.WARNING):
+            assert self._stream(mock_client, True, tool_input) == 7
+
+        events = capture_trace["events"]
+        assert find_event(events, "model.invoke")["payload"]["name"] == "aws_bedrock.converse_stream"
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert (tool_call["tool_name"], tool_call["tool_use_id"]) == ("get_forecast", "tu_stream_1")
+        assert tool_call["arguments"] == tool_input
+        assert find_event(events, "cost.record")["payload"]["total_tokens"] == 35
+        warnings = self._malformed_warnings(caplog)
+        assert len(warnings) == 1, warnings
+        assert tool_input[:200] in warnings[0] and tool_input[:201] not in warnings[0]
+
+    def test_without_capture_content_the_input_is_neither_decoded_nor_logged(
+        self, mock_client, capture_trace, caplog, default_int_str_digit_limit, tool_input
+    ):
+        with caplog.at_level(logging.WARNING):
+            assert self._stream(mock_client, False, tool_input) == 7
+
+        events = capture_trace["events"]
+        assert find_event(events, "model.invoke")["payload"]["name"] == "aws_bedrock.converse_stream"
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_forecast"
+        assert "arguments" not in tool_call
+        assert self._malformed_warnings(caplog) == []
+
+
+# ---------------------------------------------------------------------------
 # Passthrough outside a trace
 # ---------------------------------------------------------------------------
 
@@ -387,3 +488,75 @@ class TestPassthrough:
         assert not mock_client.traces.upload.called
 
         provider.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# invoke_model_with_response_stream chunk Python cannot decode
+# ---------------------------------------------------------------------------
+
+
+def _invoke_model_stream_response_with(chunk_bytes: bytes) -> dict:
+    """``_invoke_model_stream_response`` with one more chunk, *chunk_bytes*, between
+    the two text deltas."""
+    response = _invoke_model_stream_response()
+    body_events = list(response["body"])
+    body_events.insert(2, {"chunk": {"bytes": chunk_bytes}})
+    response["body"] = iter(body_events)
+    return response
+
+
+@pytest.mark.parametrize(
+    "chunk_bytes, decoder_error",
+    [
+        pytest.param(_DEEP.encode("utf-8"), "RecursionError", id="nested-past-recursion-limit"),
+        pytest.param(_BIG_INT.encode("utf-8"), "ValueError", id="integer-past-digit-limit"),
+    ],
+)
+class TestInvokeStreamUndecodableChunk:
+    """One chunk the decoder cannot read costs only that chunk: the caller still
+    drains every chunk untouched, the rest of the stream aggregates into the
+    call's ``model.invoke`` and ``cost.record``, and the dropped chunk is logged
+    once (the stream hooks never fail)."""
+
+    def test_the_call_is_still_recorded(
+        self, mock_client, capture_trace, caplog, default_int_str_digit_limit, chunk_bytes, decoder_error
+    ):
+        client = _make_client()
+        provider, stubber = _connect(client)
+        stubber.add_response(
+            "invoke_model_with_response_stream",
+            _invoke_model_stream_response_with(chunk_bytes),
+            {"modelId": _MODEL_ID, "body": ANY},
+        )
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            r = client.invoke_model_with_response_stream(modelId=_MODEL_ID, body=_anthropic_request_body())
+            return [event["chunk"]["bytes"] for event in r["body"]]
+
+        with caplog.at_level(logging.WARNING):
+            drained = my_agent()
+        provider.disconnect()
+        stubber.assert_no_pending_responses()
+
+        # Passthrough: the caller saw every chunk, the undecodable one untouched.
+        assert len(drained) == 5
+        assert drained[2] == chunk_bytes
+
+        events = capture_trace["events"]
+        mi = find_event(events, "model.invoke")
+        assert mi["payload"]["name"] == "aws_bedrock.invoke_model_with_response_stream"
+        assert mi["payload"]["output_message"] == {"role": "assistant", "content": "Hello from Bedrock!"}
+        assert mi["payload"]["usage"]["prompt_tokens"] == 12
+        assert mi["payload"]["usage"]["completion_tokens"] == 8
+        assert mi["payload"]["stop_reason"] == "end_turn"
+        cost = find_event(events, "cost.record")
+        assert cost["payload"]["cost_usd"] is not None and cost["payload"]["cost_usd"] > 0
+        assert cost["span_id"] == mi["span_id"]
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert [m for m in warnings if "invoke_model_with_response_stream chunk" in m] == [
+            "layerlens: could not decode an aws_bedrock.invoke_model_with_response_stream chunk "
+            f"({decoder_error}); leaving it out of the recorded output"
+        ]
+        assert not [m for m in warnings if "hook failed" in m], warnings

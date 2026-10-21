@@ -68,7 +68,7 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 
 ## Requirements
 
-- **Python 3.8+.** CI runs the test suite on 3.9–3.12. A few framework extras (`crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `dspy`, `marvin`, `mirascope`, `pydantic-ai`) require Python 3.10+ and are skipped automatically on older interpreters. On the other end, `layerlens[crewai]` has been reported to fail to install on Python 3.14 (a `tiktoken` build failure upstream, not in this SDK) — use 3.11 or 3.12 for CrewAI work until that resolves.
+- **Python 3.8+.** CI runs the test suite on 3.9–3.12. A few framework extras (`crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `dspy`, `marvin`, `mirascope`) require Python 3.10+ and are skipped automatically on older interpreters. The `pydantic-ai` extra also installs on Python 3.9, where it resolves pydantic-ai 0.8.1. On the other end, `layerlens[crewai]` has been reported to fail to install on Python 3.14 (a `tiktoken` build failure upstream, not in this SDK) — use 3.11 or 3.12 for CrewAI work until that resolves.
 - **OS independent.** Linux, macOS and Windows.
 - **Async supported.** Every client has an async twin — `AsyncLayerLens`, `AsyncPublicClient` — with the same methods and `await` semantics.
 - **Runtime dependencies:** `httpx` and `pydantic` — the core SDK works on Pydantic v1.9+ or v2; some framework adapters (LangGraph, CrewAI, AutoGen) are Pydantic v2-only, following their upstream. The CLI adds `click`.

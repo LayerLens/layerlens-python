@@ -11,6 +11,9 @@ the provider's response).
 
 from __future__ import annotations
 
+import json
+import logging
+
 import httpx
 
 from tests._optional_deps import importorskip
@@ -23,13 +26,25 @@ from langchain_core.prompts import ChatPromptTemplate  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.frameworks.langchain import LangChainCallbackHandler
 
-from .conftest import find_event, capture_framework_trace
+from .conftest import find_event, find_events, capture_framework_trace
 from ..._recorded import load_recorded, mock_transport
 
 
 def _chat(fixture):
     transport, _ = mock_transport(fixture)
     return ChatOpenAI(model="gpt-4o-mini", api_key="test-key", http_client=httpx.Client(transport=transport))
+
+
+def _tool_call_fixture(arguments: str):
+    """The recorded tool call with the model's arguments replaced (in memory only)."""
+    fixture = load_recorded("openai", "tool_call")
+    message = fixture["interactions"][0]["response"]["json"]["choices"][0]["message"]
+    message["tool_calls"][0]["function"]["arguments"] = arguments
+    return fixture
+
+
+def _malformed_arguments_warnings(caplog):
+    return [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
 
 
 class TestLangChainRecorded:
@@ -89,3 +104,45 @@ class TestLangChainRecorded:
         # that string, 1.7+ the parsed dict; the event carries the object either way.
         assert tc["payload"]["arguments"] == {"city": "Paris"}
         assert tc["payload"]["model"] == "gpt-4o-mini-2024-07-18"
+
+    def test_chain_over_recorded_tool_call_with_malformed_arguments(self, mock_client, caplog):
+        # Arguments that are not valid JSON: langchain-openai 1.7+ puts the call only in
+        # invalid_tool_calls; before 1.7 it is also in additional_kwargs["tool_calls"].
+        # Either way the trace gets one tool.call with the string the model sent.
+        malformed = '{"city": "Paris"'
+        uploaded = capture_framework_trace(mock_client)
+        handler = LangChainCallbackHandler(mock_client, capture_config=CaptureConfig(capture_content=True))
+
+        chain = ChatPromptTemplate.from_messages([("user", "{q}")]) | _chat(_tool_call_fixture(malformed))
+        with caplog.at_level(logging.WARNING):
+            message = chain.invoke({"q": "What's the weather in Paris?"}, config={"callbacks": [handler]})
+
+        # The installed langchain-openai rejected the arguments itself.
+        assert message.tool_calls == []
+        assert [itc["args"] for itc in message.invalid_tool_calls] == [malformed]
+
+        tool_calls = find_events(uploaded["events"], "tool.call")
+        assert len(tool_calls) == 1, [tc["payload"] for tc in tool_calls]
+        payload = tool_calls[0]["payload"]
+        assert payload["id"] == "call_N0cYZsPSiRm7o3khCvuy6J3M"
+        assert payload["tool_name"] == "get_weather"
+        assert payload["arguments"] == malformed
+        assert payload["model"] == "gpt-4o-mini-2024-07-18"
+        assert len(_malformed_arguments_warnings(caplog)) == 1
+
+    def test_malformed_arguments_stay_out_of_the_trace_and_the_log_without_capture_content(self, mock_client, caplog):
+        sentinel = "LL-SENTINEL-4267"
+        uploaded = capture_framework_trace(mock_client)
+        handler = LangChainCallbackHandler(mock_client, capture_config=CaptureConfig(capture_content=False))
+
+        chain = ChatPromptTemplate.from_messages([("user", "{q}")]) | _chat(_tool_call_fixture('{"city": "' + sentinel))
+        with caplog.at_level(logging.WARNING):
+            chain.invoke({"q": "What's the weather in Paris?"}, config={"callbacks": [handler]})
+
+        # The call is still traced, without its arguments.
+        payload = find_event(uploaded["events"], "tool.call")["payload"]
+        assert payload["id"] == "call_N0cYZsPSiRm7o3khCvuy6J3M"
+        assert payload["tool_name"] == "get_weather"
+        assert "arguments" not in payload
+        assert sentinel not in json.dumps(uploaded["events"])
+        assert not any(sentinel in r.getMessage() for r in caplog.records)

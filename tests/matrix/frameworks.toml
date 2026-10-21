@@ -139,6 +139,7 @@ tests = [
     "tests/instrument/adapters/frameworks/test_haystack.py",
     "tests/instrument/adapters/frameworks/test_haystack_recorded.py",
     "tests/instrument/adapters/frameworks/test_haystack_floor.py",
+    "tests/instrument/adapters/frameworks/test_haystack_agent_recorded.py",
 ]
 
 [frameworks.autogen]
@@ -363,4 +364,24 @@ tests = [
     "tests/instrument/test_upload.py",
     "tests/instrument/test_upload_loss.py",
     "tests/instrument/test_w3c.py",
+]
+
+[frameworks.ap2]
+python = "3.11"
+# AP2 is not on PyPI, so the row installs a commit of its GitHub repository. It is
+# not in uv.lock either: it requires Python >= 3.11 and pins pydantic and pytest
+# versions the lock cannot hold. Its payment invariants skip in the lock
+# environment and run here, where a skip fails the row. `--latest` keeps a commit
+# pin as written, so the drift canary reruns this same commit.
+install = ["ap2 @ git+https://github.com/google-agentic-commerce/AP2@b4587ac1d055888a73b4b21750973cffba961793"]
+tests = [
+    # Real ap2 models through every guardrail; the module skips without the SDK.
+    "tests/instrument/adapters/protocols/test_ap2_payment.py",
+    # The no-content sweep's ap2 cases build real ap2 models and skip without it.
+    "tests/instrument/adapters/protocols/test_no_content_sweep.py",
+    # These run in the lock environment too. They are listed so that the row runs
+    # every module that exercises the ap2 adapter, next to the SDK's own pydantic.
+    "tests/instrument/adapters/protocols/test_ap2_expiry.py",
+    "tests/instrument/adapters/protocols/test_protocol_redaction.py",
+    "tests/instrument/adapters/protocols/test_certification.py",
 ]

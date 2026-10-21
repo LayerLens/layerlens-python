@@ -46,6 +46,13 @@ class MonkeyPatchProvider(BaseAdapter):
     #: this False and keep the catalog estimate.
     provider_cost_only: bool = False
 
+    #: True when ``extract_output`` and ``extract_tool_calls`` return a tool call's
+    #: ``arguments`` as the provider's JSON string (OpenAI's wire format) instead of
+    #: a decoded object. The emit path then decodes them, once per call and only when
+    #: the trace captures content: they are content, and decoding a malformed string
+    #: logs a snippet of it.
+    tool_arguments_json: bool = False
+
     def __init__(self) -> None:
         self._client: Any = None
         self._originals: Dict[str, Any] = {}
@@ -138,6 +145,7 @@ class MonkeyPatchProvider(BaseAdapter):
                 framework=self.name,
                 extract_provider_cost=type(self).extract_provider_cost,
                 provider_cost_only=type(self).provider_cost_only,
+                tool_arguments_json=type(self).tool_arguments_json,
             )
             return response
 
@@ -177,6 +185,7 @@ class MonkeyPatchProvider(BaseAdapter):
                 framework=self.name,
                 extract_provider_cost=type(self).extract_provider_cost,
                 provider_cost_only=type(self).provider_cost_only,
+                tool_arguments_json=type(self).tool_arguments_json,
             )
             return response
 
@@ -208,6 +217,7 @@ class MonkeyPatchProvider(BaseAdapter):
             framework=self.name,
             extract_provider_cost=type(self).extract_provider_cost,
             provider_cost_only=type(self).provider_cost_only,
+            tool_arguments_json=type(self).tool_arguments_json,
         )
 
     def _wrap_async_stream_iterator(
@@ -234,6 +244,7 @@ class MonkeyPatchProvider(BaseAdapter):
             framework=self.name,
             extract_provider_cost=type(self).extract_provider_cost,
             provider_cost_only=type(self).provider_cost_only,
+            tool_arguments_json=type(self).tool_arguments_json,
         )
 
     def disconnect(self) -> None:

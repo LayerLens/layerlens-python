@@ -360,25 +360,9 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
                     gen_info = {}
                 fr = gen_info.get("finish_reason")
                 finish_reason = fr if isinstance(fr, str) else None
-                # Extract tool_calls from message additional_kwargs (chat models)
                 msg = getattr(gen0, "message", None)
                 if msg is not None:
-                    extra = getattr(msg, "additional_kwargs", None)
-                    if not isinstance(extra, dict):
-                        extra = {}
-                    raw_calls = extra.get("tool_calls") or getattr(msg, "tool_calls", None) or []
-                    if not isinstance(raw_calls, (list, tuple)):
-                        raw_calls = []
-                    for tc in raw_calls:
-                        if isinstance(tc, dict):
-                            fn = tc.get("function") or {}
-                            tool_calls.append(
-                                {
-                                    "id": tc.get("id"),
-                                    "tool_name": fn.get("name") or tc.get("name"),
-                                    "arguments": fn.get("arguments") or tc.get("args"),
-                                }
-                            )
+                    tool_calls = _requested_tool_calls(msg)
         except (AttributeError, IndexError):
             pass
 
@@ -438,10 +422,11 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
             if model_name:
                 tc_payload["model"] = model_name
             # Before langchain-openai 1.7 the arguments are the provider's JSON string
-            # (additional_kwargs); from 1.7, langchain's parsed dict (message.tool_calls).
-            # Emit the object either way, as the provider adapters do. They are content,
-            # and parsing logs a snippet of a malformed string, so with capture_content
-            # off they are not even read.
+            # (additional_kwargs); from 1.7, langchain's parsed dict (message.tool_calls),
+            # or the raw string when they are not valid JSON (message.invalid_tool_calls).
+            # Emit the object either way, as the provider adapters do; a string that does
+            # not decode stays a string. They are content, and parsing logs a snippet of
+            # a malformed string, so with capture_content off they are not even read.
             arguments = parse_tool_arguments(tc["arguments"]) if self._config.capture_content else None
             self._set_if_capturing(tc_payload, "arguments", arguments)
             self._emit(
@@ -632,6 +617,48 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
 
     def on_text(self, text: str, **kwargs: Any) -> None:
         pass
+
+
+def _requested_tool_calls(msg: Any) -> List[Dict[str, Any]]:
+    """The tool calls a chat model's reply requests, as ``id`` / ``tool_name`` / ``arguments``.
+
+    langchain-openai before 1.7 copies OpenAI's raw ``tool_calls`` into
+    ``additional_kwargs``: every call the model made, ``arguments`` still the JSON
+    string. From 1.7 that copy is gone, and the calls are only in langchain's own
+    lists: ``tool_calls`` for those whose arguments parsed (``args`` is a dict) and
+    ``invalid_tool_calls`` for those that did not (``args`` is the raw string). Reading
+    ``tool_calls`` alone dropped every malformed call from the trace, so both are read.
+    """
+    extra = getattr(msg, "additional_kwargs", None)
+    raw_calls = extra.get("tool_calls") if isinstance(extra, dict) else None
+    from_raw_calls = isinstance(raw_calls, (list, tuple)) and len(raw_calls) > 0
+    calls = raw_calls if from_raw_calls else getattr(msg, "tool_calls", None)
+    requested: List[Dict[str, Any]] = []
+    for tc in calls if isinstance(calls, (list, tuple)) else []:
+        if isinstance(tc, dict):
+            fn = tc.get("function") or {}
+            requested.append(
+                {
+                    "id": tc.get("id"),
+                    "tool_name": fn.get("name") or tc.get("name"),
+                    "arguments": fn.get("arguments") or tc.get("args"),
+                }
+            )
+
+    # langchain-core derives invalid_tool_calls from the raw list too, so before 1.7 a
+    # malformed call is in both. Skip it there: one call is one tool.call. It is matched
+    # by id; a call without one can't be, but the raw list holds every call the model
+    # made, so when the raw list was read it is already in.
+    listed_ids = {call["id"] for call in requested if call["id"] is not None}
+    invalid_calls = getattr(msg, "invalid_tool_calls", None)
+    for itc in invalid_calls if isinstance(invalid_calls, (list, tuple)) else []:
+        if not isinstance(itc, dict):
+            continue
+        call_id = itc.get("id")
+        already_listed = from_raw_calls if call_id is None else call_id in listed_ids
+        if not already_listed:
+            requested.append({"id": call_id, "tool_name": itc.get("name"), "arguments": itc.get("args")})
+    return requested
 
 
 def _serialize_lc_message(msg: Any) -> Any:

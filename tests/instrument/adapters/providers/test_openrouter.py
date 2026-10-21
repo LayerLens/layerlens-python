@@ -260,6 +260,44 @@ class TestProviderTagging:
         assert tool["arguments"] == {"city": "Lisbon"}
         assert tool["id"] == "call_or_abc123"
 
+    @pytest.mark.parametrize("capture_content", [False, True])
+    def test_malformed_tool_arguments_are_parsed_and_logged_only_with_capture_content(
+        self, mock_client, capture_trace, caplog, capture_content
+    ):
+        # OpenRouter reuses the OpenAI tool-call hooks, so it follows the same rule:
+        # the arguments are content, decoded once and only when content is captured.
+        sentinel = "LL-SENTINEL-4267"
+        malformed = '{"city": "' + sentinel
+        body = _tool_call_json()
+        body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = malformed
+        client, _ = _make_client(body)
+        provider = OpenRouterProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+        def my_agent():
+            client.chat.completions.create(model=_ROUTED_SLUG, messages=[{"role": "user", "content": "Weather?"}])
+            return "done"
+
+        with caplog.at_level(logging.WARNING):
+            my_agent()
+        provider.disconnect()
+
+        events = capture_trace["events"]
+        tool = find_event(events, "tool.call")["payload"]
+        assert tool["tool_name"] == "get_weather"
+        invoke = find_event(events, "model.invoke")["payload"]
+        warnings = [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
+        if capture_content:
+            assert len(warnings) == 1, warnings
+            assert tool["arguments"] == malformed
+            assert invoke["output_message"]["tool_calls"][0]["arguments"] == malformed
+        else:
+            assert warnings == []
+            assert "arguments" not in tool
+            assert "output_message" not in invoke
+            assert sentinel not in json.dumps(events)
+
     def test_provider_tag_does_not_depend_on_the_event_name(self):
         """The billing tag is decided explicitly, not by splitting a string.
 

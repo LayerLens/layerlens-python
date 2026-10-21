@@ -9,13 +9,23 @@ guard actually bites.
 
 from __future__ import annotations
 
+import sys
 import json
+import inspect
 
 import pytest
 
 from layerlens.instrument._context import _current_collector
 from layerlens.instrument._collector import TraceCollector
-from layerlens.instrument._secret_scrub import REDACTION, safe_error, find_secrets, scrub_payload, scrub_secrets
+from layerlens.instrument._secret_scrub import (
+    REDACTION,
+    DEPTH_REDACTION,
+    MAX_SCRUB_DEPTH,
+    safe_error,
+    find_secrets,
+    scrub_payload,
+    scrub_secrets,
+)
 from layerlens.instrument._capture_config import CaptureConfig
 
 from ._secret_scan import scan_for_secrets
@@ -393,7 +403,7 @@ def test_real_mcp_error_path_scrubbed_without_safe_error_call() -> None:
 # ---------------------------------------------------------------------------
 
 
-STRUCTURAL_ID_FIELDS = ("span_id", "trace_id", "parent_span_id", "run_id")
+STRUCTURAL_ID_FIELDS = ("span_id", "trace_id", "parent_span_id", "run_id", "originating_span_id")
 
 #: Real card test numbers, and an all-zero id. Every one is a Luhn-valid,
 #: all-decimal, card-length string — i.e. exactly the shape a machine-generated
@@ -461,3 +471,200 @@ def test_free_text_scrubbing_still_ignores_the_key() -> None:
     # scrub_secrets() has no field context by design (it is used on bare strings
     # via safe_error), so it must keep redacting a PAN unconditionally.
     assert scrub_secrets("card 4111111111111111 charged") != "card 4111111111111111 charged"
+
+
+def test_an_mcp_async_task_keeps_a_luhn_valid_originating_span_id() -> None:
+    """``originating_span_id`` links an MCP async task to the span that started it,
+    and the adapter fills it with a 16-hex span id (the current span's, or a fresh
+    ``uuid4().hex[:16]``), so ~1 in 19,000 tasks carries one that is all-digit and
+    Luhn-valid. The collector redacted those as card numbers, cutting the task off
+    from its span with no error (LAY-4267). No test could notice: the guard scans
+    what the collector ships, and the id was already gone by then.
+
+    Bite proof: drop ``originating_span_id`` from ``_STRUCTURAL_ID_KEYS`` and both
+    events carry ``[REDACTED-SECRET]`` instead of the span id.
+    """
+    from types import SimpleNamespace
+
+    from layerlens.instrument._context import _pop_span, _push_span
+    from layerlens.instrument.adapters.protocols.mcp.adapter import MCPProtocolAdapter
+
+    adapter = MCPProtocolAdapter(capture_config=CaptureConfig.standard())
+    target = SimpleNamespace(call_tool=lambda name, arguments=None, **kw: {"content": "ok"})
+    adapter.connect(target=target)
+    collector = TraceCollector(object(), CaptureConfig.standard())
+    token = _current_collector.set(collector)
+    span = _push_span("4111111111111111", "agent")
+    try:
+        target.call_tool(name="lookup", arguments={"q": "x"})
+    finally:
+        _pop_span(span)
+        _current_collector.reset(token)
+
+    tasks = [e for e in collector.events if e["event_type"] == "mcp.async_task"]
+    assert [t["payload"]["phase"] for t in tasks] == ["start", "end"]
+    for task in tasks:
+        assert task["parent_span_id"] == "4111111111111111"
+        assert task["payload"]["originating_span_id"] == "4111111111111111"
+
+
+# ---------------------------------------------------------------------------
+# The guard keeps the scrubber's structural-id exemption (LAY-4267).
+#
+# The collector ships a Luhn-valid all-digit span id unchanged, on purpose (see
+# above). The guard used to scan every payload string with no knowledge of its key,
+# so ~1 in 19,000 random span ids failed whichever test happened to mint it, at
+# teardown. It hit test_openinference_floor.py on PR #79's `test (3.10)` job.
+# ---------------------------------------------------------------------------
+
+
+def _guard_flags(payload: dict) -> bool:
+    try:
+        scan_for_secrets([{"event_type": "agent.output", "payload": payload}])
+    except AssertionError:
+        return True
+    return False
+
+
+def test_guard_accepts_the_pan_shaped_span_ids_a_real_trace_ships(capture_trace, mock_client) -> None:
+    """The CI flake, made deterministic: an OpenInference span whose ids happen to be
+    all-digit and Luhn-valid goes through the real adapter and collector, which keep
+    both ids, and the guard must accept what the collector ships. The autouse
+    ``_enforce_schema_lock`` scans these same events at teardown, so before the fix
+    this test also ERRORed there, exactly as it did in CI."""
+    from layerlens.instrument.adapters.frameworks.openinference import OpenInferenceAdapter
+
+    adapter = OpenInferenceAdapter(mock_client, capture_config=CaptureConfig.full())
+    adapter.connect()
+    adapter.ingest_span(
+        {
+            "name": "openai.chat",
+            "trace_id": "0af7651916cd43dd8448eb211c80319c",
+            "span_id": "4111111111111111",
+            "parent_span_id": "5500000000000004",
+            "attributes": {"openinference.span.kind": "LLM", "llm.model_name": "gpt-4o", "output.value": "ok"},
+        }
+    )
+    adapter.flush()
+    events = capture_trace["events"]
+
+    model = next(e for e in events if e["event_type"] == "model.invoke")["payload"]
+    assert model["span_id"] == "4111111111111111"
+    assert model["parent_span_id"] == "5500000000000004"
+    scan_for_secrets(events)
+
+
+@pytest.mark.parametrize("field", STRUCTURAL_ID_FIELDS)
+@pytest.mark.parametrize("value", LUHN_VALID_IDS)
+def test_guard_accepts_a_luhn_valid_structural_id(field: str, value: str) -> None:
+    # At the top level, nested in a dict, inside a list of dicts, and as a list
+    # element, which takes its container's key: the scrubber exempts all four.
+    for payload in ({field: value}, {"metadata": {field: value}}, {"spans": [{field: value}]}, {field: [value]}):
+        assert not _guard_flags(payload), f"guard flagged an id the collector ships: {payload!r}"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"output": "card 4111111111111111 on file"},
+        {"input": "4111 1111 1111 1111"},
+        {"error": "charge declined for 5500000000000004"},
+        {"messages": [{"role": "user", "content": "my card is 4111-1111-1111-1111"}]},
+        # A key the scrubber does not exempt, even though it names an id: a producer
+        # picks these values.
+        {"agent_id": "4111111111111111"},
+        {"session_id": "4111111111111111"},
+        {"tool_call_id": "4111111111111111"},
+        # A structural id beside the content does not launder it.
+        {"span_id": "0af7651916cd43dd", "output": "card 4111111111111111 on file"},
+    ],
+)
+def test_guard_still_fails_on_a_pan_anywhere_else(payload: dict) -> None:
+    with pytest.raises(AssertionError, match="card_pan"):
+        scan_for_secrets([{"event_type": "agent.output", "payload": payload}])
+
+
+@pytest.mark.parametrize("field", STRUCTURAL_ID_FIELDS)
+def test_guard_exemption_covers_only_the_pan_pattern(field: str) -> None:
+    # A credential templated into a span id is still caught: only the checksum-only
+    # PAN pattern is skipped there, as in the scrubber.
+    with pytest.raises(AssertionError, match="aws_access_key"):
+        scan_for_secrets([{"event_type": "agent.output", "payload": {field: "AKIAIOSFODNN7EXAMPLE"}}])
+
+
+@pytest.mark.parametrize("field", STRUCTURAL_ID_FIELDS + ("output", "error", "agent_id", "session_id"))
+@pytest.mark.parametrize("value", LUHN_VALID_IDS + ("AKIAIOSFODNN7EXAMPLE", "1234567890123456", "plain text"))
+def test_guard_flags_exactly_what_the_scrubber_still_redacts(field: str, value: str) -> None:
+    """The guard and the collector must agree on every value: a value the scrubber
+    leaves alone must pass the guard (else a random test fails), and a value it
+    would still redact must fail the guard (else a leak past the chokepoint goes
+    unnoticed). They share the pattern set, so this checks how each one applies it."""
+    for payload in ({field: value}, {"metadata": {field: value}}, {"spans": [{field: value}]}, {field: [value]}):
+        redacted = scrub_payload(payload) != payload
+        assert _guard_flags(payload) is redacted, f"guard and scrubber disagree on {payload!r}"
+
+
+# ---------------------------------------------------------------------------
+# Nesting depth: scrubbing must never raise into the caller (LAY-4267).
+#
+# _scrub_value recursed once per nesting level, and on CPython <= 3.11 a list level
+# costs two frames (the call and its list comprehension). Decodable tool arguments
+# ~500 levels deep exhausted the default recursion limit inside collector.emit, and
+# the RecursionError reached the customer's own create() call.
+# The end-to-end reproduction through a real openai client lives with the other
+# recorded OpenAI replays, in adapters/providers/test_openai_recorded.py.
+# ---------------------------------------------------------------------------
+
+
+def _nested(leaf: object, levels: int, wrap) -> object:
+    for _ in range(levels):
+        leaf = wrap(leaf)
+    return leaf
+
+
+_WRAPPERS = {"list": lambda v: [v], "tuple": lambda v: (v,), "dict": lambda v: {"nested": v}}
+_SECRET = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+@pytest.mark.parametrize("wrap", _WRAPPERS.values(), ids=_WRAPPERS.keys())
+def test_one_level_inside_the_bound_is_scrubbed_as_before(wrap) -> None:
+    # The payload is level 0 and "output" level 1, so the innermost container here is
+    # at level MAX_SCRUB_DEPTH - 1: still walked, and its secret still redacted.
+    payload = {"output": _nested(_SECRET, MAX_SCRUB_DEPTH - 1, wrap)}
+    assert scrub_payload(payload) == {"output": _nested(REDACTION, MAX_SCRUB_DEPTH - 1, wrap)}
+    clean = {"output": _nested("plain text", MAX_SCRUB_DEPTH - 1, wrap)}
+    assert scrub_payload(clean) is clean, "a clean payload inside the bound must come back unchanged, uncopied"
+
+
+@pytest.mark.parametrize("wrap", _WRAPPERS.values(), ids=_WRAPPERS.keys())
+@pytest.mark.parametrize("levels", [MAX_SCRUB_DEPTH, MAX_SCRUB_DEPTH + 1, 900])
+def test_a_container_at_the_bound_is_replaced_by_the_marker(wrap, levels: int) -> None:
+    # Fail closed: whatever sits at level MAX_SCRUB_DEPTH and below is never uploaded,
+    # scrubbed or not, so a secret down there cannot leak and nothing recurses into it.
+    payload = {"output": _nested(_SECRET, levels, wrap)}
+    assert scrub_payload(payload) == {"output": _nested(DEPTH_REDACTION, MAX_SCRUB_DEPTH - 1, wrap)}
+
+
+def test_a_secret_below_the_bound_never_reaches_the_uploaded_trace(mock_client, capture_trace) -> None:
+    collector = TraceCollector(mock_client, CaptureConfig.full())
+    deep = _nested({"api_key": _SECRET}, 900, lambda v: [v])
+    collector.emit("tool.call", {"provider": "openai", "tool_name": "lookup", "arguments": deep}, span_id="s1")
+    collector.flush()
+
+    blob = json.dumps(capture_trace["events"])
+    assert _SECRET not in blob
+    assert DEPTH_REDACTION in blob
+    scan_for_secrets(capture_trace["events"])
+
+
+def test_scrubbing_fits_in_the_last_300_frames_of_the_recursion_limit() -> None:
+    """The bound is what keeps the scrub small: it must work under a caller whose own
+    stack (a framework, an async runtime, a web server) already holds most of the
+    recursion limit. Here all but 300 frames are used, pytest's own included."""
+    payload = {"output": _nested("x", 900, lambda v: [v])}
+
+    def descend(frames: int) -> object:
+        return scrub_payload(payload) if frames == 0 else descend(frames - 1)
+
+    result = descend(sys.getrecursionlimit() - 300 - len(inspect.stack(0)))
+    assert result == {"output": _nested(DEPTH_REDACTION, MAX_SCRUB_DEPTH - 1, lambda v: [v])}

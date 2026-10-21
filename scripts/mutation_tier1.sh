@@ -7,6 +7,13 @@
 # floor but exits 0, so the nightly job never red-flags on a flaky baseline.
 # Set MUTATION_ENFORCE=1 to make it exit non-zero below the floor (future ratchet).
 #
+# A module is scored only on its whole scoped suite. When the precheck fails, or
+# SKIPS any test (an optional SDK or framework missing from this environment),
+# the module gets a ::warning:: and no score, as the adapter matrix fails a row
+# on any skip. MUTATION_MODULES (space-separated names; unset or empty: every
+# module) runs a subset, so the nightly job can score each module in the
+# environment where its whole suite runs. `--list` prints the module names.
+#
 # Requires: mutmut (2.5.x — parso-based, no Rust build), pytest, pytest-cov,
 # sqlite3, and an editable install of the package. The nightly workflow installs
 # these. Run locally with:  bash scripts/mutation_tier1.sh
@@ -31,54 +38,82 @@ MODULES=(
   "upload|$SRC/_upload.py|$PKG._upload|tests/instrument/test_upload.py"
   "chain|$ASRC/_chain.py|layerlens.attestation._chain|tests/attestation/"
   "verify|$ASRC/_verify.py|layerlens.attestation._verify|tests/attestation/"
-  "ap2|$SRC/adapters/protocols/ap2.py|$PKG.adapters.protocols.ap2|tests/instrument/adapters/protocols/test_payment_guardrails.py tests/instrument/adapters/protocols/test_protocol_redaction.py tests/instrument/adapters/protocols/test_no_content_sweep.py tests/instrument/adapters/protocols/test_certification.py tests/instrument/adapters/protocols/test_base_protocol.py"
+  "ap2|$SRC/adapters/protocols/ap2.py|$PKG.adapters.protocols.ap2|tests/instrument/adapters/protocols/test_ap2_payment.py tests/instrument/adapters/protocols/test_ap2_expiry.py tests/instrument/adapters/protocols/test_protocol_redaction.py tests/instrument/adapters/protocols/test_no_content_sweep.py tests/instrument/adapters/protocols/test_certification.py"
   "a2ui|$SRC/adapters/protocols/a2ui.py|$PKG.adapters.protocols.a2ui|tests/instrument/adapters/protocols/test_protocol_redaction.py tests/instrument/adapters/protocols/test_certification.py tests/instrument/adapters/protocols/test_no_content_sweep.py"
   "ucp|$SRC/adapters/protocols/ucp.py|$PKG.adapters.protocols.ucp|tests/instrument/adapters/protocols/test_protocol_redaction.py tests/instrument/adapters/protocols/test_no_content_sweep.py tests/instrument/adapters/protocols/test_certification.py"
   "emit_helpers|$SRC/adapters/providers/_emit_helpers.py|$PKG.adapters.providers._emit_helpers|tests/instrument/adapters/providers/"
 )
 
+if [ "${1:-}" = "--list" ]; then
+  for entry in "${MODULES[@]}"; do echo "${entry%%|*}"; done
+  exit 0
+fi
+
+# A name that is not a module is an error, so a typo cannot quietly score nothing.
+selected=()
+for want in ${MUTATION_MODULES:-}; do
+  found=0
+  for entry in "${MODULES[@]}"; do
+    if [ "${entry%%|*}" = "$want" ]; then
+      selected+=("$entry")
+      found=1
+    fi
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "::error title=mutation::unknown module '$want' in MUTATION_MODULES (bash $0 --list prints them)"
+    exit 2
+  fi
+done
+if [ "${#selected[@]}" -eq 0 ]; then
+  selected=("${MODULES[@]}")
+fi
+
 rm -f .mutmut-cache
 
-for entry in "${MODULES[@]}"; do
+for entry in "${selected[@]}"; do
   IFS='|' read -r name file dotted tests <<< "$entry"
   echo "::group::mutation $name"
   rm -f .coverage
-  if ! $PY -m pytest -q -p no:cacheprovider --no-header --cov="$dotted" --cov-report= $tests </dev/null > "/tmp/mut_$name.pre.log" 2>&1; then
-    echo "::warning title=mutation $name::precheck failed (scoped tests not green) — skipping"
+  pre_log="/tmp/mut_$name.pre.log"
+  if ! $PY -m pytest -q -rs -p no:cacheprovider --no-header --cov="$dotted" --cov-report= $tests </dev/null > "$pre_log" 2>&1; then
+    echo "::warning title=mutation $name::precheck failed (scoped tests not green: $(tail -n 1 "$pre_log")) — skipping"
+    echo "::endgroup::"; continue
+  fi
+  # A skipped test is part of the module's suite that did not run here, so a
+  # score would describe a smaller suite than the module's. Whole suite or no score.
+  summary="$(tail -n 1 "$pre_log")"
+  if grep -Eq '[0-9]+ skipped' <<< "$summary"; then
+    echo "::warning title=mutation $name::precheck skipped tests ($summary) — not scored on a partial suite"
+    grep '^SKIPPED' "$pre_log" || true
     echo "::endgroup::"; continue
   fi
   $MUT run --paths-to-mutate "$file" --runner "$PT $tests" --use-coverage --simple-output --no-progress --CI </dev/null > "/tmp/mut_$name.run.log" 2>&1 || true
   echo "::endgroup::"
 done
 
-# Per-module score from the accumulated cache (read fully before looping so the
-# enforce-fail flag lives in THIS shell, not a pipe subshell).
-declare -A killed survived
-while IFS='|' read -r fname status cnt; do
-  [ -z "${fname:-}" ] && continue
-  case "$status" in
-    ok_killed) killed["$fname"]=$cnt ;;
-    bad_survived) survived["$fname"]=$cnt ;;
-  esac
-done < <(sqlite3 .mutmut-cache "SELECT sf.filename, m.status, count(*) FROM Mutant m JOIN Line l ON m.line=l.id JOIN SourceFile sf ON l.sourcefile=sf.id WHERE m.status IN ('ok_killed','bad_survived') GROUP BY sf.filename, m.status;")
-
+# Per-module score from the accumulated cache. sqlite3 sums each file's statuses,
+# so this needs no associative arrays and runs on any bash (macOS ships 3.2); the
+# rows are read in THIS shell, not a pipe subshell, so the enforce-fail flag holds.
 fail=0
 {
-  echo "### Tier-1 mutation score (LAY-3572)"
+  echo "### Tier-1 mutation score (LAY-3572)${MUTATION_MODULES:+ — ${MUTATION_MODULES}}"
   echo ""
   echo "| module | killed | survived | score |"
   echo "| --- | ---: | ---: | ---: |"
 } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-for f in $(printf '%s\n' "${!killed[@]}" "${!survived[@]}" | sort -u); do
-  k=${killed[$f]:-0}; s=${survived[$f]:-0}; tot=$((k + s))
-  [ "$tot" -eq 0 ] && continue
-  score=$((100 * k / tot))
-  printf '| %s | %d | %d | %d%% |\n' "$f" "$k" "$s" "$score" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-  if [ "$score" -lt "$FLOOR" ]; then
-    echo "::warning title=mutation floor::$f mutation score ${score}% < floor ${FLOOR}%"
-    [ "$ENFORCE" = "1" ] && fail=1
-  fi
-done
+if [ -f .mutmut-cache ]; then
+  while IFS='|' read -r f k s; do
+    [ -z "${f:-}" ] && continue
+    tot=$((k + s))
+    [ "$tot" -eq 0 ] && continue
+    score=$((100 * k / tot))
+    printf '| %s | %d | %d | %d%% |\n' "$f" "$k" "$s" "$score" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    if [ "$score" -lt "$FLOOR" ]; then
+      echo "::warning title=mutation floor::$f mutation score ${score}% < floor ${FLOOR}%"
+      [ "$ENFORCE" = "1" ] && fail=1
+    fi
+  done < <(sqlite3 .mutmut-cache "SELECT sf.filename, sum(m.status = 'ok_killed'), sum(m.status = 'bad_survived') FROM Mutant m JOIN Line l ON m.line = l.id JOIN SourceFile sf ON l.sourcefile = sf.id GROUP BY sf.filename ORDER BY sf.filename;")
+fi
 
 exit $fail

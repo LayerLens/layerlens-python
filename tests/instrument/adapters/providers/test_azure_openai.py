@@ -12,6 +12,7 @@ payload, including ``prompt_filter_results`` / ``content_filter_results``.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -263,6 +264,42 @@ class TestEmitsEvents:
         mi = find_event(events, "model.invoke")
         assert mi["payload"]["finish_reason"] == "tool_calls"
         provider.disconnect()
+
+    @pytest.mark.parametrize("capture_content", [False, True])
+    def test_malformed_tool_arguments_are_parsed_and_logged_only_with_capture_content(
+        self, mock_client, capture_trace, caplog, capture_content
+    ):
+        # Azure reuses the OpenAI tool-call hooks, so it follows the same rule: the
+        # arguments are content, decoded once and only when content is captured.
+        sentinel = "LL-SENTINEL-4267"
+        malformed = '{"city": "' + sentinel
+        client, _ = _make_client(response_json=_chat_completion_with_tool_calls_json(arguments=malformed))
+        provider = AzureOpenAIProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+        def my_agent():
+            client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": "Weather?"}])
+            return "done"
+
+        with caplog.at_level(logging.WARNING):
+            my_agent()
+        provider.disconnect()
+
+        events = capture_trace["events"]
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_weather"
+        invoke = find_event(events, "model.invoke")["payload"]
+        warnings = [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
+        if capture_content:
+            assert len(warnings) == 1, warnings
+            assert tool_call["arguments"] == malformed
+            assert invoke["output_message"]["tool_calls"][0]["arguments"] == malformed
+        else:
+            assert warnings == []
+            assert "arguments" not in tool_call
+            assert "output_message" not in invoke
+            assert sentinel not in json.dumps(events)
 
     def test_cache_write_tokens_flow_through_and_are_priced_once(self, mock_client, capture_trace):
         """Azure reuses OpenAIProvider.extract_meta, so OpenAI's prompt-cache writes

@@ -49,3 +49,8 @@ CONTRIBUTING.md > "Dependencies and the lock".
 Pins are the latest **verified** versions (the canary tells you when newer
 releases break). To bump: change the pin, run the row locally, commit the
 pin + any fixes together.
+
+A framework that is not on PyPI is pinned to a commit of its repository, as the
+`ap2` row is (`ap2 @ git+https://...@<commit>`). `--latest` leaves that pin as
+written, so the canary reruns the same commit: check the repository for newer
+commits when you bump it.

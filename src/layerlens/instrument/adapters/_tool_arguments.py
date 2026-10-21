@@ -2,11 +2,18 @@
 
 Tool-call arguments reach the adapters in two forms: the provider's raw JSON string
 (OpenAI's wire format, which langchain-openai before 1.7 also copied into
-``additional_kwargs["tool_calls"]``) or an already-parsed object (Anthropic, Vertex,
-Bedrock, and LangChain's own ``message.tool_calls``). ``tool.call`` carries the parsed
-object, so a trace consumer never has to branch on which adapter, or which version of
-its framework, wrote the event. This is the one parser for the string form, shared by
-the adapters that receive it.
+``additional_kwargs["tool_calls"]``, and which LangChain keeps in
+``message.invalid_tool_calls`` when it does not parse) or an already-parsed object
+(Anthropic, Vertex, Bedrock, and LangChain's own ``message.tool_calls``). ``tool.call``
+carries the parsed object, so a trace consumer never has to branch on which adapter, or
+which version of its framework, wrote the event. This is the one parser for the string
+form, shared by the adapters that receive it.
+
+The arguments are content, so callers parse them only when the trace captures content:
+a string that does not decode is logged, in part. The LangChain handler checks
+``capture_content`` before calling this; the OpenAI-family providers return the string
+from their hooks and decode it where the events are emitted
+(``providers/_emit_helpers.py``).
 """
 
 from __future__ import annotations

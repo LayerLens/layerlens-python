@@ -5,7 +5,8 @@ import logging
 from typing import Any, Dict, List
 
 from ..._context import _current_collector
-from ._emit_helpers import emit_llm_error, emit_llm_events
+from ._streaming import emit_streamed_events
+from ._emit_helpers import emit_llm_error
 from ._base_provider import MonkeyPatchProvider
 
 log: logging.Logger = logging.getLogger(__name__)
@@ -32,6 +33,12 @@ class AnthropicProvider(MonkeyPatchProvider):
 
     name = "anthropic"
     capture_params = _CAPTURE_PARAMS
+
+    #: A streamed tool_use block's input arrives as JSON fragments, and the stream
+    #: aggregate keeps the joined JSON text; the emit path decodes it, only when
+    #: content is captured. A reply that was not streamed carries the input as an
+    #: object already, and it passes through.
+    tool_arguments_json = True
 
     @staticmethod
     def extract_output(response: Any) -> Any:
@@ -357,6 +364,10 @@ class _StreamedMessage:
     def from_events(cls, events: list[Any]) -> "_StreamedMessage":
         msg = cls()
         current_block: _StreamedMessage._Block | None = None
+        # A tool_use block's input streams as JSON fragments addressed by the block's
+        # index in the message, not among tool_use blocks: a text block before it
+        # (Claude usually writes one) makes the first tool_use block index 1.
+        tool_blocks: dict[int, _StreamedMessage._Block] = {}
         tool_args_buffer: dict[int, str] = {}
         for event in events:
             etype = getattr(event, "type", None)
@@ -384,6 +395,7 @@ class _StreamedMessage:
                 if block is not None and block_type == "tool_use":
                     current_block.id = getattr(block, "id", None)
                     current_block.name = getattr(block, "name", None)
+                    tool_blocks[getattr(event, "index", 0) or 0] = current_block
                 msg.content.append(current_block)
             elif etype == "content_block_delta":
                 if current_block is None:
@@ -417,17 +429,14 @@ class _StreamedMessage:
                 # ``stopped`` so consumers can distinguish a complete stream
                 # from a torn-down iterator.
                 msg.stopped = True
-        # Fold tool-use JSON fragments back onto their blocks.
-        tool_blocks = [b for b in msg.content if b.type == "tool_use"]
-        for idx, block in enumerate(tool_blocks):
+        # Each tool_use block gets the JSON text its fragments join to, as sent. It is
+        # content: the emit path decodes it, and only when the trace captures content
+        # (``tool_arguments_json``). Decoding it here ran for every stream, and input
+        # nested deeper than the JSON decoder recurses raised into the caller's loop.
+        for idx, block in tool_blocks.items():
             raw = tool_args_buffer.get(idx)
             if raw:
-                try:
-                    import json
-
-                    block.input = json.loads(raw)
-                except (ValueError, TypeError):
-                    block.input = raw
+                block.input = raw
         return msg
 
 
@@ -520,27 +529,24 @@ class _TracedMessageStream:
             )
             return
         ttft_ms = (self._first_delta_at - self._start) * 1000 if self._first_delta_at else None
-        try:
-            response = AnthropicProvider.aggregate_stream(self._events)
-            if response is None:
-                return
-            emit_llm_events(
-                self._event_name,
-                self._kwargs,
-                response,
-                AnthropicProvider.extract_output,
-                AnthropicProvider.extract_meta,
-                self._provider.capture_params,
-                latency_ms,
-                pricing_table=self._provider.pricing_table,
-                extract_tool_calls=AnthropicProvider.extract_tool_calls,
-                extra_params=AnthropicProvider.derive_params(self._kwargs),
-                ttft_ms=ttft_ms,
-                streaming_duration_ms=latency_ms,
-                framework=self._provider.name,
-            )
-        except Exception:
-            log.debug("Error emitting Anthropic stream events", exc_info=True)
+        # The same never-raising path as ``messages.create(stream=True)``: a stream
+        # that cannot be aggregated is still recorded, and the failure is logged.
+        emit_streamed_events(
+            event_name=self._event_name,
+            kwargs=self._kwargs,
+            chunks=self._events,
+            aggregate=AnthropicProvider.aggregate_stream,
+            extract_output=AnthropicProvider.extract_output,
+            extract_meta=AnthropicProvider.extract_meta,
+            extract_tool_calls=AnthropicProvider.extract_tool_calls,
+            capture_params=self._provider.capture_params,
+            pricing_table=self._provider.pricing_table,
+            extra_params=AnthropicProvider.derive_params(self._kwargs),
+            latency_ms=latency_ms,
+            ttft_ms=ttft_ms,
+            framework=self._provider.name,
+            tool_arguments_json=AnthropicProvider.tool_arguments_json,
+        )
 
 
 # --- Convenience API ---

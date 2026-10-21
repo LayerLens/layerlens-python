@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from ._base_provider import MonkeyPatchProvider
-from .._tool_arguments import parse_tool_arguments
 
 _CAPTURE_PARAMS = frozenset(
     {
@@ -35,6 +34,10 @@ class OpenAIProvider(MonkeyPatchProvider):
     #: instead of claiming ``openai.*``. ``_derive_operation`` reads the suffix,
     #: so it resolves identically for any prefix.
     event_prefix: str = "openai"
+
+    #: OpenAI sends a tool call's ``arguments`` as a JSON string, and the hooks below
+    #: return it as sent; the emit path decodes it, only when content is captured.
+    tool_arguments_json = True
 
     @staticmethod
     def extract_output(response: Any) -> Any:
@@ -206,21 +209,26 @@ def _is_iterable(obj: Any) -> bool:
 
 
 def _serialize_tool_call(tc: Any) -> Dict[str, Any]:
-    """Normalize both streaming ``ChoiceDeltaToolCall`` and non-streaming ``ToolCall``."""
+    """Normalize both streaming ``ChoiceDeltaToolCall`` and non-streaming ``ToolCall``.
+
+    ``arguments`` stays the JSON string OpenAI sent. It is content, so it is decoded
+    where the events are emitted, and only when the trace captures content
+    (``tool_arguments_json``): decoding a malformed string logs a snippet of it.
+    """
     if isinstance(tc, dict):
         fn = tc.get("function", {}) or {}
         return {
             "id": tc.get("id"),
             "type": tc.get("type", "function"),
             "tool_name": fn.get("name"),
-            "arguments": parse_tool_arguments(fn.get("arguments")),
+            "arguments": fn.get("arguments"),
         }
     fn = getattr(tc, "function", None)
     return {
         "id": getattr(tc, "id", None),
         "type": getattr(tc, "type", "function"),
         "tool_name": getattr(fn, "name", None) if fn is not None else None,
-        "arguments": parse_tool_arguments(getattr(fn, "arguments", None) if fn is not None else None),
+        "arguments": getattr(fn, "arguments", None) if fn is not None else None,
     }
 
 
@@ -262,7 +270,10 @@ def _responses_text(response: Any) -> Any:
 
 
 def _responses_tool_calls(response: Any) -> list[Dict[str, Any]]:
-    """Normalize Responses ``function_call`` output items to our tool-call shape."""
+    """Normalize Responses ``function_call`` output items to our tool-call shape.
+
+    ``arguments`` stays the JSON string, as in :func:`_serialize_tool_call`.
+    """
     calls: list[Dict[str, Any]] = []
     for item in getattr(response, "output", None) or []:
         if getattr(item, "type", None) != "function_call":
@@ -272,7 +283,7 @@ def _responses_tool_calls(response: Any) -> list[Dict[str, Any]]:
                 "id": getattr(item, "call_id", None) or getattr(item, "id", None),
                 "type": "function",
                 "tool_name": getattr(item, "name", None),
-                "arguments": parse_tool_arguments(getattr(item, "arguments", None)),
+                "arguments": getattr(item, "arguments", None),
             }
         )
     return calls

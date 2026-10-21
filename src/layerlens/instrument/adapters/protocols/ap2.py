@@ -32,8 +32,11 @@ and enforce the payment-autonomy guardrails (A12 charge-safety + A13 ceiling):
   adapter instances in one run; a charge that would breach the per-run dollar
   ceiling is refused before it accrues.
 * **Expiry gates the receipt.** A receipt is issued only for a signed,
-  unexpired mandate (per ``cart_expiry`` / ``intent_expiry`` ISO-8601) — not the
-  sign path alone.
+  unexpired mandate — not the sign path alone. Both the cart's ``cart_expiry``
+  and the ``intent_expiry`` of the intent the cart was bought under count, read
+  as ISO 8601 the same way on every Python version. An expiry that is present
+  but unreadable refuses the receipt (``MANDATE_EXPIRY_INVALID``): it never
+  counts as "no expiry".
 * **Currency.** Amounts carry an ISO-4217 currency; comparisons never treat
   different currencies as equal (the ledger fails closed on a mismatch).
 
@@ -45,6 +48,7 @@ fingerprint (the a2ui.py pattern), so provenance stays auditable under
 
 from __future__ import annotations
 
+import re
 import hmac
 import uuid
 import hashlib
@@ -102,6 +106,9 @@ class _IntentRecord:
     currency: str | None
     merchants: List[str]
     expiry: Optional[datetime]
+    # ``intent_expiry`` as the mandate carried it; None means the intent has no
+    # expiry. Set while ``expiry`` is None: present but unreadable.
+    expiry_raw: Any
     confirmation_required: bool
 
 
@@ -114,6 +121,9 @@ class _CartRecord:
     currency: str
     merchant_name: str
     expiry: Optional[datetime]
+    # ``cart_expiry`` as the mandate carried it; None means the cart has no
+    # expiry. Set while ``expiry`` is None: present but unreadable.
+    expiry_raw: Any
     intent_mandate_id: Optional[str]
     signed: bool = False
 
@@ -194,12 +204,14 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
         """
         mid = mandate_id or _attr(intent, "mandate_id") or uuid.uuid4().hex[:16]
         merchants = _attr(intent, "merchants") or []
+        raw_expiry = _attr(intent, "intent_expiry")
         record = _IntentRecord(
             mandate_id=mid,
             max_amount=_as_float(_attr(intent, "max_amount")),
             currency=_attr(intent, "currency"),
             merchants=list(merchants) if isinstance(merchants, (list, tuple)) else [],
-            expiry=_parse_iso(_attr(intent, "intent_expiry")),
+            expiry=_parse_iso(raw_expiry),
+            expiry_raw=raw_expiry,
             confirmation_required=bool(_attr(intent, "user_cart_confirmation_required", default=True)),
         )
         self._intents[mid] = record
@@ -209,7 +221,7 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
                 "mandate_id": mid,
                 "status": "created",
                 "confirmation_required": record.confirmation_required,
-                "intent_expiry": _attr(intent, "intent_expiry"),
+                **_expiry_fields("intent_expiry", raw_expiry, record.expiry),
                 # content (stripped under no-content): merchant whitelist + intent text
                 "merchants": record.merchants,
                 "description": _attr(intent, "natural_language_description"),
@@ -229,7 +241,8 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
         contents = _attr(cart, "contents")
         cart_id = _attr(contents, "id") or uuid.uuid4().hex[:16]
         merchant_name = _attr(contents, "merchant_name")
-        expiry = _parse_iso(_attr(contents, "cart_expiry"))
+        raw_expiry = _attr(contents, "cart_expiry")
+        expiry = _parse_iso(raw_expiry)
         amount, currency = _binding_total(contents)
         sig = _attr(cart, "merchant_authorization")
         intent = self._intents.get(intent_mandate_id) if intent_mandate_id else None
@@ -238,7 +251,7 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
             "cart_id": cart_id,
             "currency": currency,
             "confirmation_required": bool(_attr(contents, "user_cart_confirmation_required", default=True)),
-            "cart_expiry": _attr(contents, "cart_expiry"),
+            **_expiry_fields("cart_expiry", raw_expiry, expiry),
             "intent_mandate_id": intent_mandate_id,
             # merchant-signature PRESENCE + keyed-HMAC fingerprint (provenance,
             # auditable under no-content) — NEVER the raw JWT.
@@ -270,6 +283,7 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
             currency=currency,
             merchant_name=merchant_name or "",
             expiry=expiry,
+            expiry_raw=raw_expiry,
             intent_mandate_id=intent_mandate_id,
         )
         self._carts[cart_id] = record
@@ -405,7 +419,9 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
         """Issue a receipt ONLY for a signed, unexpired, not-already-receipted
         cart. An expired or never-signed mandate produces a ``policy.violation``
         and NO ``payment.receipt_issued`` (A12 — expiry gates the receipt, not
-        only the sign path)."""
+        only the sign path). The expiries checked are the cart's and that of the
+        intent the cart was bought under; one that is present but unreadable
+        refuses the receipt with ``MANDATE_EXPIRY_INVALID``."""
         rid = receipt_id or uuid.uuid4().hex[:16]
         cart = self._carts.get(cart_id)
         clock = now or datetime.now(timezone.utc)
@@ -422,17 +438,35 @@ class AP2ProtocolAdapter(BaseProtocolAdapter):
             )
             raise _BlockedCharge("RECEIPT_FOR_UNSIGNED_MANDATE", f"cart {cart_id} not signed")
 
-        if cart.expiry is not None and clock > cart.expiry:
+        # Expiry gates the receipt: the cart's own, and that of the intent the cart
+        # was bought under (once it passes, the user's authorization has lapsed).
+        # An expiry a mandate carries but that cannot be read refuses the receipt
+        # too: counting it as "no expiry" would fail open.
+        intent = self._intents.get(cart.intent_mandate_id) if cart.intent_mandate_id else None
+        expiries = [("cart", cart_id, cart.expiry_raw, cart.expiry)]
+        if intent is not None:
+            expiries.append(("intent", intent.mandate_id, intent.expiry_raw, intent.expiry))
+        for kind, mandate_id, raw_expiry, expiry in expiries:
+            if raw_expiry is not None and expiry is None:
+                reason_code = "MANDATE_EXPIRY_INVALID"
+                detail = f"{kind} {mandate_id} expiry {raw_expiry!r} is not an ISO 8601 date-time; receipt refused"
+                summary = f"{kind} {mandate_id} expiry unreadable"
+            elif expiry is not None and clock > expiry:
+                reason_code = "MANDATE_EXPIRED"
+                detail = f"{kind} {mandate_id} expired at {expiry.isoformat()}; receipt refused"
+                summary = f"{kind} {mandate_id} expired"
+            else:
+                continue
             self._emit_violation(
                 stage="receipt",
                 cart_id=cart_id,
-                reason_code="MANDATE_EXPIRED",
-                detail=f"cart {cart_id} expired at {cart.expiry.isoformat()}; receipt refused",
+                reason_code=reason_code,
+                detail=detail,
                 currency=cart.currency,
                 amount=cart.amount,
                 merchant_name=cart.merchant_name,
             )
-            raise _BlockedCharge("MANDATE_EXPIRED", f"cart {cart_id} expired")
+            raise _BlockedCharge(reason_code, summary)
 
         if cart_id in self._receipted:
             self.emit(
@@ -578,17 +612,67 @@ def _payment_total(contents: Any) -> tuple[float, str]:
     return (value if value is not None else 0.0, str(currency).upper() if currency else "?")
 
 
+#: The ISO 8601 date-times an AP2 expiry may carry: RFC 3339 section 5.6
+#: (``2026-10-16T10:00:00Z``, ``2026-10-16T12:00:00.5+02:00``; "T" and "Z" may be
+#: lower case and a space may separate date and time), plus the reduced forms
+#: ISO 8601 allows: a date alone, a time without seconds or minutes, and no
+#: offset, which this adapter reads as UTC.
+_ISO_DATE_TIME = re.compile(
+    r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})"
+    r"(?:[Tt ](?P<hour>[01][0-9]|2[0-3])"
+    r"(?::(?P<minute>[0-5][0-9])(?::(?P<second>[0-5][0-9])(?:\.(?P<fraction>[0-9]+))?)?)?"
+    r"(?P<offset>[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])?)?"
+)
+
+
 def _parse_iso(value: Any) -> Optional[datetime]:
-    """Parse an ISO-8601 expiry into a tz-aware datetime (UTC if naive)."""
-    if not value or not isinstance(value, str):
+    """Read an AP2 expiry as a tz-aware instant (UTC when it has no offset).
+
+    Returns None for anything that is not an ISO 8601 date-time in the grammar
+    above; the receipt gate refuses a present expiry this cannot read. Never
+    raises: it runs on the payment path.
+
+    The raw string never goes to ``datetime.fromisoformat``, because what that
+    accepts depends on the Python version: before 3.11 it rejects a ``Z`` suffix
+    and fractions that are not 3 or 6 digits long, so a ``...Z`` expiry used to
+    read as "no expiry" there; 3.11 adds week dates, basic format and ``+0530``
+    offsets; 3.14 reads ``T24:00`` as the next midnight. The pattern decides what
+    is accepted, the same on every version, and ``fromisoformat`` only parses
+    the canonical form ``datetime.isoformat()`` writes, which they all read alike.
+    """
+    if isinstance(value, datetime):
+        # An integrator's own mandate model may hold the expiry as a datetime.
+        # utcoffset() is None for a naive one, even when it has a tzinfo.
+        return value if value.utcoffset() is not None else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str):
         return None
+    match = _ISO_DATE_TIME.fullmatch(value)
+    if match is None:
+        return None
+    date, hour, minute, second, fraction, offset = match.group("date", "hour", "minute", "second", "fraction", "offset")
+    # Exactly six fraction digits. Dropping digits past microseconds can only move
+    # the expiry earlier, never later.
+    microsecond = (fraction or "").ljust(6, "0")[:6]
+    if offset is None or offset in ("Z", "z"):
+        offset = "+00:00"
+    canonical = f"{date}T{hour or '00'}:{minute or '00'}:{second or '00'}.{microsecond}{offset}"
     try:
-        dt = datetime.fromisoformat(value)
-    except ValueError:
+        return datetime.fromisoformat(canonical)
+    except ValueError:  # a date the pattern admits but the calendar does not: 2026-02-30, month 13
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
+
+
+def _expiry_fields(key: str, raw: Any, expiry: Optional[datetime]) -> Dict[str, Any]:
+    """The payload fields for a mandate's expiry.
+
+    A readable expiry is an instant, not content: it is emitted as the mandate
+    carried it and survives capture_content=False, so a refusal stays auditable.
+    An expiry that is present but unreadable can be any text the merchant put
+    there, so it is never emitted; ``<key>_invalid`` records that it was there.
+    """
+    if raw is not None and expiry is None:
+        return {key: None, f"{key}_invalid": True}
+    return {key: raw}
 
 
 def _same_currency(a: str | None, *others: str | None) -> bool:

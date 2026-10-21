@@ -190,6 +190,9 @@ _ROW_ALIASES = {
     "openai": ["openai", "openrouter"],
     # The SDK without extras: any source change, or a change to its dependency bounds.
     "core": ["src/layerlens/", "pyproject.toml"],
+    # The no-content sweep's ap2 cases need the ap2 SDK, which only this row
+    # installs: a change to the sweep would otherwise run them in no PR job.
+    "ap2": ["ap2", "test_no_content_sweep"],
 }
 
 

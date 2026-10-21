@@ -5,9 +5,20 @@ Bedrock) pass their override table into :func:`calculate_cost`.
 
 Pricing is updateable without code changes (LAY-3327 / LAY-3330 ACs):
 set the ``LAYERLENS_PRICING_TABLE`` env var to the path of a JSON file
-shaped ``{"model-name": {"input": N, "output": N}, ...}`` to override or
-extend the bundled table. Env-level overrides take precedence over any
-caller-supplied ``pricing_table`` and over the bundled ``PRICING``.
+shaped ``{"model-name": {"input": N, "output": N, "cached": N}, ...}`` to
+override or extend the bundled table. Env-level overrides take precedence over
+any caller-supplied ``pricing_table`` and over the bundled ``PRICING``.
+
+Each price is USD per 1K tokens: ``input`` for an uncached input token,
+``output`` for an output token and the optional ``cached`` for an input token
+read from the provider's prompt cache. A row without ``cached`` prices cache
+reads by provider (:func:`_cached_token_discount`: half the input price for an
+OpenAI model, whose real rate ranges from half to a twentieth), so a row for a
+model with a listed cached-input price should carry it. A row replaces the
+bundled row for its model whole; it does not inherit the bundled ``cached``
+price. A price that is not a finite, non-negative number, or a ``cached`` price
+above ``input``, makes the row unusable: the env loader skips it with a warning
+and :class:`PricingTable` raises ``ValueError``.
 """
 
 from __future__ import annotations
@@ -15,8 +26,9 @@ from __future__ import annotations
 import os
 import re
 import json
+import math
 import logging
-from typing import Optional
+from typing import Mapping, Optional
 from dataclasses import dataclass
 
 from .token_usage import NormalizedTokenUsage
@@ -30,22 +42,77 @@ PRICING_OVERRIDE_ENV = "LAYERLENS_PRICING_TABLE"
 # specific dated variant isn't in the table (LAY-3330 fuzzy matching AC).
 _DATE_SUFFIX_RE = re.compile(r"-(?:\d{4}-\d{2}-\d{2}|\d{8})$")
 
+# OpenAI rows: the Standard-tier list prices at https://developers.openai.com/api/docs/pricing,
+# checked 2026-10-16 (each also matches the model's page under
+# https://developers.openai.com/api/docs/models/). Per-1K USD is the list's per-1M
+# price / 1000. ``cached`` is the list's "Cached input" price. Where the list shows
+# none ("-"), ``cached`` is the input price: there is no cached-input discount
+# ("GPT-5.5 Pro does not offer a cached input discount", models/gpt-5.5-pro), and the
+# provider fallback in _cached_token_discount (half) would invent one. Cache WRITES are
+# priced by _cache_write_multiplier: the list's "Cache writes" column is exactly 1.25x
+# the input price on every GPT-5.6+ row and empty on every other row.
+#
+# Short context only. A prompt over 272K input tokens costs 2x the input and cache
+# prices and 1.5x the output price for the whole request on gpt-5.4, gpt-5.4-pro,
+# gpt-5.5, gpt-5.5-pro and the gpt-5.6-* and gpt-6* models, and regional-processing
+# (data residency) endpoints add 10%. Neither shows in a response's usage, so neither
+# is priced here.
 PRICING: dict[str, dict[str, float]] = {
     # OpenAI
-    "gpt-4o": {"input": 0.0025, "output": 0.0100},
-    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
-    "gpt-4o-2024-11-20": {"input": 0.0025, "output": 0.0100},
-    "gpt-4.1": {"input": 0.002, "output": 0.008},
-    "gpt-4.1-mini": {"input": 0.0004, "output": 0.0016},
-    "gpt-4.1-nano": {"input": 0.0001, "output": 0.0004},
-    "gpt-4-turbo": {"input": 0.01, "output": 0.03},
-    "gpt-4": {"input": 0.03, "output": 0.06},
-    "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
-    "o1": {"input": 0.015, "output": 0.060},
+    "gpt-6-astra": {"input": 0.010, "cached": 0.001, "output": 0.050},
+    "gpt-6.1-sol": {"input": 0.002, "cached": 0.0001, "output": 0.010},
+    "gpt-6-luna": {"input": 0.0001, "cached": 0.00001, "output": 0.0005},
+    "gpt-6-sol": {"input": 0.002, "cached": 0.0002, "output": 0.010},
+    # A promotional price, "available at least through November 21, 2026" (the list).
+    "gpt-5.6-sol": {"input": 0.004, "cached": 0.0004, "output": 0.020},
+    "gpt-5.6-terra": {"input": 0.002, "cached": 0.0002, "output": 0.012},
+    "gpt-5.6-luna": {"input": 0.0002, "cached": 0.00002, "output": 0.0012},
+    "gpt-5.5": {"input": 0.005, "cached": 0.0005, "output": 0.030},
+    "gpt-5.5-pro": {"input": 0.030, "cached": 0.030, "output": 0.180},
+    "gpt-5.4": {"input": 0.0025, "cached": 0.00025, "output": 0.015},
+    "gpt-5.4-mini": {"input": 0.00075, "cached": 0.000075, "output": 0.0045},
+    "gpt-5.4-nano": {"input": 0.0002, "cached": 0.00002, "output": 0.00125},
+    "gpt-5.4-pro": {"input": 0.030, "cached": 0.030, "output": 0.180},
+    "gpt-5.2": {"input": 0.00175, "cached": 0.000175, "output": 0.014},
+    "gpt-5.2-pro": {"input": 0.021, "cached": 0.021, "output": 0.168},
+    "gpt-5.1": {"input": 0.00125, "cached": 0.000125, "output": 0.010},
+    "gpt-5": {"input": 0.00125, "cached": 0.000125, "output": 0.010},
+    "gpt-5-mini": {"input": 0.00025, "cached": 0.000025, "output": 0.002},
+    "gpt-5-nano": {"input": 0.00005, "cached": 0.000005, "output": 0.0004},
+    "gpt-5-pro": {"input": 0.015, "cached": 0.015, "output": 0.120},
+    "gpt-4.1": {"input": 0.002, "cached": 0.0005, "output": 0.008},
+    "gpt-4.1-mini": {"input": 0.0004, "cached": 0.0001, "output": 0.0016},
+    "gpt-4.1-nano": {"input": 0.0001, "cached": 0.000025, "output": 0.0004},
+    "gpt-4o": {"input": 0.0025, "cached": 0.00125, "output": 0.0100},
+    # A gpt-4o snapshot (models/gpt-4o), billed on the list's gpt-4o row.
+    "gpt-4o-2024-11-20": {"input": 0.0025, "cached": 0.00125, "output": 0.0100},
+    # Listed at its own price; without this row the date-suffix fallback priced it as gpt-4o.
+    "gpt-4o-2024-05-13": {"input": 0.005, "cached": 0.005, "output": 0.015},
+    "gpt-4o-mini": {"input": 0.00015, "cached": 0.000075, "output": 0.0006},
+    "o1": {"input": 0.015, "cached": 0.0075, "output": 0.060},
+    # o1-pro and o3-pro have their own rows so the prefix fallback cannot price them as o1 / o3.
+    "o1-pro": {"input": 0.150, "cached": 0.150, "output": 0.600},
+    "o3-pro": {"input": 0.020, "cached": 0.020, "output": 0.080},
+    "o3": {"input": 0.002, "cached": 0.0005, "output": 0.008},
+    "o4-mini": {"input": 0.0011, "cached": 0.000275, "output": 0.0044},
+    "o3-mini": {"input": 0.0011, "cached": 0.00055, "output": 0.0044},
+    # The list names the snapshots these aliases point to: gpt-4-turbo-2024-04-09 and gpt-4-0613.
+    "gpt-4-turbo": {"input": 0.01, "cached": 0.01, "output": 0.03},
+    "gpt-4": {"input": 0.03, "cached": 0.03, "output": 0.06},
+    "gpt-3.5-turbo": {"input": 0.0005, "cached": 0.0005, "output": 0.0015},
+    # o1-mini left the API on 2025-10-27 (https://developers.openai.com/api/docs/deprecations)
+    # and is no longer on the list; its row is left as it was.
     "o1-mini": {"input": 0.003, "output": 0.012},
-    "o3": {"input": 0.010, "output": 0.040},
-    "o3-mini": {"input": 0.0011, "output": 0.0044},
-    "o4-mini": {"input": 0.0011, "output": 0.0044},
+    # Cyber and life-sciences models (trusted access). The list charges nothing extra
+    # for a gpt-rosalind cache write ("Cache-write pricing does not apply").
+    "gpt-5.6-cyber": {"input": 0.0125, "cached": 0.00125, "output": 0.075},
+    "gpt-5.5-cyber": {"input": 0.0125, "cached": 0.00125, "output": 0.075},
+    "gpt-rosalind-research": {"input": 0.005, "cached": 0.0005, "output": 0.025},
+    "gpt-rosalind-discovery": {"input": 0.005, "cached": 0.0005, "output": 0.025},
+    # Specialized models.
+    "chat-latest": {"input": 0.005, "cached": 0.0005, "output": 0.030},
+    "gpt-5.3-codex": {"input": 0.00175, "cached": 0.000175, "output": 0.014},
+    "gpt-5-search-api": {"input": 0.00125, "cached": 0.000125, "output": 0.010},
     # Anthropic — both dated variants and base names; fuzzy matching below
     # also falls back from ``claude-foo-YYYYMMDD`` to ``claude-foo``.
     "claude-sonnet-4-5-20250929": {"input": 0.003, "output": 0.015},
@@ -78,10 +145,11 @@ PRICING: dict[str, dict[str, float]] = {
     "mistral-small": {"input": 0.0002, "output": 0.0006},
     # OpenAI embeddings — input-only (no completion tokens); per-1K USD. The
     # embedding adapter emits a priced cost.record for these; without a rate here
-    # a real embedding call shipped tokens-only (no cost_usd / no rollup).
-    "text-embedding-3-small": {"input": 0.00002, "output": 0.0},
-    "text-embedding-3-large": {"input": 0.00013, "output": 0.0},
-    "text-embedding-ada-002": {"input": 0.0001, "output": 0.0},
+    # a real embedding call shipped tokens-only (no cost_usd / no rollup). The list
+    # shows no cached-input price for them, so ``cached`` is the input price.
+    "text-embedding-3-small": {"input": 0.00002, "cached": 0.00002, "output": 0.0},
+    "text-embedding-3-large": {"input": 0.00013, "cached": 0.00013, "output": 0.0},
+    "text-embedding-ada-002": {"input": 0.0001, "cached": 0.0001, "output": 0.0},
 }
 
 AZURE_PRICING: dict[str, dict[str, float]] = {
@@ -146,11 +214,18 @@ def _normalize_model_id(model: str) -> str:
 
 
 def _cached_token_discount(model: str) -> float:
-    """Cached-token (cache-READ) rate as a fraction of the input price.
+    """Cached-token (cache-READ) rate as a fraction of the input price, for a row
+    WITHOUT a ``cached`` price.
+
+    A row's ``cached`` price, when it has one, is what a cache read costs. Every
+    bundled OpenAI row carries one, because OpenAI's rate is per model (from half
+    the input price down to a twentieth). This fallback prices the rows that do
+    not: the bundled non-OpenAI rows and custom rows (``LAYERLENS_PRICING_TABLE``,
+    a caller's ``pricing_table``) that omit ``cached``.
 
     - Anthropic: 90% off (10% of input)
     - Google: 75% off (25% of input)
-    - Others (OpenAI et al.): 50% off
+    - Others: 50% off
     """
     lower = model.lower()
     if lower.startswith("claude") or "anthropic." in lower:
@@ -167,11 +242,20 @@ def _cached_token_discount(model: str) -> float:
 # and the per-run dollar ceiling read cost_usd). Unknown tiers => 1.0 (standard).
 # Web-grounded 2026-06-25: developers.openai.com/api/docs/pricing (priority
 # ~2-2.5x) + flex-processing guide (flex == Batch rates ~0.5x).
+#
+# Priority processing was renamed Fast mode on 2026-07-30, and GPT-6 responses
+# report ``service_tier: "fast"`` (GPT-5.6 and earlier still report "priority":
+# https://developers.openai.com/api/docs/guides/fast-mode). Ultrafast exists for
+# gpt-6-astra and gpt-6.1-sol. On the list (checked 2026-10-16) every GPT-6 price
+# is exactly 2x Standard under Fast and 6x under Ultrafast. Without these keys such
+# a call fell through to 1.0 and was priced at half or a sixth of its bill.
 TIER_MULTIPLIERS: dict[str, float] = {
     "flex": 0.5,
     "batch": 0.5,
     "scale": 0.5,
     "priority": 2.0,
+    "fast": 2.0,
+    "ultrafast": 6.0,
     "standard": 1.0,
     "default": 1.0,
     "auto": 1.0,
@@ -242,8 +326,9 @@ def _cost_from_rates(
     usage: NormalizedTokenUsage,
     service_tier: Optional[str] = None,
 ) -> Optional[float]:
-    """The single cost formula: tier-scaled input/output + cache READ (discount)
-    + cache WRITE (:func:`_cache_write_multiplier`) + completion. Shared by
+    """The single cost formula: tier-scaled input/output + cache READ (the row's
+    ``cached`` price, else :func:`_cached_token_discount`) + cache WRITE
+    (:func:`_cache_write_multiplier`) + completion. Shared by
     :func:`calculate_cost` and :class:`PricingTable` so the math can never drift
     between the two paths.
 
@@ -289,7 +374,14 @@ def _cost_from_rates(
     cached = usage.cached_tokens or 0
     cache_creation = usage.cache_creation_tokens or 0
     non_cached = max(usage.prompt_tokens - cached, 0)
-    cached_rate = input_rate * _cached_token_discount(model)
+    cached_price = rates.get("cached")
+    if cached_price is not None:
+        # The model's own cached-input price, scaled by the tier like the input
+        # price: wherever the list's Batch, Flex and Fast tables show a cached-input
+        # price, it is the same multiple of Standard as the input price.
+        cached_rate = cached_price * tier
+    else:
+        cached_rate = input_rate * _cached_token_discount(model)
 
     # UNPRICEABLE SHAPE GATE: no dimension this formula can read carries a count.
     # ``prompt_tokens`` is checked (not ``non_cached``) so a fully-cached turn —
@@ -312,14 +404,46 @@ def _cost_from_rates(
 
 _env_overrides_cache: Optional[dict[str, dict[str, float]]] = None
 
+#: The prices a pricing row may carry, each in USD per 1K tokens.
+_PRICE_KEYS = ("input", "output", "cached")
+
+
+def _invalid_row_reason(rates: Mapping[str, object]) -> Optional[str]:
+    """Why a pricing row cannot be used, or ``None`` when it can.
+
+    Each price present must be a finite, non-negative number. A string or
+    ``null`` price raised ``TypeError`` inside every ``cost.record`` of the model,
+    and a negative, NaN, infinite or boolean one (``true`` is 1) produced a cost
+    nobody was billed. A ``cached`` price above ``input`` is refused too: a cache
+    read never costs more than an uncached input token, so such a row is a
+    mistake, such as the price list's cache-write column (1.25x input) copied into
+    ``cached``. A missing ``input`` or ``output`` still prices that side at 0.0,
+    as before (embedding rows have no output).
+    """
+    prices: dict[str, float] = {}
+    for key in _PRICE_KEYS:
+        if key not in rates:
+            continue
+        price = rates[key]
+        if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price) or price < 0:
+            return f"{key!r} must be a finite, non-negative number of USD per 1K tokens, got {price!r}"
+        prices[key] = price
+    if "cached" in prices and prices["cached"] > prices.get("input", 0.0):
+        return (
+            f"'cached' ({prices['cached']!r}) is above 'input' ({prices.get('input', 0.0)!r}): "
+            "a cache read never costs more than an uncached input token"
+        )
+    return None
+
 
 def _load_env_overrides() -> dict[str, dict[str, float]]:
     """Load (and memoise) env-var-driven pricing overrides.
 
     Reads ``LAYERLENS_PRICING_TABLE``. Bad JSON or unreadable files log a
     warning and resolve to an empty override map (don't crash the request
-    path over an ops-config error). Tests call :func:`reset_pricing_cache`
-    after mutating the env var.
+    path over an ops-config error); so does each row with an unusable price
+    (:func:`_invalid_row_reason`), which is skipped on its own. Tests call
+    :func:`reset_pricing_cache` after mutating the env var.
 
     The cache is invalidated by :func:`reset_pricing_cache` (typically only
     needed in tests; production reads the env once per process).
@@ -342,7 +466,19 @@ def _load_env_overrides() -> dict[str, dict[str, float]]:
         log.warning("pricing override %s is not a JSON object", path)
         _env_overrides_cache = {}
         return _env_overrides_cache
-    _env_overrides_cache = {k: v for k, v in data.items() if isinstance(v, dict)}
+    overrides: dict[str, dict[str, float]] = {}
+    for model, rates in data.items():
+        if not isinstance(rates, dict):
+            continue  # not an object, so not a price row
+        reason = _invalid_row_reason(rates)
+        if reason is not None:
+            # Like an unreadable file, one bad row must not crash the request
+            # path: skip it (the model falls back to the caller's or the bundled
+            # table) and say which row and why.
+            log.warning("pricing override %s: ignoring the row for %r: %s", path, model, reason)
+            continue
+        overrides[model] = rates
+    _env_overrides_cache = overrides
     return _env_overrides_cache
 
 
@@ -402,12 +538,15 @@ def calculate_cost(
     ``pricing_table`` > bundled ``PRICING``. Each layer supports the same
     fuzzy date-suffix and longest-prefix fallback (LAY-3330).
 
-    ``service_tier`` (flex/batch/priority/standard) scales the per-token rate
-    (A2 / LAY-3626); cache-write tokens (``usage.cache_creation_tokens``, never
-    part of ``usage.prompt_tokens``) are priced at the provider's documented
-    write rate: 1.25x input for Anthropic and OpenAI GPT-5.6+, plain input
-    elsewhere (A3 / LAY-4259, :func:`_cache_write_multiplier`). Both default to
-    no-op so existing callers are unaffected.
+    ``service_tier`` (flex/batch/priority/fast/ultrafast/standard) scales the
+    per-token rate (A2 / LAY-3626); cache-read tokens (``usage.cached_tokens``,
+    part of ``usage.prompt_tokens``) are priced at the row's ``cached`` price, or
+    by :func:`_cached_token_discount` for a row without one; cache-write tokens
+    (``usage.cache_creation_tokens``, never part of ``usage.prompt_tokens``) are
+    priced at the provider's documented write rate: 1.25x input for Anthropic and
+    OpenAI GPT-5.6+, plain input elsewhere (A3 / LAY-4259,
+    :func:`_cache_write_multiplier`). Both default to no-op so existing callers
+    are unaffected.
     """
     rates: dict[str, float] | None = None
     env_overrides = _load_env_overrides()
@@ -622,15 +761,20 @@ class PricingTable:
 
     Per LAY-3330 acceptance criteria, callers can:
 
-    * Use ``PricingTable()`` to get the bundled defaults (GPT-4o, GPT-4o-mini,
-      GPT-4-turbo, GPT-4, GPT-3.5-turbo, o1, o1-mini, o3, o3-mini, plus Claude,
-      Gemini, Llama, Mistral families).
+    * Use ``PricingTable()`` to get the bundled defaults (OpenAI's GPT-6, GPT-5.x,
+      GPT-4.1, GPT-4o, GPT-4, GPT-3.5-turbo, o-series and embedding models, plus
+      Claude, Gemini, Llama, Mistral families).
     * Pass an explicit ``table=`` to fully replace the defaults (e.g. for
       pre-release model pricing).
     * Load overrides from a JSON file via :meth:`from_json_file` or via the
       ``LAYERLENS_PRICING_TABLE`` env var (no code changes needed).
     * Call :meth:`calculate_cost` with ``(model, input_tokens, output_tokens)``
       to get a :class:`CostRecord`.
+
+    A row is ``{"input": N, "output": N}`` with an optional ``"cached": N``, all
+    USD per 1K tokens (see the module docstring). A row with a price that is not
+    a finite, non-negative number, or with ``cached`` above ``input``, raises
+    ``ValueError`` when the table is built.
 
     Fuzzy matching: ``gpt-4o-2024-08-06`` resolves to ``gpt-4o``,
     ``claude-3-5-sonnet-20990101`` resolves to ``claude-3-5-sonnet``. Falls
@@ -643,7 +787,12 @@ class PricingTable:
         *,
         respect_env_overrides: bool = True,
     ) -> None:
-        self._table: dict[str, dict[str, float]] = dict(table) if table is not None else dict(PRICING)
+        rows = PRICING if table is None else table
+        for model, rates in rows.items():
+            reason = _invalid_row_reason(rates) if isinstance(rates, dict) else None
+            if reason is not None:
+                raise ValueError(f"pricing row {model!r}: {reason}")
+        self._table: dict[str, dict[str, float]] = dict(rows)
         self._respect_env_overrides = respect_env_overrides
 
     @classmethod
@@ -658,7 +807,11 @@ class PricingTable:
 
     @classmethod
     def from_json_file(cls, path: str) -> "PricingTable":
-        """Build a table by loading rates from a JSON file at ``path``."""
+        """Build a table by loading rates from a JSON file at ``path``.
+
+        Raises ``ValueError`` when the file is not a JSON object or a row has an
+        unusable price.
+        """
         with open(path) as f:
             data = json.load(f)
         if not isinstance(data, dict):

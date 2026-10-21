@@ -7,6 +7,12 @@
 # it does NOT fail the build yet (report-only first — ratchet the floor up and
 # flip MUTATION_ENFORCE=1 once the baseline is stable). No live calls.
 #
+# scripts/mutation_tier1.sh scores a module only when its whole scoped suite
+# runs (any skipped test withholds the score), so each module runs where its
+# whole suite runs. uv.lock cannot hold the ap2 SDK (it requires Python >= 3.11
+# and pins pydantic and pytest), so the modules whose suites include ap2 tests
+# run in the venv of the `ap2` adapter-matrix row; the rest run in uv.lock.
+#
 # See scripts/mutation_tier1.sh and docs/sdk-test-suite-audit-report-*.html.
 
 name: Nightly Mutation Score
@@ -32,6 +38,13 @@ jobs:
   mutation:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Each module of scripts/mutation_tier1.sh is in exactly one list (checked
+      # below). The ap2 row's venv runs ap2 and the five modules whose suites
+      # include the no-content sweep, whose ap2 cases skip without the SDK.
+      # pricing and emit_helpers need provider SDKs only uv.lock installs.
+      LOCK_MODULES: pricing upload chain verify emit_helpers
+      AP2_ROW_MODULES: ap2 secret_scrub capture_config collector a2ui ucp
     steps:
       - uses: actions/checkout@v4
 
@@ -41,18 +54,60 @@ jobs:
           python-version: "3.11"
           groups: mutation # mutmut 2.5.1 (parso-based, no Rust build), pinned in uv.lock
 
-      - name: Tier-1 mutation score (report-only)
+      - name: Every module is scored in exactly one environment
+        id: modules
+        run: |
+          assigned="$(printf '%s\n' $LOCK_MODULES $AP2_ROW_MODULES | sort)"
+          defined="$(bash scripts/mutation_tier1.sh --list | sort)"
+          if [ "$assigned" != "$defined" ]; then
+            echo "::error title=mutation modules::LOCK_MODULES and AP2_ROW_MODULES must list each module of scripts/mutation_tier1.sh exactly once"
+            diff <(echo "$defined") <(echo "$assigned") || true
+            exit 1
+          fi
+
+      - name: Tier-1 mutation score, uv.lock environment (report-only)
         env:
           PYTHON: .venv/bin/python
           MUTMUT: .venv/bin/mutmut
           MUTATION_FLOOR: ${{ github.event.inputs.floor || '50' }}
           MUTATION_ENFORCE: ${{ github.event.inputs.enforce || '0' }}
+          MUTATION_MODULES: ${{ env.LOCK_MODULES }}
         run: bash scripts/mutation_tier1.sh
 
-      - name: Upload mutmut cache (surviving-mutant detail)
+      # Uploaded before the next run, which starts from an empty cache.
+      - name: Upload mutmut cache, uv.lock environment (surviving-mutant detail)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mutmut-cache
+          path: .mutmut-cache
+          if-no-files-found: ignore
+
+      # run_matrix.py builds the row's venv exactly as the adapter matrix does and
+      # runs the row's tests in it. The mutation tools are pinned to the versions
+      # verified with the row's pytest 9.
+      - name: Build the ap2 matrix row's venv, with mutmut
+        id: ap2_venv
+        if: ${{ !cancelled() && steps.modules.outcome == 'success' }}
+        run: |
+          python3 tests/matrix/run_matrix.py --framework ap2 --keep-venv --venv-dir "$RUNNER_TEMP/ap2-venv"
+          uv pip install --python "$RUNNER_TEMP/ap2-venv/venv/bin/python" mutmut==2.5.1 pytest-cov==7.1.0 coverage==7.16.2
+
+      - name: Tier-1 mutation score, ap2 row environment (report-only)
+        id: ap2_score
+        if: ${{ !cancelled() && steps.ap2_venv.outcome == 'success' }}
+        env:
+          PYTHON: ${{ runner.temp }}/ap2-venv/venv/bin/python
+          MUTMUT: ${{ runner.temp }}/ap2-venv/venv/bin/mutmut
+          MUTATION_FLOOR: ${{ github.event.inputs.floor || '50' }}
+          MUTATION_ENFORCE: ${{ github.event.inputs.enforce || '0' }}
+          MUTATION_MODULES: ${{ env.AP2_ROW_MODULES }}
+        run: bash scripts/mutation_tier1.sh
+
+      - name: Upload mutmut cache, ap2 row environment (surviving-mutant detail)
+        if: ${{ always() && steps.ap2_score.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-cache-ap2
           path: .mutmut-cache
           if-no-files-found: ignore

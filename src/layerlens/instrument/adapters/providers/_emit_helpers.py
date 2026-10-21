@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, Callable, Optional
+from typing import Any, Dict, Tuple, Callable, Optional
 
 from ..._w3c import gen_ai_attributes
 from .._base import AdapterInfo  # noqa: F401  (re-exported for typing)
@@ -15,6 +15,7 @@ from ..._events import (
 from ..._context import _current_span_id, _current_collector
 from .token_usage import NormalizedTokenUsage
 from ..._secret_scrub import safe_error
+from .._tool_arguments import parse_tool_arguments
 
 
 def _derive_operation(name: str) -> str:
@@ -47,6 +48,7 @@ def emit_llm_events(
     framework: Optional[str] = None,
     extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
     provider_cost_only: bool = False,
+    tool_arguments_json: bool = False,
 ) -> None:
     """Emit ``model.invoke`` + optional ``tool.call`` + ``cost.record`` events.
 
@@ -66,10 +68,19 @@ def emit_llm_events(
 
     ``extract_provider_cost`` / ``provider_cost_only`` carry a gateway's own
     billed charge into the cost record — see :func:`_emit_cost`.
+
+    ``tool_arguments_json`` says the hooks may return a tool call's arguments as the
+    JSON text the provider sent (OpenAI's wire format; Anthropic's streamed tool
+    input), both in the tool calls and in ``output_message``. They are decoded here,
+    and only when the trace captures content: otherwise the collector strips both
+    fields, and decoding a malformed string would still log a snippet of it. The two
+    places a call appears share one decode, so a malformed call logs one WARNING.
+    Arguments that are already an object pass through.
     """
     collector = _current_collector.get()
     if collector is None:
         return
+    decode = _tool_call_decoder() if tool_arguments_json and collector.config.capture_content else None
 
     parent_span_id = _current_span_id.get()
     span_id = uuid.uuid4().hex[:16]
@@ -98,6 +109,10 @@ def emit_llm_events(
     if streaming_duration_ms is not None:
         streaming_timing["streaming_duration_ms"] = streaming_duration_ms
 
+    output_message = extract_output(response)
+    if decode is not None:
+        output_message = _with_decoded_tool_calls(output_message, decode)
+
     collector.emit(
         MODEL_INVOKE,
         {
@@ -106,7 +121,7 @@ def emit_llm_events(
             "latency_ms": latency_ms,
             "parameters": parameters,
             "messages": _extract_messages(kwargs),
-            "output_message": extract_output(response),
+            "output_message": output_message,
             "otel_gen_ai": otel_attrs,
             **fw,
             **streaming_timing,
@@ -127,6 +142,8 @@ def emit_llm_events(
         except Exception:
             tool_calls = []
         for tc in tool_calls:
+            if decode is not None and isinstance(tc, dict):
+                tc = decode(tc)
             collector.emit(
                 TOOL_CALL,
                 {
@@ -160,6 +177,55 @@ def emit_llm_events(
             provider_cost_usd=provider_cost,
             provider_cost_only=provider_cost_only,
         )
+
+
+_ToolCallDecoder = Callable[..., Dict[str, Any]]
+
+
+def _tool_call_decoder() -> _ToolCallDecoder:
+    """A function that returns a tool call with its JSON-string arguments decoded.
+
+    The arguments are under ``field`` (``arguments``, or ``input`` in an Anthropic
+    ``tool_use`` block). It remembers each decode for the response it serves, keyed
+    by the call's id and arguments: the same call appears in ``output_message`` and
+    in its ``tool.call``, and a malformed string logs a WARNING each time it is decoded.
+    """
+    decoded: Dict[Tuple[Optional[str], str], Any] = {}
+
+    def decode(call: Dict[str, Any], field: str = "arguments") -> Dict[str, Any]:
+        raw = call.get(field)
+        if not isinstance(raw, str):
+            return call
+        call_id = call.get("id")
+        key = (call_id if isinstance(call_id, str) else None, raw)
+        if key not in decoded:
+            decoded[key] = parse_tool_arguments(raw)
+        return {**call, field: decoded[key]}
+
+    return decode
+
+
+def _with_decoded_tool_calls(output_message: Any, decode: _ToolCallDecoder) -> Any:
+    """*output_message* with the arguments of each tool call in it decoded.
+
+    OpenAI's shape lists the calls in ``tool_calls`` (``arguments``); Anthropic's,
+    as content ``blocks`` of type ``tool_use`` (``input``).
+    """
+    if not isinstance(output_message, dict):
+        return output_message
+    out = output_message
+    calls = output_message.get("tool_calls")
+    if isinstance(calls, list):
+        out = {**out, "tool_calls": [decode(c) if isinstance(c, dict) else c for c in calls]}
+    blocks = output_message.get("blocks")
+    if isinstance(blocks, list):
+        out = {
+            **out,
+            "blocks": [
+                decode(b, "input") if isinstance(b, dict) and b.get("type") == "tool_use" else b for b in blocks
+            ],
+        }
+    return out
 
 
 def emit_llm_error(

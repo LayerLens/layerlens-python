@@ -320,6 +320,8 @@ family = "protocol"
 unit = { path = "tests/instrument/adapters/protocols/test_ap2_payment.py" }
 redaction = { path = "tests/instrument/adapters/protocols/test_protocol_redaction.py" }
 disconnect_restore = { path = "tests/instrument/adapters/test_disconnect_invariants.py" }
+# The unit suite needs the ap2 SDK, which uv.lock cannot hold, so it runs in this row.
+matrix_row = "ap2"
 live_id = "ap2"
 
 [adapters.ucp]
