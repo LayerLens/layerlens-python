@@ -56,6 +56,8 @@ Located in [`samples/cicd/`](../samples/cicd/). Embed evaluation quality gates i
 - [`quality_gate.py`](../samples/cicd/quality_gate.py) -- Gate deployments on evaluation pass rates
 - [`pre_commit_hook.py`](../samples/cicd/pre_commit_hook.py) -- Catch regressions at commit time
 - [`github_actions_gate.yml`](../samples/cicd/github_actions_gate.yml) -- Drop-in GitHub Actions workflow
+- [`agent_eval.yml`](../samples/cicd/agent_eval.yml) -- Grade your own agent against an environment with `layerlens env run exec`
+- [`environments/external_run.py`](../samples/environments/external_run.py) -- The same loop from Python with `client.environments`
 
 See the [CI/CD README](../samples/cicd/README.md) for details.
 

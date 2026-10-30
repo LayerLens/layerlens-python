@@ -20,11 +20,13 @@
   * [Traces](api-reference/traces.md)
   * [Trace Evaluations](api-reference/trace-evaluations.md)
   * [Judge Optimizations](api-reference/judge-optimizations.md)
+  * [Environments](api-reference/environments.md)
   * [Error Handling](api-reference/errors.md)
 
 ## CLI
 * [Getting Started](cli/getting-started.md)
 * [Command Reference](cli/commands.md)
+  * [layerlens env](cli/env.md)
 * [Workflow Examples](cli/examples.md)
 
 ## Code Examples

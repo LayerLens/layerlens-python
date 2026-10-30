@@ -394,8 +394,10 @@ def test_every_help_example_parses(runner: CliRunner, example: str) -> None:
     # it (see above). A shell redirection (`>> $GITHUB_STEP_SUMMARY`) parses as
     # extra arguments, which click only rejects after --help has exited.
     argv = shlex.split(example)[1:]
+    # After `--` every word is the wrapped command's own (`env run exec … -- python a.py`).
+    end = argv.index("--") if "--" in argv else len(argv)
 
-    result = runner.invoke(cli, [*argv, "--help"])
+    result = runner.invoke(cli, [*argv[:end], "--help", *argv[end:]])
 
     assert result.exit_code == 0, f"`{example}` does not parse:\n{result.output}{_stderr(result)}"
 

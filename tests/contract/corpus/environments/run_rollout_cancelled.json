@@ -1,0 +1,62 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/runs/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6ae001adc6f25323b92a1d2b",
+      "kind": "rollout",
+      "status": "cancelled",
+      "stop_reason": "cancelled",
+      "error": null,
+      "environment_version": 1,
+      "agent_name": null,
+      "label": null,
+      "model": "google/gemini-3.7-flash",
+      "set_name": null,
+      "total": 2,
+      "passed": 0,
+      "failed": 0,
+      "errored": 2,
+      "timed_out": 0,
+      "pending": 0,
+      "pass_rate": 0,
+      "cost_usd": 0.000279,
+      "attempts": [
+        {
+          "attempt_id": "6ae001ae929a66b25ab5d0af",
+          "task_id": "6ae00038ad19e9fae5f3dee5",
+          "task_name": "customer-count",
+          "task_version": 1,
+          "verdict": "error",
+          "grader": "answer",
+          "evidence": "the run was cancelled before this task finished",
+          "error_source": "platform",
+          "agent_answer": null,
+          "agent_answer_truncated": false,
+          "cost_usd": 0.000139875,
+          "trace_id": "6ae001b0929a66b25ab5d0b1",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae001ae929a66b25ab5d0b0",
+          "task_id": "6ae0003831aa4c907d9e710a",
+          "task_name": "calls-products",
+          "task_version": 1,
+          "verdict": "error",
+          "grader": "actions",
+          "evidence": "the run was cancelled before this task finished",
+          "error_source": "platform",
+          "agent_answer": null,
+          "agent_answer_truncated": false,
+          "cost_usd": 0.000139125,
+          "trace_id": "6ae001b1929a66b25ab5d0b2",
+          "agent_trace_id": null
+        }
+      ]
+    }
+  }
+}

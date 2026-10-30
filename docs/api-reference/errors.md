@@ -8,6 +8,7 @@ All LayerLens exceptions inherit from the base `LayerLensError` class:
 
 ```
 LayerLensError
+├── EnvironmentBuildError
 ├── APIError
 │   ├── APIConnectionError
 │   │   └── APITimeoutError
@@ -18,6 +19,7 @@ LayerLensError
 │       ├── PermissionDeniedError (403)
 │       ├── NotFoundError (404)
 │       ├── ConflictError (409)
+│       │   └── EnvironmentConflictError
 │       ├── UnprocessableEntityError (422)
 │       ├── RateLimitError (429)
 │       └── InternalServerError (500+)
@@ -186,6 +188,17 @@ try:
 except layerlens.ConflictError:
     print("Request conflicts with current state")
 ```
+
+#### `EnvironmentConflictError` (409)
+
+A `ConflictError` from `client.environments.create`: the name is taken by an environment
+the call cannot reuse. `differences` names the inputs that differ (with
+`if_not_exists=True`), and `project_id` the project that holds the name, when it is another.
+
+#### `EnvironmentBuildError`
+
+Raised by `client.environments.wait_until_ready` when the environment's build fails.
+`refused_because` holds the generator's reason. See [Environments](environments.md).
 
 #### `UnprocessableEntityError` (422)
 

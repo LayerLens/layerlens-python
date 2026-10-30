@@ -31,6 +31,8 @@ from ._exceptions import (
     LayerLensError,
     BadRequestError,
     AuthenticationError,
+    EnvironmentBuildError,
+    EnvironmentConflictError,
 )
 from ._deprecation import module_getattr
 from ._public_client import PublicClient, AsyncPublicClient
@@ -47,6 +49,8 @@ __all__ = [
     "Client",
     "ComparisonResult",
     "ComparisonResponse",
+    "EnvironmentBuildError",
+    "EnvironmentConflictError",
     "Integration",
     "Judge",
     "JudgeOptimizationRun",

@@ -1,0 +1,768 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/world-types",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "world_types": [
+        {
+          "type": "stripe",
+          "title": "Stripe",
+          "description": "One merchant account and the customers it bills: products, subscriptions, invoices, payments, refunds and the balance history behind them. You name the business and what it sells; its customers come from the cast, so a Stripe world and a filings world built on the same cast are about the same companies. Every amount is whole minor units and every id is legibly synthetic.",
+          "config_schema": {
+            "business_name": {
+              "title": "Business name",
+              "description": "The merchant whose account this is. Its own name, not one of the customers': the customers come from the cast and this is who bills them. Appears on products, invoice descriptions and statement descriptors.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "default": "Synthetic Softworks"
+            },
+            "currency": {
+              "title": "Currency",
+              "description": "The account's settlement currency. One currency for the whole account, so every total in the answer key is comparable without a conversion nobody recorded a rate for.",
+              "type": "string",
+              "default": "usd",
+              "enum": [
+                "usd",
+                "eur",
+                "gbp"
+              ]
+            },
+            "dispute_rate": {
+              "title": "Share of payments disputed",
+              "description": "Fraction of successful payments a customer disputes. Zero means the world has none; above zero it gains a dispute-audit task family.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.5,
+              "default": 0
+            },
+            "first_year": {
+              "title": "First year",
+              "description": "The calendar year the history starts in; it runs forward month by month from January of it. A year rather than a date because every object in this world is dated by construction, and a settable start date could contradict the timestamps it is supposed to contain.",
+              "type": "integer",
+              "minimum": 2015,
+              "maximum": 2080,
+              "default": 2024
+            },
+            "n_customers": {
+              "title": "Number of customers",
+              "description": "How many customers the account bills. They are the cast's companies, so this is also how many the cast must hold — a cast with fewer refuses rather than inventing the difference. Two is the floor because one customer cannot produce twenty distinct answer-key tasks.",
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 100,
+              "default": 10
+            },
+            "n_months": {
+              "title": "Months of history",
+              "description": "How many months of invoicing and purchase history to generate. Twenty-four is two years. Every subscribed customer is invoiced once a month, so this multiplies the invoice count directly.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 36,
+              "default": 12
+            },
+            "n_products": {
+              "title": "Number of products",
+              "description": "How many priced tiers the merchant sells, from Starter upward. Capped at four because that is how many tiers are named; a fifth would have to be called something, and inventing a name for it is not this knob's job.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4,
+              "default": 4
+            },
+            "org_counts": {
+              "title": "Shared organisation's counts",
+              "description": "Only with org_seed: how many of each the shared organisation holds.",
+              "type": "object",
+              "default": {
+                "n_customers": 3,
+                "n_escalations": 4,
+                "n_incidents": 2
+              },
+              "properties": {
+                "n_customers": {
+                  "title": "Customer companies",
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 25,
+                  "default": 3
+                },
+                "n_escalations": {
+                  "title": "Support escalations",
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 40,
+                  "default": 4
+                },
+                "n_incidents": {
+                  "title": "Incidents",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40,
+                  "default": 2
+                }
+              }
+            },
+            "org_seed": {
+              "title": "Shared organisation",
+              "description": "Leave at 0 unless this world is paired with another in a composite. Any other number mints this world's staff, its customers' contacts, its escalations and its incidents from a shared organisation, so another world minted with the same cast, org seed, company name, what it sells, counts and year shows the same company. The org also decides which escalations support filed in a tracker, and where products disagree on purpose: a record that does not link back, a value still shown from before a correction, a date recorded later. Its counts are org_counts; it needs a year from 2013 and one year of history.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647,
+              "default": 0
+            },
+            "paid_rate": {
+              "title": "Share of invoices paid",
+              "description": "Fraction of finalized invoices that settle. The remainder stay open or go uncollectible, which is what makes an unpaid-balance question answerable.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.85
+            },
+            "price_scale": {
+              "title": "Price scale",
+              "description": "Roughly what the tiers cost: 'micro' single-digit to low-hundreds, 'saas' tens to low-thousands, 'enterprise' hundreds to tens of thousands. Whole minor units at every scale.",
+              "type": "string",
+              "default": "saas",
+              "enum": [
+                "micro",
+                "saas",
+                "enterprise"
+              ]
+            },
+            "refund_rate": {
+              "title": "Share of payments refunded",
+              "description": "Fraction of successful payments that are refunded, in part or in full. Every refund carries its own balance transaction, so a reconciliation question has something to reconcile.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.05
+            },
+            "sells": {
+              "title": "What it sells",
+              "description": "What the merchant sells, in the words you would use to a customer. Every product is named from it, so an invoice line reads like the business rather than like a placeholder.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "default": "software subscriptions"
+            },
+            "subscription_share": {
+              "title": "Share of customers on a subscription",
+              "description": "Fraction of customers billed monthly on a subscription. The rest buy one-off, which is what gives a world both recurring revenue and purchase history.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.7
+            }
+          },
+          "tool_count": 8,
+          "example_name": "stripe-acme-billing",
+          "example_prompt": "Acme Cloud sells developer tooling to forty customers over eighteen months in EUR, most of them on a subscription, with a tenth of payments refunded.",
+          "checks": [
+            {
+              "id": "stripe_customers_come_from_the_cast",
+              "description": "Every customer is a company the cast named, addressed by the id the cast issued. This world invents invoices, not companies.",
+              "passed": false
+            },
+            {
+              "id": "stripe_the_world_records_the_cast_it_was_minted_against",
+              "description": "The world carries the cast's id, so two worlds can be shown to be about the same companies rather than asserted to be.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_id_is_legibly_synthetic",
+              "description": "Every object id carries the synthetic marker, so nothing served can be mistaken for an object from a real Stripe account.",
+              "passed": false
+            },
+            {
+              "id": "stripe_ids_are_unique_within_their_kind",
+              "description": "No two objects of the same kind share an id, which is what exact-match replay of a lookup depends on.",
+              "passed": false
+            },
+            {
+              "id": "stripe_no_card_number_is_a_real_one",
+              "description": "No stored card detail could belong to a real instrument: only a brand and a last4 from a reserved test set, and never a full number.",
+              "passed": false
+            },
+            {
+              "id": "stripe_no_response_mentions_a_real_company",
+              "description": "No served response contains a real company's ticker symbol standing as a word, so nothing this world says can be read as about a real business.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_invoice_belongs_to_a_known_customer",
+              "description": "Every invoice names a customer this account actually has.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_charge_names_an_invoice_that_exists",
+              "description": "Every charge points at an invoice in this account.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_subscription_belongs_to_a_known_customer",
+              "description": "Every subscription names a customer this account actually has.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_amount_is_whole_minor_units",
+              "description": "No monetary value is fractional. Stripe reports money as integer minor units, and an answer key that rounds is not an answer key.",
+              "passed": false
+            },
+            {
+              "id": "stripe_invoice_total_equals_its_lines_plus_tax",
+              "description": "An invoice's total is the sum of its line items plus its tax, by construction rather than by rounding.",
+              "passed": false
+            },
+            {
+              "id": "stripe_paid_plus_remaining_equals_the_total",
+              "description": "What has been paid and what is still owed always add up to the total.",
+              "passed": false
+            },
+            {
+              "id": "stripe_a_paid_invoice_has_nothing_remaining",
+              "description": "An invoice marked paid owes nothing, and one that owes nothing is not marked open.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_charge_matches_its_invoice",
+              "description": "A charge is for the amount its invoice was paid, in the same currency.",
+              "passed": false
+            },
+            {
+              "id": "stripe_a_refund_never_exceeds_its_charge",
+              "description": "No charge is refunded for more than it was made for.",
+              "passed": false
+            },
+            {
+              "id": "stripe_amount_refunded_is_the_sum_of_the_refunds",
+              "description": "A charge's refunded total is exactly its refunds added up, so a reconciliation has one right answer.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_succeeded_charge_has_a_balance_transaction",
+              "description": "Every payment that went through has a matching entry in the account's balance history, and every failed one has none.",
+              "passed": false
+            },
+            {
+              "id": "stripe_a_balance_transaction_nets_amount_minus_fee",
+              "description": "Every balance entry's net is its amount less its fee, so the account's history reconciles to the payments behind it.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_refund_has_a_balance_transaction_that_takes_money_out",
+              "description": "A refund's balance entry is negative, because money left the account.",
+              "passed": false
+            },
+            {
+              "id": "stripe_a_customer_balance_is_what_it_still_owes",
+              "description": "A customer's outstanding balance is the sum of what is unpaid on its invoices, and it is marked delinquent when that is not zero.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_timestamp_is_inside_the_declared_horizon",
+              "description": "Nothing in the account is dated outside the window the world declares.",
+              "passed": false
+            },
+            {
+              "id": "stripe_nothing_is_charged_before_it_is_invoiced",
+              "description": "A payment never predates the invoice it settles.",
+              "passed": false
+            },
+            {
+              "id": "stripe_a_subscription_period_ends_after_it_starts",
+              "description": "Every subscription's current period is a real interval, not a point or a reversal.",
+              "passed": false
+            },
+            {
+              "id": "stripe_a_refund_never_predates_its_charge",
+              "description": "Money is never returned before it was taken.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_status_is_one_this_account_can_report",
+              "description": "No object carries a status outside the set this world produces, so an agent never has to reason about a string that means nothing.",
+              "passed": false
+            },
+            {
+              "id": "stripe_list_invoices_agrees_with_the_invoice_set",
+              "description": "Listing a customer's invoices returns exactly the invoices that customer has — no more, and none missing.",
+              "passed": false
+            },
+            {
+              "id": "stripe_list_customers_lists_every_customer",
+              "description": "The customer list is the whole customer set, so an agent that starts there can reach everything.",
+              "passed": false
+            },
+            {
+              "id": "stripe_no_list_response_claims_a_page_it_cannot_serve",
+              "description": "No list says there is more to fetch. These lists are complete, so a caller is never sent after a page that was never recorded.",
+              "passed": false
+            },
+            {
+              "id": "stripe_the_answer_key_is_answerable_from_this_world",
+              "description": "Every question in the answer key can be answered from a call this world actually records.",
+              "passed": false
+            },
+            {
+              "id": "stripe_the_answer_key_is_big_enough_to_grade_with",
+              "description": "The answer key holds at least 20 questions, because a handful of them cannot separate one agent from another.",
+              "passed": false
+            },
+            {
+              "id": "stripe_brief_events_are_visible",
+              "description": "Every event the brief names and this account can show landed on an object the account serves: a subscription, an invoice, a refund, a price. A story nobody can read in the account is decoration.",
+              "passed": false
+            },
+            {
+              "id": "stripe_every_org_fact_stands_in_the_object_it_points_at",
+              "description": "Every shared-org fact this account registers is stored and served where it points: the field it is anchored in (a referenced customer's name for a customer reference) reads the fact's text, and every phrase holding it stands in its service credit's description and in the bytes served for that credit's invoice. An account minted without an org registers none.",
+              "passed": false
+            },
+            {
+              "id": "stripe_matches_its_org_view",
+              "description": "An account minted from a shared organisation matches its view of it: its organisation is the one its config and cast mint; it registers exactly the facts its fact map shows, with the view's values; its customers are the view's contacts; it names no tag or person outside what it shows; every statement it declares stands only where a fact registered on that record holds it; and where its view disagrees with the organisation, the organisation's value is not shown. An account minted without one passes.",
+              "passed": false
+            }
+          ],
+          "org_knobs": {
+            "counts": {
+              "n_customers": "n_customers",
+              "year": "first_year"
+            },
+            "fixed": {
+              "n_months": 12
+            },
+            "schema": {
+              "business_name": {
+                "title": "Company",
+                "description": "The company every app of the org belongs to.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "default": "Synthetic Softworks"
+              },
+              "n_customers": {
+                "title": "Customer companies",
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 25,
+                "default": 3
+              },
+              "n_escalations": {
+                "title": "Support escalations",
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 40,
+                "default": 4
+              },
+              "n_incidents": {
+                "title": "Incidents",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 40,
+                "default": 2
+              },
+              "org_seed": {
+                "title": "Organisation seed",
+                "description": "Another seed builds another organisation with the same settings.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "sells": {
+                "title": "What it sells",
+                "description": "Named the way every app of the org names it.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "default": "software subscriptions"
+              },
+              "year": {
+                "title": "Year",
+                "type": "integer",
+                "minimum": 2015,
+                "maximum": 2080,
+                "default": 2024
+              }
+            },
+            "app": "stripe"
+          }
+        },
+        {
+          "type": "zendesk",
+          "title": "Zendesk",
+          "description": "One customer-support desk at a company that sells something: tickets raised by named people at companies from the cast, with a status, a priority, an assignee and a comment thread that opens in the requester's own words. Three of its tickets are authored SCENARIOS -- a refund on a damaged item where the customer holds a photo back and asks for the money on a different card, a late parcel nobody has explained, and a known incident with an error code the customer gives only when asked -- and each carries the facts it is graded on, registered as the sentences that state them are written. This is the world type built to ANSWER BACK, and it does: a comment or a status change on a scenario ticket wakes the person waiting on it, and they reply on that ticket in their own words, played either by a scripted customer or by a model. Search is COMPUTED rather than replayed, because a Zendesk query is an unbounded input surface; every ticket, comment, user and organization is served from the shelf. Writes -- a comment, and a ticket update -- land on the caller's state and never on the world. Every date is UTC and derived from the world's own horizon, so no answer depends on the wall clock.",
+          "config_schema": {
+            "business_name": {
+              "title": "Business name",
+              "description": "The company whose support desk this is. It names the desk and signs the agents' replies.",
+              "type": "string",
+              "default": "Northwind Systems"
+            },
+            "first_year": {
+              "title": "First year",
+              "description": "The first calendar year this desk holds tickets in.",
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100,
+              "default": 2025
+            },
+            "n_organizations": {
+              "title": "Customer organizations",
+              "description": "How many companies from the cast raise tickets with this desk.",
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 25,
+              "default": 4
+            },
+            "n_tickets": {
+              "title": "Routine tickets",
+              "description": "The everyday traffic, on top of the three scenario tickets this world always mints. Ten is the floor because the answer key is one question per ticket thread plus a handful of counts, and below ten the desk cannot reach the 20 questions it takes to grade with.",
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300,
+              "default": 27
+            },
+            "n_years": {
+              "title": "Years of tickets",
+              "description": "How many calendar years the horizon spans.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "default": 1
+            },
+            "org_counts": {
+              "title": "Shared organisation's counts",
+              "description": "Only with org_seed: how many of each the shared organisation holds.",
+              "type": "object",
+              "default": {
+                "n_customers": 3,
+                "n_escalations": 4,
+                "n_incidents": 2
+              },
+              "properties": {
+                "n_customers": {
+                  "title": "Customer companies",
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 25,
+                  "default": 3
+                },
+                "n_escalations": {
+                  "title": "Support escalations",
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 40,
+                  "default": 4
+                },
+                "n_incidents": {
+                  "title": "Incidents",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40,
+                  "default": 2
+                }
+              }
+            },
+            "org_seed": {
+              "title": "Shared organisation",
+              "description": "Leave at 0 unless this world is paired with another in a composite. Any other number mints this world's staff, its customers' contacts, its escalations and its incidents from a shared organisation, so another world minted with the same cast, org seed, company name, what it sells, counts and year shows the same company. The org also decides which escalations support filed in a tracker, and where products disagree on purpose: a record that does not link back, a value still shown from before a correction, a date recorded later. Its counts are org_counts; it needs a year from 2013 and one year of history.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647,
+              "default": 0
+            },
+            "persona": {
+              "title": "Who plays the customer",
+              "description": "'scripted' is a deterministic customer that costs nothing and is what the tests run against. 'llm_persona' is a served model and every agent reply to a scenario ticket is a paid call. It is a knob rather than a constant so that the world an attempt faced records which of the two it was.",
+              "type": "string",
+              "default": "scripted",
+              "enum": [
+                "scripted",
+                "llm_persona"
+              ]
+            },
+            "sells": {
+              "title": "What the business sells",
+              "description": "Named in tickets the way a real desk names the product a problem is about.",
+              "type": "string",
+              "default": "industrial sensors"
+            }
+          },
+          "tool_count": 12,
+          "example_name": "zendesk-northwind-desk",
+          "example_prompt": "Northwind Systems sells industrial sensors: four customer companies and about thirty support tickets across 2025.",
+          "checks": [
+            {
+              "id": "zendesk_organizations_come_from_the_cast",
+              "description": "Every organization on this desk is a company the cast named, by key and by name. This world invents tickets, not companies.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_the_world_records_the_cast_it_was_minted_against",
+              "description": "The world carries the cast id it was built from, so a composite can prove two members are about the same companies.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_no_person_is_shared_with_the_cast",
+              "description": "Every person on this desk is this world's own. The cast owns companies, and a shared person would be an identity claim the registry does not make.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_id_is_inside_the_reserved_block",
+              "description": "Every id this desk mints is an integer in [9900000000, 9901000000), the block this world type reserves, so nothing here can collide with an id a real desk issued.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_id_is_unique_across_the_whole_desk",
+              "description": "One counter mints every id, so no ticket, user, organization, group or comment shares one with another row.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_no_served_byte_mentions_a_real_company",
+              "description": "No served response carries a real company's ticker symbol standing as a word.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_status_is_zendesks_own",
+              "description": "Every ticket's status is one of ['new', 'open', 'pending', 'hold', 'solved', 'closed'] and no other word.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_priority_is_zendesks_own",
+              "description": "Every ticket's priority is one of ['low', 'normal', 'high', 'urgent'].",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_requester_and_assignee_is_a_user_this_desk_declares",
+              "description": "Every ticket points at people this desk holds: a requester who is an end user, and an assignee who is an agent.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_ticket_belongs_to_an_organization_this_desk_declares",
+              "description": "Every ticket names an organization this desk holds, and its requester belongs to that same organization. An internal ticket the desk's own agent raised, such as an incident, is filed under none.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_comment_belongs_to_a_ticket_and_is_authored_by_a_user",
+              "description": "Every comment names a ticket this desk holds and an author it holds.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_ticket_opens_with_its_requesters_own_words",
+              "description": "A ticket's first comment is public and written by the person who raised it, which is what makes the description and the thread agree.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_comment_is_dated_after_its_ticket_and_oldest_first",
+              "description": "A thread runs forward: no comment predates its ticket, and the comments of one ticket are minted in the order they are served.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_date_is_inside_the_declared_horizon",
+              "description": "Every ticket and comment is dated inside the horizon this world declares, and none after the day it calls today.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_the_horizon_is_derived_from_the_config_not_the_clock",
+              "description": "The horizon this world carries is exactly the one its config implies, so no answer moves when the machine's date does.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_amount_is_a_whole_number_of_cents",
+              "description": "Money on this desk is whole minor units, the same rule the Stripe twin follows, so no answer depends on a float rendering.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_custom_field_a_ticket_carries_is_one_this_desk_declares",
+              "description": "A ticket's custom fields are drawn from ['refund_amount', 'refund_card_last4', 'resolution_code'] and a resolution code is one of the four this desk uses.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_scenario_names_a_ticket_this_desk_holds",
+              "description": "Each authored scenario points at a real ticket whose requester is the persona it describes.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_graded_state_check_reads_a_tool_this_world_serves",
+              "description": "A scenario's state assertions are read back through the twin's own tools at grade time, so each one has to name a tool this world answers. A check pointed at a tool nobody serves does not fail the agent, it fails to grade at all.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_fact_a_scenario_grades_on_is_reachable_by_a_served_call",
+              "description": "Every state assertion and every transcript rule a scenario grades on names, under grounds, a recorded call whose response carries the words that ground it, and every graded value that is not one of Zendesk's own enumerations appears in some served response. The grader reading the world is one check; the AGENT being able to read what it is graded against is this one.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_no_scenarios_graded_half_is_reachable_from_its_known_half",
+              "description": "A scenario's known half -- everything a simulated person is told -- carries none of the assertions its graded half holds. This is the clause that keeps the grader from becoming a hint channel.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_withheld_fact_is_absent_from_the_ticket_a_client_reads",
+              "description": "A fact the persona is holding back is not already sitting in the ticket. A withheld photo that the description mentions is not withheld, and the scenario would grade nothing.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_waiting_on_reads_as_a_phrase",
+              "description": "Every thing a persona is waiting on is a short noun phrase, because a customer says it inside a sentence: \"I am still waiting on <this>\". An instruction for the persona belongs under rules; written here it is spoken to the agent word for word.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_registered_fact_appears_in_the_ticket_it_points_at",
+              "description": "Every graded fact is readable in the ticket that states it, spelled the way it was registered.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_registered_fact_is_readable_in_the_bytes_a_client_receives",
+              "description": "Every graded fact appears in the recorded response for the ticket it points at, so it is answerable from what a client actually gets.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_counted_fact_agrees_with_the_desk_it_counts",
+              "description": "Every count registered as a fact is the number this desk actually holds, recomputed from the rows.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_everything_is_reachable_by_a_recorded_call",
+              "description": "Every ticket, user and organization this desk holds is served by some recorded call, so the normal path for a client is never a refusal.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_the_search_route_declares_the_kind_the_query_layer_carries",
+              "description": "The computed route's marker on the tool and the kind in the query layer are one word, so the folder server and the database server cannot choose different engines.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_scenario_wakes_on_a_predicate_the_write_surface_declares",
+              "description": "Each scenario's wakes_on names write predicates the write surface actually publishes, and at least one tool can produce each. A scenario waiting on a predicate nobody emits is a persona that never speaks, and nothing else about the world looks wrong.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_the_dynamic_marker_is_on_exactly_the_tools_whose_writes_can_wake_someone",
+              "description": "The x-dynamic marker is derived from the write predicates rather than typed beside them, and this is what proves it: a tool is marked if and only if one of its writes can produce a waking append.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_trigger_a_scenario_wakes_on_says_what_it_is_in_words",
+              "description": "Every write predicate a persona wakes on is published with the sentence a person reads for it. The panel on a reactive tool says what wakes the customer, and a trigger with no words would be a screen showing an identifier nobody outside this file knows.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_no_scenario_is_played_on_a_ticket_another_scenario_plays",
+              "description": "One ticket, one persona. Two scenarios on one ticket would both be woken by one comment and the first one found would win silently.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_row_handed_to_the_search_engine_declares_every_field_its_schema_promises",
+              "description": "Every row the engine filters carries every field the schema says it has, so a filter never reads a key that is absent on some rows.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_the_answer_key_is_answerable_from_this_world",
+              "description": "Every question in the answer key names a recorded call, so a graded question can be answered by replay.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_answer_names_a_fact_this_world_holds",
+              "description": "Every question's expected answer was read from a registered fact, and the pointer it names resolves.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_the_answer_key_is_big_enough_to_grade_with",
+              "description": "The desk carries at least 20 questions across more than one family, so a run measures more than one thing.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_every_question_names_one_thing",
+              "description": "No two organizations are served under one name, and no question is asked twice with two different answers. Two cast companies can share a short name, and a question naming it would be about both.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_brief_events_are_visible",
+              "description": "Every event the brief names and this desk can show landed on tickets the desk serves, opened in the requester's own words. A story nobody can read on the desk is decoration.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_matches_its_org_view",
+              "description": "A world minted with an org_seed matches its view of the org (org_projection.view_failures): its org is the one its config and cast mint; it registers exactly the facts its FACT_MAP shows, with the view's values; its customers are the view's contacts; it names no tag or person outside what it shows or states; every statement it declares stands only where a fact registered on that record holds it; and where its view disagrees with the org, the org's value is not shown. A world minted without an org passes.",
+              "passed": false
+            },
+            {
+              "id": "zendesk_brief_people_are_visible",
+              "description": "Every person the brief named is on this desk, by the name the sentence used. A team nobody can find in /users is a team the sentence did not get.",
+              "passed": false
+            }
+          ],
+          "org_knobs": {
+            "counts": {
+              "n_customers": "n_organizations",
+              "year": "first_year"
+            },
+            "fixed": {
+              "n_years": 1
+            },
+            "schema": {
+              "business_name": {
+                "title": "Company",
+                "description": "The company every app of the org belongs to.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "default": "Northwind Systems"
+              },
+              "n_customers": {
+                "title": "Customer companies",
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 25,
+                "default": 3
+              },
+              "n_escalations": {
+                "title": "Support escalations",
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 40,
+                "default": 4
+              },
+              "n_incidents": {
+                "title": "Incidents",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 40,
+                "default": 2
+              },
+              "org_seed": {
+                "title": "Organisation seed",
+                "description": "Another seed builds another organisation with the same settings.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "sells": {
+                "title": "What it sells",
+                "description": "Named the way every app of the org names it.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "default": "industrial sensors"
+              },
+              "year": {
+                "title": "Year",
+                "type": "integer",
+                "minimum": 2013,
+                "maximum": 2100,
+                "default": 2025
+              }
+            },
+            "app": "zendesk"
+          }
+        }
+      ],
+      "count": 2
+    }
+  }
+}

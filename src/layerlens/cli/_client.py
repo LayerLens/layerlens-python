@@ -10,7 +10,7 @@ import click
 
 from .._env import API_KEY_ENV, BASE_URL_ENV, EnvValue, find_api_key, find_base_url
 from .._client import LayerLens
-from .._exceptions import NotFoundError, LayerLensError, AuthenticationError
+from .._exceptions import NotFoundError, APIStatusError, LayerLensError, AuthenticationError
 
 
 def _env_notice(found: EnvValue, canonical: str) -> None:
@@ -26,18 +26,41 @@ def _env_notice(found: EnvValue, canonical: str) -> None:
 def resolve_api_key(ctx: click.Context) -> EnvValue | None:
     """The API key to use and where it came from, or ``None``.
 
-    ``--api-key`` and ``LAYERLENS_API_KEY`` arrive through click; the legacy
-    ``LAYERLENS_STRATIX_API_KEY`` / ``LAYERLENS_ATLAS_API_KEY`` still work, with
-    a notice. An API key is always sent as ``x-api-key``, never as a Bearer
-    token: the login (``/dgklmnr``) router only accepts Cognito tokens.
+    ``--api-key-file`` comes first, then ``--api-key`` and ``LAYERLENS_API_KEY``
+    (through click); the legacy ``LAYERLENS_STRATIX_API_KEY`` /
+    ``LAYERLENS_ATLAS_API_KEY`` still work, with a notice. An API key is always
+    sent as ``x-api-key``, never as a Bearer token: the login (``/dgklmnr``)
+    router only accepts Cognito tokens.
     """
     api_key = ctx.obj.get("api_key")
+    key_file = ctx.obj.get("api_key_file")
+    if key_file is not None:
+        if api_key and ctx.obj.get("api_key_source") == "--api-key":
+            raise click.UsageError("pass --api-key or --api-key-file, not both")
+        return EnvValue(_read_key_file(key_file), "--api-key-file")
     if api_key:
         return EnvValue(api_key, ctx.obj.get("api_key_source", "--api-key"))
     found = find_api_key()
     if found is not None:
         _env_notice(found, API_KEY_ENV)
     return found
+
+
+def _read_key_file(path: str) -> str:
+    if not path:
+        raise click.UsageError("--api-key-file needs a path, or - to read the key from standard input")
+    try:
+        if path == "-":
+            text = sys.stdin.read()
+        else:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+    except (OSError, UnicodeDecodeError) as err:
+        raise click.UsageError(f"--api-key-file {path}: the key could not be read: {err}") from None
+    key = text.strip()
+    if not key:
+        raise click.UsageError(f"--api-key-file {path} holds no key")
+    return key
 
 
 def resolve_base_url(ctx: click.Context) -> str | None:
@@ -52,10 +75,25 @@ def resolve_base_url(ctx: click.Context) -> str | None:
     return found.value
 
 
+def api_error_text(err: APIStatusError) -> str:
+    """The API's own sentence: the envelope's ``error``, or API Gateway's ``message``."""
+    body = err.body
+    if isinstance(body, str) and body:
+        text = body
+    elif isinstance(body, dict) and isinstance(body.get("message"), str):
+        text = body["message"]
+    else:
+        text = err.message
+    return f"{text} (HTTP {err.status_code})"
+
+
 def build_client(ctx: click.Context, api_key: str, *, use_bearer_auth: bool) -> LayerLens:
     """Construct the client (which verifies the credential) or exit with the error."""
     try:
         return LayerLens(api_key=api_key, base_url=resolve_base_url(ctx), use_bearer_auth=use_bearer_auth)
+    except APIStatusError as e:
+        click.echo(f"Error: {api_error_text(e)}", err=True)
+        sys.exit(1)
     except LayerLensError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

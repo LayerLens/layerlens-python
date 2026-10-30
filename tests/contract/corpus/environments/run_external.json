@@ -1,0 +1,122 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/runs/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6ae000edc6f25323b92a1cf1",
+      "kind": "external",
+      "status": "success",
+      "stop_reason": "finished",
+      "error": null,
+      "environment_version": 1,
+      "agent_name": "sdk-live-agent",
+      "label": "live-check-1",
+      "model": "external:sdk-live-agent",
+      "set_name": null,
+      "total": 6,
+      "passed": 3,
+      "failed": 1,
+      "errored": 1,
+      "timed_out": 1,
+      "pending": 0,
+      "pass_rate": 0.5,
+      "cost_usd": 0.00010725,
+      "attempts": [
+        {
+          "attempt_id": "6ae000edc6f25323b92a1ceb",
+          "task_id": "6ae00038ad19e9fae5f3dee5",
+          "task_name": "customer-count",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "answer",
+          "evidence": "looked for \"10\" in the agent's answer",
+          "error_source": null,
+          "agent_answer": "10",
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae000eec6f25323b92a1cf6",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae000edc6f25323b92a1cec",
+          "task_id": "6ae0003886be07519d2c0909",
+          "task_name": "wrong-answer",
+          "task_version": 1,
+          "verdict": "fail",
+          "grader": "answer",
+          "evidence": "looked for exactly \"PONG\" in the agent's answer",
+          "error_source": null,
+          "agent_answer": "PING",
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae000edc6f25323b92a1cf5",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae000edc6f25323b92a1ced",
+          "task_id": "6ae00038ade2ff1e48c1d974",
+          "task_name": "agent-crash",
+          "task_version": 1,
+          "verdict": "error",
+          "grader": "answer",
+          "evidence": "the agent reported an error: the agent exited with status 3",
+          "error_source": "agent",
+          "agent_answer": null,
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae000edc6f25323b92a1cf4",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae000edc6f25323b92a1cee",
+          "task_id": "6ae0003868861a3f71ae84ca",
+          "task_name": "slow",
+          "task_version": 1,
+          "verdict": "timeout",
+          "grader": "answer",
+          "evidence": "the agent reported a timeout: the agent ran longer than 8s",
+          "error_source": "agent",
+          "agent_answer": null,
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae000f6c6f25323b92a1cfa",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae000edc6f25323b92a1cef",
+          "task_id": "6ae0003831aa4c907d9e710a",
+          "task_name": "calls-products",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "actions",
+          "evidence": "every expected call was made (1 call observed)",
+          "error_source": null,
+          "agent_answer": "I listed the products.",
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae000eec6f25323b92a1cf8",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae000edc6f25323b92a1cf0",
+          "task_id": "6ae00038bec4fdc459565540",
+          "task_name": "polite-reply",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "judge",
+          "evidence": "judged 5.0/5 against a pass mark of 3.0 — The assistant provides a very polite and warm greeting to the customer.",
+          "error_source": null,
+          "agent_answer": "Hello, and thank you for getting in touch! How can I help you today?",
+          "agent_answer_truncated": false,
+          "cost_usd": 0.00010725,
+          "trace_id": "6ae000f0c6f25323b92a1cf9",
+          "agent_trace_id": null
+        }
+      ]
+    }
+  }
+}

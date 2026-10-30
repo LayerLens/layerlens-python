@@ -33,6 +33,10 @@ layerlens [global-options]
 │   └── eval          Run evaluations in bulk
 ├── ci
 │   └── report        Generate a CI summary report
+├── env               Environments: create, run your agent or a model, gate a build (see env.md)
+│   ├── world-types, list, get, create, status, wait, tools, reset, revert, delete
+│   ├── tasks         list, generate, delete
+│   └── run           exec, model, start, submit, finish, status, wait, results, cancel
 └── completion        Print shell completion setup
 ```
 
@@ -47,6 +51,7 @@ give an option in both places, the one at the end wins.
 
 ```
 --api-key TEXT         API key (env: LAYERLENS_API_KEY)
+--api-key-file PATH    Read the API key from this file, or from standard input for -
 --host TEXT            API host
 --port INTEGER         API port
 --format [table|json]  Output format (default: table)
@@ -360,6 +365,19 @@ layerlens ci report [OPTIONS]
 | `--output`, `-o` | path | Output file (default: stdout) |
 | `--limit` | int | Number of evaluations to include (default: 10) |
 | `--dry-run` | flag | Preview without fetching data |
+
+---
+
+## env
+
+Create and mint environments, run your own agent or a model against their tasks, and
+gate a build on the result. It needs an Automation API key. Every command and option is in
+[`layerlens env`](env.md).
+
+```bash
+layerlens env create --type zendesk --name support-desk --description-file ci/environment.md --if-not-exists --wait
+layerlens env run exec support-desk --tasks-file ci/tasks.jsonl --agent-name support-agent --min-pass-rate 0.9 -- python ci/agent.py
+```
 
 ---
 

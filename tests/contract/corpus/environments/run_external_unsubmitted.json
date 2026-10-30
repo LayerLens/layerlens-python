@@ -1,0 +1,62 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/runs/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6ae001abc6f25323b92a1d28",
+      "kind": "external",
+      "status": "success",
+      "stop_reason": "finished",
+      "error": null,
+      "environment_version": 1,
+      "agent_name": "sdk-cli-low",
+      "label": "low",
+      "model": "external:sdk-cli-low",
+      "set_name": null,
+      "total": 2,
+      "passed": 1,
+      "failed": 0,
+      "errored": 1,
+      "timed_out": 0,
+      "pending": 0,
+      "pass_rate": 0.5,
+      "cost_usd": 0,
+      "attempts": [
+        {
+          "attempt_id": "6ae001abc6f25323b92a1d26",
+          "task_id": "6ae00038ad19e9fae5f3dee5",
+          "task_name": "customer-count",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "answer",
+          "evidence": "looked for \"10\" in the agent's answer",
+          "error_source": null,
+          "agent_answer": "10",
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae001acc6f25323b92a1d2a",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae001abc6f25323b92a1d27",
+          "task_id": "6ae0003886be07519d2c0909",
+          "task_name": "wrong-answer",
+          "task_version": 1,
+          "verdict": "error",
+          "grader": "answer",
+          "evidence": "not submitted",
+          "error_source": "agent",
+          "agent_answer": null,
+          "agent_answer_truncated": false,
+          "cost_usd": null,
+          "trace_id": null,
+          "agent_trace_id": null
+        }
+      ]
+    }
+  }
+}

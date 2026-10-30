@@ -1,0 +1,23 @@
+{
+  "_recorded": {
+    "method": "POST",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/worlds",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "environment": {
+        "id": "6ae00038c6f25323b92a1cdb",
+        "name": "sdk-live-check-lay4251",
+        "type": "stripe",
+        "current_version": 1
+      },
+      "job": {
+        "id": "6ae00038c6f25323b92a1cd9",
+        "status": "success"
+      },
+      "reused": true
+    }
+  }
+}

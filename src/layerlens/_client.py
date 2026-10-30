@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .resources.scorers import Scorers, AsyncScorers
     from .resources.benchmarks import Benchmarks, AsyncBenchmarks
     from .resources.evaluations import Evaluations, AsyncEvaluations
+    from .resources.environments import Environments, AsyncEnvironments
     from .resources.integrations import Integrations, AsyncIntegrations
     from .resources.trace_evaluations import TraceEvaluations, AsyncTraceEvaluations
     from .resources.judge_optimizations import (
@@ -111,6 +112,12 @@ class LayerLens(BaseClient):
         from .resources.evaluations import Evaluations
 
         return Evaluations(self)
+
+    @cached_property
+    def environments(self) -> Environments:
+        from .resources.environments import Environments
+
+        return Environments(self)
 
     @cached_property
     def judges(self) -> Judges:
@@ -336,6 +343,12 @@ class AsyncLayerLens(BaseAsyncClient):
         from .resources.evaluations import AsyncEvaluations
 
         return AsyncEvaluations(self)
+
+    @cached_property
+    def environments(self) -> AsyncEnvironments:
+        from .resources.environments import AsyncEnvironments
+
+        return AsyncEnvironments(self)
 
     @cached_property
     def judges(self) -> AsyncJudges:

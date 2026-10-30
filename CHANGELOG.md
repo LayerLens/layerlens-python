@@ -13,6 +13,42 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Added
 
+- **Environments from CI: `client.environments` and `layerlens env`.** With an API key that has
+  **Automation** access (Organization Settings → API Keys), create and mint an environment, keep
+  task sets, and run graded evaluations of your own agent or of a model, then fail a build on the
+  result. `layerlens env run exec ENV --tasks-file ci/tasks.jsonl --agent-name my-agent
+  --min-pass-rate 0.9 -- python agent.py` runs your command once per task, each attempt on its own
+  copy of the world with its own short-lived token and without your API key in its environment,
+  grades every attempt, writes a JUnit report with `--junit FILE` and a Markdown one with
+  `--markdown FILE`, and exits `10` below the pass rate (`11` when the run did not
+  finish, `1` on an error, `2` on bad usage). In Python, `client.environments.external_run(...)` is a
+  context manager over the same run, also on `AsyncLayerLens`; `runs.run_model` runs a catalog model
+  or an OpenAI-compatible endpoint; `RunResult.to_junit()` and `to_markdown()` render results. Calls
+  that create or start something send an `Idempotency-Key` and are sent again under it when their
+  reply is lost, or when the API is too busy admitting jobs (for up to 30 seconds); when a start's
+  outcome stays unknown (no reply, a server error, an interrupt), `run start`, `run model` and
+  `tasks generate` print the key, and `--idempotency-key` sends it again to get that run or job
+  back instead of starting another. A request body over 5 MiB, or over 5.75 MiB once escaped for
+  the API's gateway, is refused before it is sent. A submit that times out is settled from the run
+  instead of being reported lost. `run exec` exits `11`, saying why, when every attempt ended in an
+  error (a broken command, or an agent that fails every task; timeouts are still gated);
+  names the task when the API refuses an answer; cancels its run on Ctrl-C, SIGTERM or
+  `--timeout`, as `run model` does (`run wait` only with `--cancel-on-timeout`; a run that finished
+  as the timeout passed is gated as it ended); refuses
+  `--api-key`, since every user on the machine can read a command line; and runs on Linux and
+  macOS (WSL included), not on Windows, which does not end what an agent leaves running when it
+  exits (drive the run yourself there, or use `external_run`). It keeps the key out of
+  the agent's environment, but an agent running as the same user can still find it: run an agent
+  you do not trust in a container (the docs show how in GitHub Actions). New errors:
+  `EnvironmentBuildError` and `EnvironmentConflictError`. See
+  [docs/api-reference/environments.md](docs/api-reference/environments.md) and
+  [docs/cli/env.md](docs/cli/env.md)
+
+- **`--api-key-file PATH` reads the CLI's API key from a file, or from standard input with `-`.**
+  It works on every command, like `--api-key`, and keeps the key out of the command line and the
+  environment. Giving both is a usage error, and so is `-` on `env delete` or `env tasks delete`
+  without `--yes`, whose confirmation would read standard input too
+
 - **Prices for OpenAI's current models.** The bundled price table now has OpenAI's Standard prices, as listed on 2026-10-16, for gpt-6-astra, gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.5-pro, gpt-5.4, gpt-5.4-mini, gpt-5.4-nano, gpt-5.4-pro, gpt-5.3-codex, gpt-5.2, gpt-5.2-pro, gpt-5.1, gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro, gpt-5-search-api and chat-latest, and for the trusted-access gpt-5.6-cyber, gpt-5.5-cyber, gpt-rosalind-research and gpt-rosalind-discovery (gpt-5.6-sol's is a promotional price, which OpenAI offers at least through 2026-11-21). Their `cost.record` events had no `cost_usd` unless you priced them with `LAYERLENS_PRICING_TABLE`; they now include it, with cache reads and, from GPT-5.6 on, cache writes. Two OpenAI charges are not applied: a prompt over 272K input tokens costs twice the input and cached-input prices and 1.5 times the output price on gpt-5.4, gpt-5.5, their Pro models and the GPT-5.6 and GPT-6 models, and regional-processing endpoints add 10%, so the cost of such calls is understated. If you priced any of these models with `LAYERLENS_PRICING_TABLE`, your rows still take precedence over the bundled ones: add a `cached` price to them (see below) or remove them
 
 - **A pricing-table row can carry a `cached` price.** A `LAYERLENS_PRICING_TABLE` or `PricingTable` row now accepts `"cached"`, the price of an input token read from the prompt cache, in USD per 1K tokens like `input` and `output`: `{"my-model": {"input": 0.002, "output": 0.008, "cached": 0.0005}}`. A row without it prices a cache read at half its input price (a tenth for Claude models, a quarter for Gemini models)
@@ -49,6 +85,15 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **`layerlens[pydantic-ai]` and `layerlens[all-frameworks]` now install pydantic-ai 2.x.** Both extras capped pydantic-ai below 2.0, although the adapter works on 2.x. They now resolve 2.17 or later on Python 3.10+. Python 3.9 stays on 0.8.1, the last release that supports it, and `[marvin]` still keeps pydantic-ai below 1.95. If you pin pydantic-ai 2.0-2.16 yourself, also pin `genai-prices<0.1` or upgrade: with genai-prices 0.1 or later, those releases report zero tokens for responses that include a reasoning-token count, as OpenAI chat completions do (an upstream bug, fixed in 2.17).
 
 ### Fixed
+
+- **The SDK declares the pydantic it needs: `pydantic>=2.0.1`.** It declared `>=1.9.0`, but
+  `import layerlens` needs 2.0.1 or later (pydantic 1.x has no `ConfigDict` or `BeforeValidator`,
+  and 2.0.0 refuses a field named `model_id`), so an install that resolved an older pydantic
+  broke at import instead of being refused at install
+
+- **A key the API refuses reads as the API's sentence.** Every CLI command printed the raw
+  error envelope (`Error code: 401 - {'status': 'error', 'error': 'Unknown API key'}`) for a
+  wrong or revoked key; it now prints `Error: Unknown API key (HTTP 401)`
 
 - **`LAYERLENS_API_KEY` was rejected by every CLI command.** The CLI sent it as a
   login token (`Authorization: Bearer`) to the login-only router, which returns

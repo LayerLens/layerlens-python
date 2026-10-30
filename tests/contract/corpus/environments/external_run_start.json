@@ -1,0 +1,25 @@
+{
+  "_recorded": {
+    "method": "POST",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/external-runs",
+    "status": 201
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6ae001cfc6f25323b92a1d31",
+      "attempts": [
+        {
+          "attempt_id": "6ae001cfc6f25323b92a1d30",
+          "task_id": "6ae00038ad19e9fae5f3dee5",
+          "task_name": "customer-count",
+          "prompt": "How many customers does Synthetic Softworks have?",
+          "base_url": "https://api.layerlens.ai/api/v1/attempts/6ae001cfc6f25323b92a1d30",
+          "token": "llat_v1_6ae001cfc6f25323b92a1d31_6ae001cfc6f25323b92a1d30_mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+          "call_url": "https://api.layerlens.ai/api/v1/env/organizations/691254ecd44a29f6926881a2/projects/691254eed44a29f6926881a3/environments/6ae00038c6f25323b92a1cdb/call?run_id=6ae001cfc6f25323b92a1d31&task_id=6ae00038ad19e9fae5f3dee5",
+          "expires_at": "2026-10-28T01:43:43.55Z"
+        }
+      ]
+    }
+  }
+}

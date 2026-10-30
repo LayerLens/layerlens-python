@@ -50,3 +50,22 @@ nullability are exact; key *order* differs from a real response. JSON object ord
 is not semantically meaningful and no client depends on it — but do not describe
 these as byte-identical to production. **Do not delete them when the fix deploys:**
 they are the only executable record of what a pinned client receives.
+
+## `environments/`: recorded from a live stack
+
+Unlike the files above, these are replies of the environments Automation API
+**recorded from a live atlas-app** (a local stack built from LAY-4251's app branches,
+2026-10-27) through the SDK itself, then parsed by `test_environment_corpus.py`. Each file
+holds the route it came from under `_recorded` and the reply under `response`.
+
+- Attempt tokens are redacted (their MAC is `m` × 43), the local host is rewritten to
+  `https://api.layerlens.ai`, and `world_types.json` keeps two of the types.
+- They cover the states a CI run reaches: a reused create, a finished build, a generation
+  job, external runs (graded, unsubmitted, finished), model runs (finished, cancelled),
+  a start with its attempts, and a submit. `run_external_unsubmitted.json` is the case the
+  SDK's submit settling depends on: an unsubmitted task is `error` with no `agent_answer`.
+- The test also forces each pointer field of the Go DTOs to `null`, the same second pass
+  as the evaluations corpus.
+
+To refresh them, run the SDK against a stack with an Automation key and record each reply
+(an `httpx` response hook on the client), then redact as above.

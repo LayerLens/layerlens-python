@@ -63,6 +63,7 @@ are not accepted.) If you give an option in both places, the one at the end wins
 | Option             | Description                                |
 | ------------------ | ------------------------------------------ |
 | `--api-key`        | API key (or set `LAYERLENS_API_KEY`)       |
+| `--api-key-file`   | Read the API key from a file (`-`: stdin)  |
 | `--host`           | API host                                   |
 | `--port`           | API port                                   |
 | `--format`         | Output format: `table` (default) or `json` |

@@ -72,10 +72,11 @@ class BaseClient(httpx.Client):
         body: Optional[Any] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        max_retries: Optional[int] = None,
         **kwargs: Any,
     ) -> Union[ResponseT, httpx.Response]:
         combined_headers = {**self.default_headers, **(headers or {})}
-        retries_left = self._max_retries
+        retries_left = self._max_retries if max_retries is None else max_retries
         delay = INITIAL_RETRY_DELAY
 
         while True:
@@ -228,12 +229,13 @@ class BaseAsyncClient(httpx.AsyncClient):
         body: Optional[Any] = None,
         params: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
+        max_retries: Optional[int] = None,
         **kwargs: Any,
     ) -> Union[ResponseT, httpx.Response]:
         import asyncio
 
         combined_headers = {**self.default_headers, **(headers or {})}
-        retries_left = self._max_retries
+        retries_left = self._max_retries if max_retries is None else max_retries
         delay = INITIAL_RETRY_DELAY
 
         while True:

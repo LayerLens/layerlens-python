@@ -1,0 +1,47 @@
+{
+  "_recorded": {
+    "method": "POST",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/external-runs/{id}/finish",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6ae001cfc6f25323b92a1d31",
+      "kind": "external",
+      "status": "success",
+      "stop_reason": "finished",
+      "error": null,
+      "environment_version": 1,
+      "agent_name": "sdk-corpus",
+      "label": "corpus",
+      "model": "external:sdk-corpus",
+      "set_name": null,
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "errored": 0,
+      "timed_out": 0,
+      "pending": 0,
+      "pass_rate": 1,
+      "cost_usd": 0,
+      "attempts": [
+        {
+          "attempt_id": "6ae001cfc6f25323b92a1d30",
+          "task_id": "6ae00038ad19e9fae5f3dee5",
+          "task_name": "customer-count",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "answer",
+          "evidence": "looked for \"10\" in the agent's answer",
+          "error_source": null,
+          "agent_answer": "10",
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6ae001cfc6f25323b92a1d33",
+          "agent_trace_id": null
+        }
+      ]
+    }
+  }
+}

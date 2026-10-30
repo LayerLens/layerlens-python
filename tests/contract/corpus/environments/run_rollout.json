@@ -1,0 +1,62 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/runs/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6ae00124c6f25323b92a1d1d",
+      "kind": "rollout",
+      "status": "success",
+      "stop_reason": "finished",
+      "error": null,
+      "environment_version": 1,
+      "agent_name": null,
+      "label": "live-model",
+      "model": "google/gemini-3.7-flash",
+      "set_name": null,
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "errored": 0,
+      "timed_out": 0,
+      "pending": 0,
+      "pass_rate": 1,
+      "cost_usd": 0.00189375,
+      "attempts": [
+        {
+          "attempt_id": "6ae00124929a66b25ab5d0a0",
+          "task_id": "6ae00038ad19e9fae5f3dee5",
+          "task_name": "customer-count",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "answer",
+          "evidence": "looked for \"10\" in the agent's final-answer line",
+          "error_source": null,
+          "agent_answer": "Synthetic Softworks has 10 customers.\n\nANSWER: 10",
+          "agent_answer_truncated": false,
+          "cost_usd": 0.0009386250000000001,
+          "trace_id": "6ae0012f929a66b25ab5d0a3",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6ae00124929a66b25ab5d0a1",
+          "task_id": "6ae0003831aa4c907d9e710a",
+          "task_name": "calls-products",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "actions",
+          "evidence": "every expected call was made (1 call observed)",
+          "error_source": null,
+          "agent_answer": "The account sells the following products:\n\n1. **Starter books** (`prod_synth00000001`) - Starter tier of books from Synthetic Softworks ($49.00/month)\n2. **Growth books** (`prod_synth00000002`) - Growth tier of books from Synthetic Softworks ($149.00/month)\n3. **Scale books** (`prod_synth00000003`) - Scale tier of books from Synthetic Softworks ($499.00/month)\n4. **Enterprise books** (`prod_synth00000004`) - Enterprise tier of books from Synthetic Softworks ($1,499.00/month)\n\nANSWER: Starter books, Growth books, Scale books, Enterprise books",
+          "agent_answer_truncated": false,
+          "cost_usd": 0.000955125,
+          "trace_id": "6ae0012d929a66b25ab5d0a2",
+          "agent_trace_id": null
+        }
+      ]
+    }
+  }
+}

@@ -1,7 +1,7 @@
 """The root options, accepted before the subcommand and after it (LAY-4250).
 
-``--api-key``, ``--host``, ``--port``, ``--format``, ``-v`` and ``-q`` are options
-of the root group, so click only accepted them before the subcommand:
+``--api-key``, ``--api-key-file``, ``--host``, ``--port``, ``--format``, ``-v`` and
+``-q`` are options of the root group, so click only accepted them before the subcommand:
 ``layerlens judge result abc123 --format json`` failed with "No such option".
 Every command built from :class:`LayerLensCommand` declares them as well. A value
 given after the subcommand wins over one given before it, as the later and more
@@ -50,6 +50,15 @@ def _option_specs(*, root: bool) -> List[_OptionSpec]:
                 "envvar": API_KEY_ENV if root else None,
                 "default": None,
                 "help": f"API key for authentication (default: ${API_KEY_ENV}).",
+                **after,
+            },
+        ),
+        (
+            ("--api-key-file",),
+            {
+                "default": None,
+                "metavar": "PATH",
+                "help": "Read the API key from this file, or from standard input for -.",
                 **after,
             },
         ),

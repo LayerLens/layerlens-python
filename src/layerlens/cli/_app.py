@@ -5,6 +5,7 @@ import click
 from ._command import LayerLensGroup, base_url_for, root_options
 from .._version import __version__
 from .commands.ci import ci
+from .commands.env import env
 from .commands.auth import login, logout, whoami
 from .commands.bulk import bulk
 from .commands.judge import judge
@@ -24,6 +25,7 @@ from .commands.integration import integration
 def cli(
     ctx: click.Context,
     api_key: str | None,
+    api_key_file: str | None,
     host: str | None,
     port: int | None,
     output_format: str,
@@ -44,6 +46,7 @@ def cli(
     # Where the key came from, so `whoami` can say so.
     from_env = ctx.get_parameter_source("api_key") is click.core.ParameterSource.ENVIRONMENT
     ctx.obj["api_key_source"] = "LAYERLENS_API_KEY" if from_env else "--api-key"
+    ctx.obj["api_key_file"] = api_key_file
     ctx.obj["output_format"] = output_format
     ctx.obj["verbose"] = verbose
     # The banner is shown by the command (see _command.LayerLensCommand), once a -q after it is known.
@@ -63,6 +66,7 @@ cli.add_command(integration)
 cli.add_command(scorer)
 cli.add_command(bulk)
 cli.add_command(ci)
+cli.add_command(env)
 
 # Local dataset / replay / synthetic workflows
 cli.add_command(replay)

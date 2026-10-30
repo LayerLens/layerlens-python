@@ -34,6 +34,7 @@ aggregate pass rate, and exits with code 0 (pass) or 1 (fail) based on the thres
 |------|----------|-------------|
 | `quality_gate.py` | CI/CD engineers adding AI quality checks to any pipeline | Evaluates recent traces against all judges and exits non-zero if the pass rate falls below a configurable threshold. Designed to be called from any CI system. |
 | `github_actions_gate.yml` | Teams using GitHub Actions for pull request validation | A complete GitHub Actions workflow that runs the quality gate on every pull request. Copy to `.github/workflows/ai-quality-gate.yml` in your repository. |
+| `agent_eval.yml` | Teams grading their own agent against a LayerLens environment | A GitHub Actions job that creates the environment if needed, runs the agent once per task with `layerlens env run exec`, and fails below a pass rate. See [`../environments/`](../environments/README.md). |
 | `pre_commit_hook.py` | Developers catching issues before committing | A Git pre-commit hook that runs a quick safety evaluation on staged changes. Prevents commits that introduce safety regressions. |
 
 ## Installation

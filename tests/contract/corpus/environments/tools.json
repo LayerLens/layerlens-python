@@ -1,0 +1,238 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/tools",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "tools": [
+        {
+          "name": "list_customers",
+          "summary": "Every customer on this account. The list is complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/customers"
+        },
+        {
+          "name": "get_customer",
+          "summary": "One customer, with its outstanding balance",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "customer": {
+                "type": "string",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "customer"
+            ],
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/customers/{customer}"
+        },
+        {
+          "name": "list_products",
+          "summary": "What this account sells, with its prices. The list is complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/products"
+        },
+        {
+          "name": "list_subscriptions",
+          "summary": "A customer's subscriptions. The list is complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "customer": {
+                "type": "string",
+                "x-in": "query"
+              }
+            },
+            "required": [
+              "customer"
+            ],
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/subscriptions"
+        },
+        {
+          "name": "list_invoices",
+          "summary": "A customer's invoices, newest first. The list is complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "customer": {
+                "type": "string",
+                "x-in": "query"
+              }
+            },
+            "required": [
+              "customer"
+            ],
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/invoices"
+        },
+        {
+          "name": "get_invoice",
+          "summary": "One invoice, with its line items",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "invoice": {
+                "type": "string",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "invoice"
+            ],
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/invoices/{invoice}"
+        },
+        {
+          "name": "list_charges",
+          "summary": "A customer's payments, including failures and refunds. The list is complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "customer": {
+                "type": "string",
+                "x-in": "query"
+              }
+            },
+            "required": [
+              "customer"
+            ],
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/charges"
+        },
+        {
+          "name": "list_balance_transactions",
+          "summary": "The account's balance history. The list is complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "method": "GET",
+          "path": "/v1/balance_transactions"
+        }
+      ],
+      "count": 8,
+      "environment_version": 1,
+      "call_path": "call",
+      "platform_tools": [
+        {
+          "name": "run_tasks",
+          "summary": "This environment's task sets and tasks, by id, name and set, to choose what to run.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_open",
+          "summary": "Open a graded run of this environment's tasks: a set_name, task_ids, or neither for every task, at most 300. Needs an Automation key, as every run_* tool does. Returns the run_id and, per task, its task_id, prompt and call_url. Your agent calls the task's tools on its call_url (or sends run_id and task_id beside tool and args) with an Agent key; then submit its answer with run_answer.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "set_name": {
+                "type": "string"
+              },
+              "task_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "agent"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_answer",
+          "summary": "Submit the final answer to one task of the run. Each task takes one answer.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "task_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id",
+              "task_id",
+              "answer"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_get",
+          "summary": "The run, and each task's verdict once the run is finished.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_finish",
+          "summary": "Finish the run with tasks still unanswered.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id"
+            ],
+            "type": "object"
+          }
+        }
+      ]
+    }
+  }
+}
