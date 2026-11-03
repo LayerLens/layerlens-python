@@ -153,7 +153,7 @@
         },
         {
           "name": "run_open",
-          "summary": "Open a graded run of this environment's tasks: a set_name, task_ids, or neither for every task, at most 300. Needs an Automation key, as every run_* tool does. Returns the run_id and, per task, its task_id, prompt and call_url. Your agent calls the task's tools on its call_url (or sends run_id and task_id beside tool and args) with an Agent key; then submit its answer with run_answer.",
+          "summary": "Open a graded run of this environment's tasks: a set_name, task_ids, or neither for every task, at most 300. Needs an Automation key, as every run_* tool does. Returns the run_id and, per task, its task_id, prompt and call_url. Your agent calls the task's tools on its call_url (or sends run_id and task_id beside tool and args) with a Standard key; then submit its answer with run_answer.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {

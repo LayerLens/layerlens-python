@@ -245,7 +245,7 @@ class TestWaitUntilReady:
         client.environments.wait_until_ready(ENV_ID, poll_interval_seconds=0.01)
 
     def test_a_refusal_while_polling_is_raised_at_once(self, client, api: FakeAPI) -> None:
-        api.on("GET", f"/{ENV_ID}/build", err(403, "this key has Agent access"))
+        api.on("GET", f"/{ENV_ID}/build", err(403, "this key has Standard access"))
         with pytest.raises(PermissionDeniedError):
             client.environments.wait_until_ready(ENV_ID)
         assert len(api.requests) == 1

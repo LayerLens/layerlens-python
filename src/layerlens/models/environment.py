@@ -381,7 +381,7 @@ class ExternalRunAttempt(_Model):
     base_url: Optional[str] = None
     # The attempt's credential for base_url; it reaches this attempt's tools and nothing else.
     token: str = Field(repr=False)
-    # The Agent API's /call for this run and task, for an agent that holds an Agent key.
+    # The Agent API's /call for this run and task, for an agent that holds a Standard key.
     call_url: Optional[str] = None
     expires_at: datetime
 

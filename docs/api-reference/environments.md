@@ -5,7 +5,7 @@ environment, manage its task sets, and run graded evaluations of your own agent 
 model, for example from CI. The [`layerlens env`](../cli/env.md) commands are built on it.
 
 It needs an API key with **Automation** access (Organization Settings → API Keys). A key
-with Agent access gets `PermissionDeniedError` (403) on these routes, and a `layerlens login`
+with Standard access gets `PermissionDeniedError` (403) on these routes, and a `layerlens login`
 session cannot reach them.
 
 ```python
@@ -267,7 +267,7 @@ attempt that is already graded raises `ConflictError`.
 | `EnvironmentConflictError` (a `ConflictError`) | `create`: the name is taken by an environment this call cannot reuse. `differences` and `project_id` say why; when both are empty, the message does |
 | `EnvironmentBuildError` | `wait_until_ready`: the build failed. `refused_because` and `build` |
 | `TimeoutError` | A `wait` reached its `timeout_seconds` |
-| `PermissionDeniedError` | The key has Agent access |
+| `PermissionDeniedError` | The key has Standard access |
 | `RateLimitError` | An external-run limit, or the organization's limits on work started with API keys: 10 jobs in progress, and $200 a UTC day |
 | `APIResponseValidationError` | A reply the SDK could not read, such as a task set page whose `next_offset` does not move forward. Never `None` |
 | `ValueError` | An argument the SDK refuses before sending, such as two sources of tasks, or a body over 5 MiB (5.75 MiB escaped) |

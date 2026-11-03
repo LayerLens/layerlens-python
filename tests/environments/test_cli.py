@@ -73,7 +73,7 @@ class TestExitCodes:
         assert result.exit_code == 2
 
     def test_a_refused_request_exits_1_with_the_apis_sentence(self, runner: CliRunner, api: FakeAPI) -> None:
-        message = "this key has Agent access; this route needs an Automation key (Organization Settings → API Keys)"
+        message = "this key has Standard access; this route needs an Automation key (Organization Settings → API Keys)"
         api.on("GET", f"/{ENV_ID}/build", err(403, message))
         api.on("GET", f"/{ENV_ID}", ok({"environment": environment()}))
         result = invoke(runner, "env", "status", ENV_ID)
