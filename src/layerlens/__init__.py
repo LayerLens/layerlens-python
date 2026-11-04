@@ -27,18 +27,31 @@ from .models import (
 from ._client import Client, LayerLens, AsyncClient, AsyncLayerLens
 from ._exceptions import (
     APIError,
+    ConflictError,
     NotFoundError,
+    APIStatusError,
     LayerLensError,
+    RateLimitError,
+    APITimeoutError,
     BadRequestError,
+    APIConnectionError,
     AuthenticationError,
+    InternalServerError,
     EnvironmentBuildError,
+    PermissionDeniedError,
     EnvironmentConflictError,
+    UnprocessableEntityError,
+    APIResponseValidationError,
 )
 from ._deprecation import module_getattr
 from ._public_client import PublicClient, AsyncPublicClient
 
 __all__ = [
+    "APIConnectionError",
     "APIError",
+    "APIResponseValidationError",
+    "APIStatusError",
+    "APITimeoutError",
     "AsyncClient",
     "AsyncLayerLens",
     "AsyncPublicClient",
@@ -49,9 +62,11 @@ __all__ = [
     "Client",
     "ComparisonResult",
     "ComparisonResponse",
+    "ConflictError",
     "EnvironmentBuildError",
     "EnvironmentConflictError",
     "Integration",
+    "InternalServerError",
     "Judge",
     "JudgeOptimizationRun",
     "JudgeSnapshot",
@@ -61,11 +76,13 @@ __all__ = [
     "NotFoundError",
     "OptimizationBudget",
     "OptimizationRunStatus",
+    "PermissionDeniedError",
     "PublicBenchmarkDetail",
     "PublicBenchmarksListResponse",
     "PublicClient",
     "PublicModelDetail",
     "PublicModelsListResponse",
+    "RateLimitError",
     "Trace",
     "TraceEvaluation",
     "TraceEvaluationResult",
@@ -73,6 +90,7 @@ __all__ = [
     "TraceEvaluationStep",
     "TraceEvaluationSummary",
     "TraceWithEvaluations",
+    "UnprocessableEntityError",
 ]
 
 # Deprecated names (LAY-4220): the same objects as their replacements.

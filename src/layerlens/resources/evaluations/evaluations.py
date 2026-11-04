@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import math
-import time
-import asyncio
 from typing import Any, Dict, List, Literal, Optional
 
 import httpx
@@ -18,8 +16,10 @@ from ...models import (
     EvaluationsResponse,
     CreateEvaluationsResponse,
 )
+from ..._polling import POLL_RETRIES, PollPolicy
 from ..._resource import SyncAPIResource, AsyncAPIResource
 from ..._constants import DEFAULT_TIMEOUT
+from ..._exceptions import LayerLensError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
@@ -51,6 +51,13 @@ def _parse_rows(payload: Dict[str, Any], *, response: httpx.Response, endpoint: 
         )
         for index, row in enumerate(rows)
     ]
+
+
+def _wait_policy(evaluation: Evaluation, interval_seconds: float, timeout_seconds: Optional[float]) -> PollPolicy:
+    # A timeout of 0 has always meant no limit here, as None does.
+    return PollPolicy(
+        f"Evaluation {evaluation.id}", interval_seconds=interval_seconds, timeout_seconds=timeout_seconds or None
+    )
 
 
 class Evaluations(SyncAPIResource):
@@ -94,11 +101,10 @@ class Evaluations(SyncAPIResource):
         *,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[Evaluation]:
-        evaluation = self._get(
-            f"/evaluations/{id}",
-            timeout=timeout,
-            cast_to=Evaluation,
-        )
+        return self._read(id, timeout=timeout)
+
+    def _read(self, id: str, *, timeout: float | httpx.Timeout | None, **request: Any) -> Optional[Evaluation]:
+        evaluation = self._get(f"/evaluations/{id}", timeout=timeout, cast_to=Evaluation, **request)
         if isinstance(evaluation, Evaluation):
             evaluation.attach_client(self._client)
             return evaluation
@@ -199,20 +205,26 @@ class Evaluations(SyncAPIResource):
         interval_seconds: int = 30,
         timeout_seconds: Optional[int] = None,
     ) -> Optional[Evaluation]:
-        """Poll until the evaluation finishes or timeout is reached."""
-        start = time.time()
+        """Poll every ``interval_seconds`` until the evaluation finishes, and return it.
 
-        updated_evaluation: Optional[Evaluation] = self.get(evaluation)
-        while updated_evaluation and not updated_evaluation.is_finished:
-            if timeout_seconds and (time.time() - start) > timeout_seconds:
-                raise TimeoutError(
-                    f"Evaluation {updated_evaluation.id} did not complete within {timeout_seconds} seconds"
-                )
-
-            time.sleep(interval_seconds)
-            updated_evaluation = self.get(updated_evaluation)
-
-        return updated_evaluation
+        A poll that fails on a 429, a 5xx or a lost connection does not end the wait: the
+        next poll follows half a second later, then after twice as long each time it fails
+        again, up to ``interval_seconds``, and never sooner than the reply's ``Retry-After``.
+        Each poll is sent once, without the client's own retries. Any other error is raised. Returns ``None`` if the evaluation cannot be read any more. Raises
+        :class:`TimeoutError` when it has not finished after ``timeout_seconds``
+        (``None`` waits as long as it takes).
+        """
+        policy = _wait_policy(evaluation, interval_seconds, timeout_seconds)
+        while True:
+            try:
+                current = self._read(evaluation.id, timeout=DEFAULT_TIMEOUT, max_retries=POLL_RETRIES)
+            except LayerLensError as err:
+                delay = policy.after_error(err)
+            else:
+                if current is None or current.is_finished:
+                    return current
+                delay = policy.after_pending()
+            self._sleep(delay)
 
 
 class AsyncEvaluations(AsyncAPIResource):
@@ -256,11 +268,10 @@ class AsyncEvaluations(AsyncAPIResource):
         *,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[Evaluation]:
-        evaluation = await self._get(
-            f"/evaluations/{id}",
-            timeout=timeout,
-            cast_to=Evaluation,
-        )
+        return await self._read(id, timeout=timeout)
+
+    async def _read(self, id: str, *, timeout: float | httpx.Timeout | None, **request: Any) -> Optional[Evaluation]:
+        evaluation = await self._get(f"/evaluations/{id}", timeout=timeout, cast_to=Evaluation, **request)
         if isinstance(evaluation, Evaluation):
             evaluation.attach_client(self._client)
             return evaluation
@@ -359,17 +370,18 @@ class AsyncEvaluations(AsyncAPIResource):
         interval_seconds: int = 30,
         timeout_seconds: Optional[int] = None,
     ) -> Optional[Evaluation]:
-        """Poll asynchronously until the evaluation finishes or timeout is reached."""
-        start = asyncio.get_event_loop().time()
+        """Poll every ``interval_seconds`` until the evaluation finishes, and return it.
 
-        updated_evaluation: Optional[Evaluation] = await self.get(evaluation)
-        while updated_evaluation and not updated_evaluation.is_finished:
-            if timeout_seconds and (asyncio.get_event_loop().time() - start) > timeout_seconds:
-                raise TimeoutError(
-                    f"Evaluation {updated_evaluation.id} did not complete within {timeout_seconds} seconds"
-                )
-
-            await asyncio.sleep(interval_seconds)
-            updated_evaluation = await self.get(updated_evaluation)
-
-        return updated_evaluation
+        See :meth:`Evaluations.wait_for_completion`.
+        """
+        policy = _wait_policy(evaluation, interval_seconds, timeout_seconds)
+        while True:
+            try:
+                current = await self._read(evaluation.id, timeout=DEFAULT_TIMEOUT, max_retries=POLL_RETRIES)
+            except LayerLensError as err:
+                delay = policy.after_error(err)
+            else:
+                if current is None or current.is_finished:
+                    return current
+                delay = policy.after_pending()
+            await self._sleep(delay)

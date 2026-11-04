@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import logging
 from typing import Any, Dict, Type, Union, TypeVar, Optional
+from email.utils import mktime_tz, parsedate_tz
 
 import httpx
 from httpx import URL
@@ -21,6 +23,29 @@ MAX_RETRY_DELAY = 8.0
 
 log: logging.Logger = logging.getLogger(__name__)
 log.addFilter(SensitiveHeadersFilter())
+
+
+def parse_retry_after(value: Optional[str]) -> Optional[float]:
+    """The seconds a ``Retry-After`` header asks to wait, or ``None`` without a usable one.
+
+    RFC 9110 allows delay-seconds (``120``) or an HTTP-date (``Wed, 21 Oct 2026 07:28:00
+    GMT``), which is read against the local clock, and is ``0`` once it has passed. A
+    negative or non-finite number, or anything else, is no delay at all.
+    """
+    if value is None or not value.strip():
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        when = parsedate_tz(value)
+        if when is None:
+            return None
+        try:
+            at = mktime_tz(when)
+        except (ValueError, OverflowError):  # a date no calendar holds, such as the year 10000
+            return None
+        return max(float(at) - time.time(), 0.0)
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
 def _request_for_error(err: httpx.RequestError, method: str, url: str) -> httpx.Request:
@@ -95,9 +120,8 @@ class BaseClient(httpx.Client):
                 raise _exceptions.APIConnectionError(request=_request_for_error(err, method, url)) from err
 
             if response.status_code in RETRY_STATUS_CODES and retries_left > 0:
-                retry_after = response.headers.get("retry-after")
-                sleep_time = float(retry_after) if retry_after else delay
-                sleep_time = min(sleep_time, MAX_RETRY_DELAY)
+                retry_after = parse_retry_after(response.headers.get("retry-after"))
+                sleep_time = min(delay if retry_after is None else retry_after, MAX_RETRY_DELAY)
                 log.debug(
                     "Retrying request after %.1fs (status %d, %d retries left)",
                     sleep_time,
@@ -254,9 +278,8 @@ class BaseAsyncClient(httpx.AsyncClient):
                 raise _exceptions.APIConnectionError(request=_request_for_error(err, method, url)) from err
 
             if response.status_code in RETRY_STATUS_CODES and retries_left > 0:
-                retry_after = response.headers.get("retry-after")
-                sleep_time = float(retry_after) if retry_after else delay
-                sleep_time = min(sleep_time, MAX_RETRY_DELAY)
+                retry_after = parse_retry_after(response.headers.get("retry-after"))
+                sleep_time = min(delay if retry_after is None else retry_after, MAX_RETRY_DELAY)
                 log.debug(
                     "Retrying request after %.1fs (status %d, %d retries left)",
                     sleep_time,

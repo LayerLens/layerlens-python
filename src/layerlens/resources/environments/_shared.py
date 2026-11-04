@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import json
-import time
 import uuid
 from typing import Any, Dict, List, Type, Union, Mapping, TypeVar, Optional, Sequence, NamedTuple
 from pathlib import Path
@@ -13,6 +12,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from ..._utils import is_mapping
+from ..._polling import Deadline, PollPolicy, retry_after_seconds
 from ..._exceptions import (
     ConflictError,
     APIStatusError,
@@ -437,32 +437,21 @@ def _never_sent(err: APIConnectionError) -> bool:
     return isinstance(err.__cause__, (httpx.ConnectError, httpx.ConnectTimeout))
 
 
-def is_transient(err: Exception) -> bool:
-    """An error a poll rides out until its deadline."""
-    return isinstance(err, (APIConnectionError, InternalServerError, RateLimitError))
-
-
-def retry_after_seconds(err: Exception, default: float) -> float:
-    response = getattr(err, "response", None)
-    value = response.headers.get("retry-after") if isinstance(response, httpx.Response) else None
-    try:
-        return max(float(value), 0.0) if value else default
-    except ValueError:
-        return default
-
-
-class Deadline:
-    def __init__(self, seconds: Optional[float]) -> None:
-        self._end = None if seconds is None else time.monotonic() + seconds
-
-    def passed(self) -> bool:
-        return self._end is not None and time.monotonic() >= self._end
-
-    def clip(self, seconds: float) -> float:
-        if self._end is None:
-            return seconds
-        return max(0.0, min(seconds, self._end - time.monotonic()))
-
-
 def next_poll(interval: float) -> float:
     return min(interval * 1.5, MAX_POLL_SECONDS)
+
+
+def wait_policy(what: str, timeout_seconds: Optional[float], poll_interval_seconds: float) -> PollPolicy:
+    """How an environments wait polls: from ``poll_interval_seconds``, half as long again
+    after each poll, up to ``MAX_POLL_SECONDS``."""
+    return PollPolicy(
+        what,
+        interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+        max_interval_seconds=MAX_POLL_SECONDS,
+    )
+
+
+def still(state: str, timeout_seconds: Optional[float]) -> str:
+    """A wait's timeout message: ``run 6a91… is still in_progress after 1800s``."""
+    return state if timeout_seconds is None else f"{state} after {timeout_seconds:g}s"

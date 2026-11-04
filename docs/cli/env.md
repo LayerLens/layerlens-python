@@ -28,7 +28,7 @@ stdout, and progress to stderr; with `--format json`, stdout holds only the JSON
 | `1` | An error: authentication, permission, a refused request, a network or server failure. |
 | `2` | The command line was invalid. |
 | `10` | The run finished below `--min-pass-rate`. |
-| `11` | The run or the build did not finish: it failed, was cancelled, ran out of budget or timed out. Also `env run exec` when every attempt ended in an error, which is how a broken command and an agent that fails on every task (a crash on import, say) both look. |
+| `11` | The run or the build did not finish: it failed, was cancelled, ran out of budget or timed out, including when the API kept answering 429, a 5xx or nothing at all until `--timeout`. Also `env run exec` when every attempt ended in an error, which is how a broken command and an agent that fails on every task (a crash on import, say) both look. |
 
 Test for `10` to tell "the agent regressed" from "the pipeline broke". Never treat `11` as a
 flake to ignore: it can be an agent that fails every task, so it must block a merge as `10`
@@ -206,8 +206,9 @@ layerlens env run model support-desk --set ci --endpoint https://agents.example.
 `--budget` is required, up to `100`. Also `--system-prompt-file`, `--max-steps` (up to
 `50`), `--agent-name`, `--label`, `--min-pass-rate`, `--junit`, `--markdown`, `--no-wait` to
 print the run id and return, and `--idempotency-key`. A run still going at `--timeout`
-(default `30m`) is cancelled, and the command exits `11`; so is one interrupted with Ctrl-C
-or SIGTERM. Inline tasks take up to 25 per run.
+(default `30m`), or one the API would not show (429, a 5xx, no connection) until then, is
+cancelled, and the command exits `11`; so is one interrupted with Ctrl-C or SIGTERM. Inline
+tasks take up to 25 per run.
 
 ### Driving a run yourself
 
@@ -236,7 +237,8 @@ layerlens env run cancel support-desk RUN_ID
 ```
 
 `run wait` exits `11` at `--timeout` and leaves the run going, unless given
-`--cancel-on-timeout`. A run that finishes just as the timeout passes, so that the cancel
+`--cancel-on-timeout`. Every wait keeps polling through a 429, a 5xx or a lost connection
+until `--timeout`, and then exits `11` naming the last error. A run that finishes just as the timeout passes, so that the cancel
 finds it ended, is read once more and gated as it ended; Ctrl-C exits `11` and leaves it going too, since `wait` did not start
 it.
 

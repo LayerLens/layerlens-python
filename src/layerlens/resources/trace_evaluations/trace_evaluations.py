@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-import asyncio
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -13,9 +11,10 @@ from ...models import (
     TraceEvaluationsResponse,
     TraceEvaluationResultsResponse,
 )
+from ..._polling import POLL_RETRIES, PollPolicy
 from ..._resource import SyncAPIResource, AsyncAPIResource
 from ..._constants import DEFAULT_TIMEOUT
-from ..._exceptions import NotFoundError
+from ..._exceptions import NotFoundError, LayerLensError
 
 _TERMINAL_STATUSES = {
     TraceEvaluationStatus.SUCCESS,
@@ -32,6 +31,17 @@ def _unwrap(resp: Any) -> Any:
     if isinstance(resp, dict) and "data" in resp and "status" in resp:
         return resp["data"]
     return resp
+
+
+def _finished(te: Optional[TraceEvaluation]) -> bool:
+    return te is not None and te.status in _TERMINAL_STATUSES
+
+
+def _wait_policy(id: str, interval_seconds: float, timeout_seconds: Optional[float]) -> PollPolicy:
+    # A timeout of 0 has always meant no limit here, as None does.
+    return PollPolicy(
+        f"Trace evaluation {id}", interval_seconds=interval_seconds, timeout_seconds=timeout_seconds or None
+    )
 
 
 class TraceEvaluations(SyncAPIResource):
@@ -65,11 +75,10 @@ class TraceEvaluations(SyncAPIResource):
         *,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[TraceEvaluation]:
-        resp = self._get(
-            f"{self._base_url()}/{id}",
-            timeout=timeout,
-            cast_to=dict,
-        )
+        return self._read(id, timeout=timeout)
+
+    def _read(self, id: str, *, timeout: float | httpx.Timeout | None, **request: Any) -> Optional[TraceEvaluation]:
+        resp = self._get(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict, **request)
         data = _unwrap(resp)
         if isinstance(data, dict):
             try:
@@ -145,12 +154,13 @@ class TraceEvaluations(SyncAPIResource):
         *,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[TraceEvaluationResultsResponse]:
+        return self._read_results(id, timeout=timeout)
+
+    def _read_results(
+        self, id: str, *, timeout: float | httpx.Timeout | None, **request: Any
+    ) -> Optional[TraceEvaluationResultsResponse]:
         try:
-            resp = self._get(
-                f"{self._base_url()}/{id}/results",
-                timeout=timeout,
-                cast_to=dict,
-            )
+            resp = self._get(f"{self._base_url()}/{id}/results", timeout=timeout, cast_to=dict, **request)
         except NotFoundError:
             return None
         data = _unwrap(resp)
@@ -169,18 +179,29 @@ class TraceEvaluations(SyncAPIResource):
         interval_seconds: int = 3,
         timeout_seconds: Optional[int] = 300,
     ) -> Optional[TraceEvaluationResultsResponse]:
-        """Poll until the trace evaluation finishes, then return results."""
-        start = time.time()
+        """Poll every ``interval_seconds`` until the trace evaluation finishes, then return its results.
 
+        A poll, or the read of the results, that fails on a 429, a 5xx or a lost connection
+        does not end the wait: it is tried again half a second later, then after twice as
+        long each time it fails again, up to ``interval_seconds``, and never sooner than the
+        reply's ``Retry-After``. Each request is sent once, without the client's own
+        retries. Any other error is raised. Returns ``None`` when the
+        evaluation failed and has no results. Raises :class:`TimeoutError` when there are
+        no results after ``timeout_seconds`` (``None`` waits as long as it takes).
+        """
+        policy = _wait_policy(id, interval_seconds, timeout_seconds)
+        finished = False
         while True:
-            te = self.get(id)
-            if te and te.status in _TERMINAL_STATUSES:
-                break
-            if timeout_seconds and (time.time() - start) > timeout_seconds:
-                raise TimeoutError(f"Trace evaluation {id} did not complete within {timeout_seconds} seconds")
-            time.sleep(interval_seconds)
-
-        return self.get_results(id)
+            try:
+                if not finished:
+                    finished = _finished(self._read(id, timeout=DEFAULT_TIMEOUT, max_retries=POLL_RETRIES))
+                if finished:
+                    return self._read_results(id, timeout=DEFAULT_TIMEOUT, max_retries=POLL_RETRIES)
+            except LayerLensError as err:
+                delay = policy.after_error(err)
+            else:
+                delay = policy.after_pending()
+            self._sleep(delay)
 
     def estimate_cost(
         self,
@@ -235,11 +256,12 @@ class AsyncTraceEvaluations(AsyncAPIResource):
         *,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[TraceEvaluation]:
-        resp = await self._get(
-            f"{self._base_url()}/{id}",
-            timeout=timeout,
-            cast_to=dict,
-        )
+        return await self._read(id, timeout=timeout)
+
+    async def _read(
+        self, id: str, *, timeout: float | httpx.Timeout | None, **request: Any
+    ) -> Optional[TraceEvaluation]:
+        resp = await self._get(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict, **request)
         data = _unwrap(resp)
         if isinstance(data, dict):
             try:
@@ -315,12 +337,13 @@ class AsyncTraceEvaluations(AsyncAPIResource):
         *,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[TraceEvaluationResultsResponse]:
+        return await self._read_results(id, timeout=timeout)
+
+    async def _read_results(
+        self, id: str, *, timeout: float | httpx.Timeout | None, **request: Any
+    ) -> Optional[TraceEvaluationResultsResponse]:
         try:
-            resp = await self._get(
-                f"{self._base_url()}/{id}/results",
-                timeout=timeout,
-                cast_to=dict,
-            )
+            resp = await self._get(f"{self._base_url()}/{id}/results", timeout=timeout, cast_to=dict, **request)
         except NotFoundError:
             return None
         data = _unwrap(resp)
@@ -339,18 +362,23 @@ class AsyncTraceEvaluations(AsyncAPIResource):
         interval_seconds: int = 3,
         timeout_seconds: Optional[int] = 300,
     ) -> Optional[TraceEvaluationResultsResponse]:
-        """Poll until the trace evaluation finishes, then return results."""
-        start = asyncio.get_event_loop().time()
+        """Poll every ``interval_seconds`` until the trace evaluation finishes, then return its results.
 
+        See :meth:`TraceEvaluations.wait_for_completion`.
+        """
+        policy = _wait_policy(id, interval_seconds, timeout_seconds)
+        finished = False
         while True:
-            te = await self.get(id)
-            if te and te.status in _TERMINAL_STATUSES:
-                break
-            if timeout_seconds and (asyncio.get_event_loop().time() - start) > timeout_seconds:
-                raise TimeoutError(f"Trace evaluation {id} did not complete within {timeout_seconds} seconds")
-            await asyncio.sleep(interval_seconds)
-
-        return await self.get_results(id)
+            try:
+                if not finished:
+                    finished = _finished(await self._read(id, timeout=DEFAULT_TIMEOUT, max_retries=POLL_RETRIES))
+                if finished:
+                    return await self._read_results(id, timeout=DEFAULT_TIMEOUT, max_retries=POLL_RETRIES)
+            except LayerLensError as err:
+                delay = policy.after_error(err)
+            else:
+                delay = policy.after_pending()
+            await self._sleep(delay)
 
     async def estimate_cost(
         self,

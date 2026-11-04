@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -512,7 +513,7 @@ class TestWaitForCompletion:
             "created_at": "2024-01-01T00:00:05Z",
         }
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_returns_results_on_success(self, mock_sleep, trace_evals_resource, sample_result_data):
         """wait_for_completion returns results when evaluation succeeds."""
         pending = {
@@ -541,7 +542,7 @@ class TestWaitForCompletion:
         assert result.passed is True
         assert mock_sleep.call_count == 1
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_returns_none_on_failure(self, mock_sleep, trace_evals_resource):
         """wait_for_completion returns None when evaluation fails (no results)."""
         failure = {
@@ -565,15 +566,11 @@ class TestWaitForCompletion:
         assert result is None
         assert mock_sleep.call_count == 0
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.time")
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
-    def test_wait_raises_timeout(self, _mock_sleep, mock_time, trace_evals_resource):
+    def test_wait_raises_timeout(self, trace_evals_resource, monkeypatch):
         """wait_for_completion raises TimeoutError when timeout exceeded."""
-        mock_time.side_effect = [
-            0,
-            0,
-            301,
-        ]  # start, first check ok, second check exceeds 300s
+        clock = SimpleNamespace(now=0.0)
+        monkeypatch.setattr("layerlens._polling.time", SimpleNamespace(monotonic=lambda: clock.now))
+        monkeypatch.setattr(trace_evals_resource, "_sleep", lambda seconds: setattr(clock, "now", clock.now + seconds))
 
         pending = {
             "id": "te-123",
@@ -586,7 +583,7 @@ class TestWaitForCompletion:
         with pytest.raises(TimeoutError, match="did not complete within 300 seconds"):
             trace_evals_resource.wait_for_completion("te-123", timeout_seconds=300)
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_polls_through_in_progress(self, mock_sleep, trace_evals_resource, sample_result_data):
         """wait_for_completion polls through pending and in_progress states."""
         pending = {
@@ -620,7 +617,7 @@ class TestWaitForCompletion:
         assert isinstance(result, TraceEvaluationResultsResponse)
         assert mock_sleep.call_count == 2
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_no_timeout_when_none(self, _mock_sleep, trace_evals_resource, sample_result_data):
         """wait_for_completion runs indefinitely when timeout_seconds=None."""
         success = {

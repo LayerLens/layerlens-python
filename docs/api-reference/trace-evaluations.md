@@ -196,6 +196,13 @@ Returns `None` if the evaluation failed or no results are available.
 
 Raises `TimeoutError` if `timeout_seconds` is exceeded.
 
+A status poll, or the read of the results, that fails on a 429, a 5xx or a lost
+connection does not end the wait. Each request is sent once, and the wait does the
+retrying: half a second later, then twice as long after each further failure, up to
+`interval_seconds`, and never sooner than the reply's `Retry-After` header asks, up to 5
+minutes. If those errors last until `timeout_seconds`, the `TimeoutError` says the last
+poll failed and carries that error as its `__cause__`. Any other error is raised at once.
+
 #### Example
 
 ```python

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-from ._shared import DEFAULT_POLL_SECONDS, DEFAULT_WAIT_SECONDS, Deadline, next_poll, is_transient
+from ._shared import DEFAULT_POLL_SECONDS, DEFAULT_WAIT_SECONDS, still, wait_policy
+from ..._polling import POLL_RETRIES
 from ..._exceptions import LayerLensError
 from ...models.environment import Job
 
@@ -17,8 +18,11 @@ class Jobs:
         self._environments = environments
 
     def get(self, environment: str, job_id: str) -> Job:
+        return self._read(self._environments.resolve(environment), job_id)
+
+    def _read(self, environment_id: str, job_id: str, **request: Any) -> Job:
         envs = self._environments
-        return envs._call("GET", envs._path(envs.resolve(environment), "jobs", job_id), Job)
+        return envs._call("GET", envs._path(environment_id, "jobs", job_id), Job, **request)
 
     def wait(
         self,
@@ -30,24 +34,22 @@ class Jobs:
     ) -> Job:
         """Block until the job finishes, and return it, whatever its ``status``.
 
-        Raises :class:`TimeoutError` when it is still running after ``timeout_seconds``.
+        A poll that fails on a 429, a 5xx or a lost connection does not end the wait.
+        Raises :class:`TimeoutError` when the job is still running after
+        ``timeout_seconds``, or the polls kept failing until then.
         """
         environment_id = self._environments.resolve(environment)
-        deadline = Deadline(timeout_seconds)
-        interval = poll_interval_seconds
+        policy = wait_policy(f"job {job_id}", timeout_seconds, poll_interval_seconds)
         while True:
             try:
-                job = self.get(environment_id, job_id)
+                job = self._read(environment_id, job_id, max_retries=POLL_RETRIES)
             except LayerLensError as err:
-                if not is_transient(err) or deadline.passed():
-                    raise
+                delay = policy.after_error(err)
             else:
                 if job.finished:
                     return job
-                if deadline.passed():
-                    raise TimeoutError(f"job {job_id} is still {job.status} after {timeout_seconds:g}s")
-            self._environments._sleep(deadline.clip(interval))
-            interval = next_poll(interval)
+                delay = policy.after_pending(still(f"job {job_id} is still {job.status}", timeout_seconds))
+            self._environments._sleep(delay)
 
 
 class AsyncJobs:
@@ -57,8 +59,11 @@ class AsyncJobs:
         self._environments = environments
 
     async def get(self, environment: str, job_id: str) -> Job:
+        return await self._read(await self._environments.resolve(environment), job_id)
+
+    async def _read(self, environment_id: str, job_id: str, **request: Any) -> Job:
         envs = self._environments
-        return await envs._call("GET", envs._path(await envs.resolve(environment), "jobs", job_id), Job)
+        return await envs._call("GET", envs._path(environment_id, "jobs", job_id), Job, **request)
 
     async def wait(
         self,
@@ -69,18 +74,14 @@ class AsyncJobs:
         poll_interval_seconds: float = DEFAULT_POLL_SECONDS,
     ) -> Job:
         environment_id = await self._environments.resolve(environment)
-        deadline = Deadline(timeout_seconds)
-        interval = poll_interval_seconds
+        policy = wait_policy(f"job {job_id}", timeout_seconds, poll_interval_seconds)
         while True:
             try:
-                job = await self.get(environment_id, job_id)
+                job = await self._read(environment_id, job_id, max_retries=POLL_RETRIES)
             except LayerLensError as err:
-                if not is_transient(err) or deadline.passed():
-                    raise
+                delay = policy.after_error(err)
             else:
                 if job.finished:
                     return job
-                if deadline.passed():
-                    raise TimeoutError(f"job {job_id} is still {job.status} after {timeout_seconds:g}s")
-            await self._environments._sleep(deadline.clip(interval))
-            interval = next_poll(interval)
+                delay = policy.after_pending(still(f"job {job_id} is still {job.status}", timeout_seconds))
+            await self._environments._sleep(delay)

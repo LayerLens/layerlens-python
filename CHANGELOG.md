@@ -88,6 +88,59 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Fixed
 
+- **`layerlens evaluations compare` exits `2`, not `1`, when it cannot read a run.** A file that
+  was not valid JSON, lacked a field or had one of the wrong type raised a Python traceback and
+  exited `1`, the code for a regression, so a CI step could not tell "the candidate regressed" from
+  "this step is broken". It now prints one `Error:` line naming the file and the field (`Error:
+  candidate run.json is not an evaluation run: dataset_version: Field required`) and exits `2`, as
+  it does on any other failure. A file that leaves out `items` or `aggregate`, which the run model
+  would fill in as a run that scored nothing, or that holds `NaN` or `Infinity`, is refused the same
+  way instead of compared. The exit codes are `0` no regression, `1` regression, `2` the runs
+  could not be compared; see [docs/cli/commands.md](docs/cli/commands.md#evaluations-compare)
+  (LAY-4429)
+
+- **`wait_for_completion` keeps polling through a 429, a 5xx or a lost connection.**
+  `client.evaluations.wait_for_completion` and `client.trace_evaluations.wait_for_completion`,
+  sync and async, raised the first such error left once the client's two retries were spent,
+  ending the wait while the evaluation went on running on the server. Parallel CI jobs sharing an
+  API key, which the API throttles at about 5 requests a second, hit this. The waits now poll again
+  half a second later, then after twice as long each time a poll fails again, up to
+  `interval_seconds`, and never sooner than the reply's `Retry-After` (up to 5 minutes), until
+  `timeout_seconds`; then the `TimeoutError` names the last error and carries it as its
+  `__cause__`. Any other error is still raised at once. The waits now measure their timeout on the
+  monotonic clock, so a change of the system clock no longer cuts one short or stretches it
+  (LAY-4429)
+
+- **Every wait sends each poll once, so it raises at its timeout and spares a throttled key.**
+  The evaluation waits and the environments waits (`wait_until_ready`, `jobs.wait`,
+  `runs.wait`) let the client retry each poll twice, up to 8 seconds apart, inside their own
+  polling. A throttled poll cost three requests against the key that was being throttled, and a
+  poll started just before the deadline could raise up to 16 seconds after it. The wait now does
+  all the retrying, and honours a `Retry-After` longer than the 8 seconds the client stops at
+  (LAY-4429)
+
+- **An environments wait whose polls keep failing until its timeout raises `TimeoutError`.** It
+  raised the last 429, 5xx or connection error instead, so `layerlens env` exited `1` rather than
+  `11`, and `env run exec` and `env run model` left the run they had started going, though they
+  cancel it at `--timeout`. They now cancel it and exit `11`, and the `TimeoutError` carries the
+  last error as its `__cause__` (LAY-4429)
+
+- **A `Retry-After` header given as a date no longer crashes a request.** The client read the
+  header with `float()`, so a 429 or 503 with `Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`, a form
+  RFC 9110 allows, raised a `ValueError` from inside the call instead of being retried; so did a
+  negative number. The client now reads seconds or an HTTP date, and falls back to its own backoff
+  for a header it cannot read. The examples in the errors guide, which called `int()` on the header,
+  now read it the same way (LAY-4429)
+
+- **Every error the SDK raises can be caught as `layerlens.<Name>`.** The errors guide has always
+  shown `except layerlens.RateLimitError`, `layerlens.APIConnectionError`,
+  `layerlens.InternalServerError` and others, but the package exported only seven of its error
+  classes, so such an `except` clause itself raised `AttributeError` when the error came. It now
+  also exports `APIStatusError`, `APIConnectionError`, `APITimeoutError`,
+  `APIResponseValidationError`, `PermissionDeniedError`, `ConflictError`,
+  `UnprocessableEntityError`, `RateLimitError` and `InternalServerError`: the classes the SDK
+  already raised, and a test now fails if the docs name one it does not export (LAY-4429)
+
 - **The SDK declares the pydantic it needs: `pydantic>=2.0.1`.** It declared `>=1.9.0`, but
   `import layerlens` needs 2.0.1 or later (pydantic 1.x has no `ConfigDict` or `BeforeValidator`,
   and 2.0.0 refuses a field named `model_id`), so an install that resolved an older pydantic

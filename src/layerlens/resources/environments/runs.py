@@ -6,19 +6,19 @@ from pathlib import Path
 from ._shared import (
     DEFAULT_POLL_SECONDS,
     DEFAULT_WAIT_SECONDS,
-    Deadline,
     TaskInput,
     SubmitState,
     SubmitPolicy,
     IdempotencyKey,
     InvalidArgument,
-    next_poll,
+    still,
     submit_body,
     task_choice,
-    is_transient,
+    wait_policy,
     submit_state,
     new_idempotency_key,
 )
+from ..._polling import POLL_RETRIES, is_transient
 from ..._exceptions import LayerLensError
 from ...models.environment import RunResult, SubmitResult, ExternalRunStart
 
@@ -67,8 +67,11 @@ class Runs:
         )  # fmt: skip
 
     def get(self, environment: str, run_id: str) -> RunResult:
+        return self._read(self._environments.resolve(environment), run_id)
+
+    def _read(self, environment_id: str, run_id: str, **request: Any) -> RunResult:
         envs = self._environments
-        return envs._call("GET", envs._path(envs.resolve(environment), "runs", run_id), RunResult)
+        return envs._call("GET", envs._path(environment_id, "runs", run_id), RunResult, **request)
 
     def wait(
         self,
@@ -81,24 +84,22 @@ class Runs:
         """Block until the run finishes, and return it, whatever its ``status``.
 
         A run of your own agent finishes when its last attempt is graded, or on ``finish``.
-        Raises :class:`TimeoutError` when it is still running after ``timeout_seconds``.
+        A poll that fails on a 429, a 5xx or a lost connection does not end the wait.
+        Raises :class:`TimeoutError` when the run is still going after ``timeout_seconds``,
+        or the polls kept failing until then.
         """
         environment_id = self._environments.resolve(environment)
-        deadline = Deadline(timeout_seconds)
-        interval = poll_interval_seconds
+        policy = wait_policy(f"run {run_id}", timeout_seconds, poll_interval_seconds)
         while True:
             try:
-                run = self.get(environment_id, run_id)
+                run = self._read(environment_id, run_id, max_retries=POLL_RETRIES)
             except LayerLensError as err:
-                if not is_transient(err) or deadline.passed():
-                    raise
+                delay = policy.after_error(err)
             else:
                 if run.finished:
                     return run
-                if deadline.passed():
-                    raise TimeoutError(f"run {run_id} is still {run.status} after {timeout_seconds:g}s")
-            self._environments._sleep(deadline.clip(interval))
-            interval = next_poll(interval)
+                delay = policy.after_pending(still(f"run {run_id} is still {run.status}", timeout_seconds))
+            self._environments._sleep(delay)
 
     def cancel(self, environment: str, run_id: str) -> RunResult:
         """Cancel a run. A model run stops after the tasks in flight; a run of your own agent ends at once."""
@@ -218,8 +219,11 @@ class AsyncRuns:
         )  # fmt: skip
 
     async def get(self, environment: str, run_id: str) -> RunResult:
+        return await self._read(await self._environments.resolve(environment), run_id)
+
+    async def _read(self, environment_id: str, run_id: str, **request: Any) -> RunResult:
         envs = self._environments
-        return await envs._call("GET", envs._path(await envs.resolve(environment), "runs", run_id), RunResult)
+        return await envs._call("GET", envs._path(environment_id, "runs", run_id), RunResult, **request)
 
     async def wait(
         self,
@@ -230,21 +234,17 @@ class AsyncRuns:
         poll_interval_seconds: float = DEFAULT_POLL_SECONDS,
     ) -> RunResult:
         environment_id = await self._environments.resolve(environment)
-        deadline = Deadline(timeout_seconds)
-        interval = poll_interval_seconds
+        policy = wait_policy(f"run {run_id}", timeout_seconds, poll_interval_seconds)
         while True:
             try:
-                run = await self.get(environment_id, run_id)
+                run = await self._read(environment_id, run_id, max_retries=POLL_RETRIES)
             except LayerLensError as err:
-                if not is_transient(err) or deadline.passed():
-                    raise
+                delay = policy.after_error(err)
             else:
                 if run.finished:
                     return run
-                if deadline.passed():
-                    raise TimeoutError(f"run {run_id} is still {run.status} after {timeout_seconds:g}s")
-            await self._environments._sleep(deadline.clip(interval))
-            interval = next_poll(interval)
+                delay = policy.after_pending(still(f"run {run_id} is still {run.status}", timeout_seconds))
+            await self._environments._sleep(delay)
 
     async def cancel(self, environment: str, run_id: str) -> RunResult:
         envs = self._environments

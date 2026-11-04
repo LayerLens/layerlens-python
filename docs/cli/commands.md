@@ -21,6 +21,9 @@ layerlens [global-options]
 │   ├── list          List evaluations
 │   ├── get           Get an evaluation by ID
 │   └── run           Run a new evaluation
+├── evaluations
+│   ├── run           Run a dataset through a target locally
+│   └── compare       Compare two saved runs; exit 1 on a regression
 ├── integration
 │   ├── list          List integrations
 │   └── test          Test an integration
@@ -225,6 +228,63 @@ layerlens evaluate run [OPTIONS]
 | `--model` | text | yes | Model ID, key, or name |
 | `--benchmark` | text | yes | Benchmark ID, key, or name |
 | `--wait` | flag | no | Wait for evaluation to complete |
+
+`--wait` keeps polling through a 429, a 5xx or a lost connection, as
+`wait_for_completion` does.
+
+---
+
+## evaluations
+
+Run a dataset through your own code and compare two runs, locally: nothing is sent to
+the API.
+
+### `evaluations run`
+
+```bash
+layerlens evaluations run --dataset-id ID --dataset-file FILE --target MODULE:ATTR [OPTIONS]
+```
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `--dataset-id` | text | yes | Name of the dataset in the run |
+| `--dataset-file` | path | yes | JSON list of `{input, expected_output}` items |
+| `--target` | text | yes | The callable under evaluation, `module:attr` |
+| `--scorer` | text | no | A scorer, `name=module:attr` (repeatable). Default: `exact` equality |
+| `--out` | path | no | Write the run to this JSON file (default: stdout) |
+
+### `evaluations compare`
+
+Compare a candidate run with a baseline run, both saved by `evaluations run --out`.
+The comparison goes to stdout as JSON.
+
+```bash
+layerlens evaluations compare BASELINE CANDIDATE [--score-tolerance 0.02]
+```
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `--score-tolerance` | float | How far a scorer's mean may drop before it counts as a regression (default: `0.02`) |
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | No regression. |
+| `1` | The candidate regressed: a scorer's mean dropped by more than `--score-tolerance`, or the pass rate dropped by more than `0.02`. |
+| `2` | The runs could not be compared, and stdout is empty. A file that is not valid JSON or not an evaluation run gets one `Error:` line on stderr naming the file and the field, such as `Error: candidate run.json is not an evaluation run: dataset_version: Field required`. A run must hold `items` (`[]` for an empty dataset) and an `aggregate` with `mean_scores` and `pass_rate`, as `evaluations run --out` writes it, and no `NaN` or `Infinity`. A missing file is a usage error. |
+
+In CI, fail the build on `1` and treat `2` as a broken step: never read `2` as "no
+regression". CI shells such as GitHub Actions' `bash -e` stop at the first command that
+fails, so catch the exit code with `||` before `case` reads it:
+
+```bash
+status=0
+layerlens evaluations compare baseline.json candidate.json > comparison.json || status=$?
+case "$status" in
+  0) echo "no regression" ;;
+  1) echo "the candidate regressed"; exit 1 ;;
+  *) echo "could not compare the runs"; exit 2 ;;
+esac
+```
 
 ---
 

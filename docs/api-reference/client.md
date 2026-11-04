@@ -84,7 +84,9 @@ client = LayerLens(timeout=30.0)
 
 ### Retry Configuration
 
-The client automatically retries requests that fail with retryable status codes (429 Too Many Requests, 500, 502, 503, 504) using exponential backoff. If the server sends a `Retry-After` header, the client respects it.
+The client automatically retries requests that fail with retryable status codes (429 Too Many Requests, 500, 502, 503, 504) using exponential backoff from half a second. If the server sends a `Retry-After` header, as seconds or as an HTTP date, the client waits that long, up to 8 seconds; a header it cannot read leaves the wait to its own backoff.
+
+The waits (`wait_for_completion`, and the environments `wait_until_ready`, `jobs.wait` and `runs.wait`) send each poll once and do their own retrying, so they keep going through a 429 for as long as their timeout allows, and honour a longer `Retry-After`, up to 5 minutes.
 
 ```python
 from layerlens import LayerLens

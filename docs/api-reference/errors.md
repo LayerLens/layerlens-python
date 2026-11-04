@@ -217,26 +217,54 @@ except layerlens.UnprocessableEntityError as e:
 
 #### `RateLimitError` (429)
 
-Too many requests sent in a given time period.
+Too many requests sent in a given time period. The client has already retried the request
+(twice by default; see [Retry Configuration](client.md#retry-configuration)) by the time it
+raises this.
+
+The reply's `Retry-After` header says how long to wait, as a number of seconds (`120`) or as
+an HTTP date (`Wed, 21 Oct 2026 07:28:00 GMT`); RFC 9110 allows both, so read it with a
+helper rather than `int()`, which fails on a date:
 
 ```python
-import layerlens
+import math
 import time
+from email.utils import mktime_tz, parsedate_tz
+
+import layerlens
+
+
+def retry_after_seconds(error: layerlens.APIStatusError, default: float, ceiling: float = 300) -> float:
+    """The seconds a 429 or 503 asks you to wait, up to `ceiling`, or `default` without a
+    usable header."""
+    value = error.response.headers.get("retry-after", "")
+    try:
+        seconds = float(value)
+    except ValueError:  # not a number, so perhaps a date
+        date = parsedate_tz(value)
+        try:
+            seconds = max(mktime_tz(date) - time.time(), 0.0) if date else default
+        except (ValueError, OverflowError):  # a date no calendar holds
+            seconds = default
+    else:
+        if not math.isfinite(seconds) or seconds < 0:  # such as -1 or inf
+            seconds = default
+    # time.sleep() raises OverflowError past about 292 years; a ceiling also keeps a
+    # far-off date from parking your program.
+    return min(seconds, ceiling)
+
 
 try:
     client = layerlens.LayerLens()
     evaluation = client.evaluations.create(model="gpt-4", benchmark="mmlu")
 except layerlens.RateLimitError as e:
-    print("Rate limit exceeded")
-    # Extract retry-after header if available
-    retry_after = e.response.headers.get('retry-after')
-    if retry_after:
-        print(f"Retry after {retry_after} seconds")
-        time.sleep(int(retry_after))
-    else:
-        print("Waiting 60 seconds before retry...")
-        time.sleep(60)
+    wait = retry_after_seconds(e, default=60)
+    print(f"Rate limit exceeded; waiting {wait:.0f} seconds before retrying")
+    time.sleep(wait)
 ```
+
+`wait_for_completion` and the environments `wait` methods do this themselves: they keep
+polling through a 429 until their timeout, never sooner than `Retry-After` asks (up to 5
+minutes a time).
 
 #### `InternalServerError` (500+)
 
@@ -284,9 +312,9 @@ def robust_create_evaluation(model: str, benchmark: str, max_retries: int = 3):
             break  # Don't retry not found errors
 
         except layerlens.RateLimitError as e:
-            retry_after = e.response.headers.get('retry-after', 60)
-            print(f"⏳ Rate limited - waiting {retry_after} seconds...")
-            time.sleep(int(retry_after))
+            wait = retry_after_seconds(e, default=60)  # the helper under RateLimitError above
+            print(f"⏳ Rate limited - waiting {wait:.0f} seconds...")
+            time.sleep(wait)
             continue  # Retry after waiting
 
         except layerlens.InternalServerError:

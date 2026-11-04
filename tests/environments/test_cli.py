@@ -593,6 +593,32 @@ class TestTimeoutsAndInterrupts:
         assert result.exit_code == 11
         assert len(api.calls("POST", self.CANCEL)) == cancels
 
+    def test_a_model_run_whose_polls_are_throttled_until_its_timeout_is_cancelled(
+        self, runner: CliRunner, api: FakeAPI
+    ) -> None:
+        # LAY-4429: the wait raised the 429 at its deadline, so this exited 1 and left the run going.
+        api.on("POST", f"/{ENV_ID}/rollout-runs", ok(self.PENDING, 202))
+        api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", err(429, "Too Many Requests", {"Retry-After": "1"}))
+        api.on("POST", self.CANCEL, ok({**self.PENDING, "status": "cancelled"}))
+        result = invoke(
+            runner, "env", "run", "model", ENV_ID, "--set", "ci", "--model", "m", "--budget", "1", "--timeout", "0.01"
+        )
+        assert result.exit_code == 11, result.stderr
+        assert len(api.calls("POST", self.CANCEL)) == 1
+        assert f"run {RUN_ID} did not complete within 0.01 seconds; the last poll failed: " in result.stderr
+        assert "so it was cancelled" in result.stderr
+
+    @pytest.mark.parametrize("flag, cancels", [([], 0), (["--cancel-on-timeout"], 1)])
+    def test_wait_whose_polls_are_throttled_until_its_timeout_exits_11(
+        self, runner: CliRunner, api: FakeAPI, flag: List[str], cancels: int
+    ) -> None:
+        api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", err(503, "Service Unavailable"))
+        api.on("POST", self.CANCEL, ok({**self.PENDING, "status": "cancelled"}))
+        result = invoke(runner, "env", "run", "wait", ENV_ID, RUN_ID, "--timeout", "0.01", *flag)
+        assert result.exit_code == 11, result.stderr
+        assert "the last poll failed" in result.stderr
+        assert len(api.calls("POST", self.CANCEL)) == cancels
+
     def test_ctrl_c_while_waiting_exits_11_and_leaves_the_run_alone(self, runner: CliRunner, api: FakeAPI) -> None:
         api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", _interrupted)
         result = invoke(runner, "env", "run", "wait", ENV_ID, RUN_ID)

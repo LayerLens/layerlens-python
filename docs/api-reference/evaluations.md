@@ -127,7 +127,22 @@ Polls an evaluation until it completes (success, failure, or timeout) or the spe
 
 #### Returns
 
-Returns the updated `Evaluation` object when completed, or `None` if polling fails.
+Returns the updated `Evaluation` object when it has finished (success, failure or
+timeout), or `None` if the evaluation can no longer be read.
+
+Raises `TimeoutError` if it has not finished after `timeout_seconds`.
+
+#### Errors while polling
+
+A poll that fails on a 429, a 5xx or a lost connection does not end the wait: the
+evaluation goes on running on the server. This is what parallel CI jobs sharing one API key
+run into. The wait sends each poll once and does the retrying itself: the next poll follows
+half a second later, then after twice as long each time it fails again, up to
+`interval_seconds`, and never sooner than the reply's `Retry-After` (seconds or an HTTP
+date), up to 5 minutes.
+If those errors last until `timeout_seconds`, the `TimeoutError` says the last poll
+failed and carries that error as its `__cause__`. Any other error, such as a revoked
+API key (`AuthenticationError`), is raised at once.
 
 ### `get_by_id(evaluation_id, timeout=None)`
 

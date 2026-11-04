@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import json
+import inspect
 
 import click
 import pytest
@@ -414,6 +415,166 @@ class TestEvaluationsCommands:
             ["--quiet", "evaluations", "compare", str(base_path), str(cand_path)],
         )
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# evaluations compare: exit codes a CI step can act on (LAY-4429)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def split_runner():
+    """stdout and stderr apart: click 8.2+ always keeps them apart, older click on request."""
+    if "mix_stderr" in inspect.signature(CliRunner.__init__).parameters:
+        return CliRunner(mix_stderr=False)
+    return CliRunner()
+
+
+_VALID = {
+    "id": "c",
+    "dataset_id": "d",
+    "dataset_version": 1,
+    "items": [],
+    "aggregate": {"mean_scores": {"exact": 1.0}, "pass_rate": 1.0},
+}
+_VALID_JSON = json.dumps(_VALID)
+
+
+def _without(*names):
+    return json.dumps({key: value for key, value in _VALID.items() if key not in names})
+
+
+def _pass_rate(token):
+    """``_VALID`` with ``token`` written verbatim as its pass rate."""
+    return _VALID_JSON.replace('"pass_rate": 1.0', f'"pass_rate": {token}')
+
+
+# (file content, what the one error line must name besides the file)
+_UNREADABLE = {
+    "truncated-json": ('{"id": "c", "dataset_id": "d"', ["not valid JSON", "line 1, column 30"]),
+    "empty-file": ("", ["not valid JSON", "line 1, column 1"]),
+    "missing-field": (_without("dataset_version"), ["dataset_version: Field required"]),
+    # The model would fill these in (no items, a pass rate of 0) and compare a run that never ran.
+    "no-items": (_without("items"), ["items: Field required"]),
+    "no-aggregate": (_without("aggregate"), ["aggregate: Field required"]),
+    "empty-aggregate": (
+        json.dumps({**_VALID, "aggregate": {}}),
+        ["aggregate.mean_scores: Field required", "aggregate.pass_rate: Field required"],
+    ),
+    # Python's json reads these, JSON has no such numbers, and a NaN pass rate never regresses.
+    "nan": (_pass_rate("NaN"), ["not valid JSON", "NaN is not a JSON number"]),
+    "infinity": (_pass_rate("Infinity"), ["not valid JSON", "Infinity is not a JSON number"]),
+    "minus-infinity": (_pass_rate("-Infinity"), ["not valid JSON", "-Infinity is not a JSON number"]),
+    "overflowing-number": (_pass_rate("1e999"), ["not valid JSON", "1e999 is too large for a number"]),
+    "wrong-type": (json.dumps({**_VALID, "dataset_version": "one"}), ["dataset_version", "valid integer"]),
+    "nested-field": (
+        json.dumps({**_VALID, "aggregate": {"mean_scores": {}, "pass_rate": "high"}}),
+        ["aggregate.pass_rate", "valid number"],
+    ),
+    "list-item-field": (json.dumps({**_VALID, "items": [{"input": 1}]}), ["items[0].item_id", "Field required"]),
+    "array-not-object": (json.dumps([_VALID]), ["expected a JSON object, found an array"]),
+    "null-not-object": ("null", ["expected a JSON object, found null"]),
+}
+
+
+class TestEvaluationsCompareExitCodes:
+    """0 no regression, 1 regression, 2 the runs could not be compared."""
+
+    def _write(self, tmp_path, name, content):
+        path = tmp_path / name
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    @pytest.mark.parametrize("side", ["baseline", "candidate"])
+    @pytest.mark.parametrize("case", sorted(_UNREADABLE))
+    def test_unreadable_input_is_one_error_line_and_exit_2(self, split_runner, tmp_path, case, side):
+        content, must_name = _UNREADABLE[case]
+        good = self._write(tmp_path, "good.json", _run_with(pass_rate=1.0, mean=1.0, items=[]).model_dump_json())
+        bad = self._write(tmp_path, f"{case}.json", content)
+        base, cand = (bad, good) if side == "baseline" else (good, bad)
+
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", str(base), str(cand)])
+
+        assert result.exit_code == 2, result.output
+        assert result.stdout == ""
+        lines = result.stderr.splitlines()
+        assert len(lines) == 1, result.stderr
+        assert lines[0].startswith(f"Error: {side} {bad}"), lines[0]
+        for words in must_name:
+            assert words in lines[0], lines[0]
+        assert "Traceback" not in result.stderr
+
+    def test_a_file_that_is_not_utf8_is_exit_2(self, split_runner, tmp_path):
+        good = self._write(tmp_path, "good.json", _run_with(pass_rate=1.0, mean=1.0, items=[]).model_dump_json())
+        bad = tmp_path / "latin1.json"
+        bad.write_bytes(b'{"id": "caf\xe9"}')
+
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", str(good), str(bad)])
+
+        assert result.exit_code == 2
+        assert result.stderr.splitlines() == [f"Error: candidate {bad} is not UTF-8 text"]
+
+    def test_many_field_errors_still_make_one_line(self, split_runner, tmp_path):
+        good = self._write(tmp_path, "good.json", _run_with(pass_rate=1.0, mean=1.0, items=[]).model_dump_json())
+        bad = self._write(tmp_path, "empty-object.json", "{}")
+
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", str(good), str(bad)])
+
+        assert result.exit_code == 2
+        (line,) = result.stderr.splitlines()
+        assert "id: Field required" in line
+        assert "dataset_id: Field required" in line
+        assert "dataset_version: Field required" in line
+        # Every problem in one go, not one per attempt.
+        assert "items: Field required" in line
+        assert "aggregate: Field required" in line
+
+    def test_a_run_with_no_items_still_compares(self, split_runner, tmp_path):
+        # items: [] is a run of an empty dataset; only leaving the field out is refused.
+        base = self._write(tmp_path, "b.json", _VALID_JSON)
+        cand = self._write(tmp_path, "c.json", _VALID_JSON)
+
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", str(base), str(cand)])
+
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(result.stdout)["is_regression"] is False
+
+    def test_a_regression_is_still_exit_1_with_the_comparison_on_stdout(self, split_runner, tmp_path):
+        base = self._write(
+            tmp_path, "b.json", _run_with(pass_rate=1.0, mean=1.0, items=[("a", True)]).model_dump_json()
+        )
+        cand = self._write(
+            tmp_path, "c.json", _run_with(pass_rate=0.0, mean=0.0, items=[("a", False)]).model_dump_json()
+        )
+
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", str(base), str(cand)])
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["is_regression"] is True
+        assert result.stderr == ""
+
+    def test_an_unexpected_failure_is_exit_2_never_1(self, split_runner, tmp_path, monkeypatch):
+        from layerlens.evaluation_runs import RunComparer
+
+        def broken(self, baseline, candidate):
+            raise RuntimeError("comparer bug")
+
+        monkeypatch.setattr(RunComparer, "compare", broken)
+        run = _run_with(pass_rate=1.0, mean=1.0, items=[]).model_dump_json()
+        base = self._write(tmp_path, "b.json", run)
+        cand = self._write(tmp_path, "c.json", run)
+
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", str(base), str(cand)])
+
+        assert result.exit_code == 2
+        assert result.stderr.splitlines() == ["Error: unexpected error: comparer bug"]
+        assert result.stdout == ""
+
+    def test_the_help_states_the_exit_codes(self, split_runner):
+        result = split_runner.invoke(cli, ["--quiet", "evaluations", "compare", "--help"])
+
+        assert result.exit_code == 0
+        assert "Exit codes: 0 no regression, 1 regression, 2 the runs could not be compared" in result.stdout
 
 
 # ---------------------------------------------------------------------------

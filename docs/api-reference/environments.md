@@ -62,6 +62,14 @@ composite of one world, as when you create it in the app:
 (`refused_because`) when the build fails, and `TimeoutError` when it is still building at
 the deadline.
 
+Every wait (`wait_until_ready`, `jobs.wait`, `runs.wait`) keeps polling through a 429, a 5xx
+or a lost connection. It sends each poll once and does the retrying itself: the next poll
+follows half a second later, then after twice as long each time it fails again, up to the
+poll interval, and never sooner than the reply's `Retry-After`, up to 5 minutes. When its
+`timeout_seconds` passes while the polls are still failing, it raises `TimeoutError`,
+carrying the last error as its `__cause__`; any other error, such as a 403, is raised at
+once.
+
 | Method | |
 | --- | --- |
 | `create(name, type, *, description, config=None, seed=None, if_not_exists=False)` | Create and start the mint. Returns `CreatedEnvironment` (`id`, `environment`, `job`, `reused`, `unused`) |
@@ -266,7 +274,7 @@ attempt that is already graded raises `ConflictError`.
 | --- | --- |
 | `EnvironmentConflictError` (a `ConflictError`) | `create`: the name is taken by an environment this call cannot reuse. `differences` and `project_id` say why; when both are empty, the message does |
 | `EnvironmentBuildError` | `wait_until_ready`: the build failed. `refused_because` and `build` |
-| `TimeoutError` | A `wait` reached its `timeout_seconds` |
+| `TimeoutError` | A `wait` reached its `timeout_seconds`, with what it was waiting for still going, or with its polls still failing (429, 5xx, no connection); then `__cause__` is the last error |
 | `PermissionDeniedError` | The key has Standard access |
 | `RateLimitError` | An external-run limit, or the organization's limits on work started with API keys: 10 jobs in progress, and $200 a UTC day |
 | `APIResponseValidationError` | A reply the SDK could not read, such as a task set page whose `next_offset` does not move forward. Never `None` |

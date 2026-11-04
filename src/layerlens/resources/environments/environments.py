@@ -11,18 +11,17 @@ from ._shared import (
     DEFAULT_WAIT_SECONDS,
     ENVIRONMENT_PAGE_SIZE,
     ModelT,
-    Deadline,
     TaskInput,
     ResendPolicy,
     IdempotencyKey,
+    still,
     unwrap,
-    next_poll,
     error_body,
     as_response,
     create_body,
     unwrap_list,
+    wait_policy,
     is_object_id,
-    is_transient,
     envelope_data,
     check_body_size,
     environments_path,
@@ -30,6 +29,7 @@ from ._shared import (
     environment_conflict,
     require_api_key_client,
 )
+from ..._polling import POLL_RETRIES
 from ..._resource import SyncAPIResource, AsyncAPIResource
 from ..._exceptions import ConflictError, NotFoundError, LayerLensError, EnvironmentBuildError
 from ...models.environment import (
@@ -184,26 +184,33 @@ class Environments(SyncAPIResource):
         """Block until the environment's build finishes, and return the environment.
 
         Raises :class:`EnvironmentBuildError` with the generator's reason when the build
-        fails, and :class:`TimeoutError` when it is still building after ``timeout_seconds``.
+        fails, and :class:`TimeoutError` when it is still building after ``timeout_seconds``,
+        or the polls kept failing until then; a poll that fails on a 429, a 5xx or a lost
+        connection does not end the wait.
         """
         environment_id = self.resolve(environment)
-        deadline = Deadline(timeout_seconds)
-        interval = poll_interval_seconds
+        policy = wait_policy(f"environment {environment_id}", timeout_seconds, poll_interval_seconds)
         while True:
             try:
-                build = self.build_status(environment_id)
+                ready = self._ready(environment_id)
+            except EnvironmentBuildError:
+                raise
             except LayerLensError as err:
-                if not is_transient(err) or deadline.passed():
-                    raise
+                delay = policy.after_error(err)
             else:
-                if build.ready:
-                    return self.get(environment_id)
-                if build.failed:
-                    raise EnvironmentBuildError(environment_id, build)
-                if deadline.passed():
-                    raise TimeoutError(f"environment {environment_id} is still building after {timeout_seconds:g}s")
-            self._sleep(deadline.clip(interval))
-            interval = next_poll(interval)
+                if ready is not None:
+                    return ready
+                delay = policy.after_pending(still(f"environment {environment_id} is still building", timeout_seconds))
+            self._sleep(delay)
+
+    def _ready(self, environment_id: str) -> Optional[Environment]:
+        """One poll of a build: the environment once it is ready, ``None`` while it builds."""
+        build = self._call("GET", self._path(environment_id, "build"), EnvironmentBuild, max_retries=POLL_RETRIES)
+        if build.failed:
+            raise EnvironmentBuildError(environment_id, build)
+        if not build.ready:
+            return None
+        return self._call("GET", self._path(environment_id), Environment, key="environment", max_retries=POLL_RETRIES)
 
     def world_types(self) -> List[WorldType]:
         """The world types an environment can simulate, with their config knobs."""
@@ -384,23 +391,29 @@ class AsyncEnvironments(AsyncAPIResource):
         poll_interval_seconds: float = DEFAULT_POLL_SECONDS,
     ) -> Environment:
         environment_id = await self.resolve(environment)
-        deadline = Deadline(timeout_seconds)
-        interval = poll_interval_seconds
+        policy = wait_policy(f"environment {environment_id}", timeout_seconds, poll_interval_seconds)
         while True:
             try:
-                build = await self.build_status(environment_id)
+                ready = await self._ready(environment_id)
+            except EnvironmentBuildError:
+                raise
             except LayerLensError as err:
-                if not is_transient(err) or deadline.passed():
-                    raise
+                delay = policy.after_error(err)
             else:
-                if build.ready:
-                    return await self.get(environment_id)
-                if build.failed:
-                    raise EnvironmentBuildError(environment_id, build)
-                if deadline.passed():
-                    raise TimeoutError(f"environment {environment_id} is still building after {timeout_seconds:g}s")
-            await self._sleep(deadline.clip(interval))
-            interval = next_poll(interval)
+                if ready is not None:
+                    return ready
+                delay = policy.after_pending(still(f"environment {environment_id} is still building", timeout_seconds))
+            await self._sleep(delay)
+
+    async def _ready(self, environment_id: str) -> Optional[Environment]:
+        build = await self._call("GET", self._path(environment_id, "build"), EnvironmentBuild, max_retries=POLL_RETRIES)
+        if build.failed:
+            raise EnvironmentBuildError(environment_id, build)
+        if not build.ready:
+            return None
+        return await self._call(
+            "GET", self._path(environment_id), Environment, key="environment", max_retries=POLL_RETRIES
+        )
 
     async def world_types(self) -> List[WorldType]:
         return _world_types(await self._send("GET", self._path("world-types")))
