@@ -110,15 +110,19 @@ def main() -> None:
     print(f"\nManual pagination complete: {len(all_results):,} results collected")
 
     if all_results:
-        correct = sum(1 for r in all_results if r.score > 0.5)
-        accuracy = correct / len(all_results)
-        avg_score = sum(r.score for r in all_results) / len(all_results)
-        print(f"Accuracy: {accuracy:.1%} ({correct:,}/{len(all_results):,})")
-        print(f"Average score: {avg_score:.3f}")
+        graded = [r.score for r in all_results if r.score is not None]
+        ungraded = len(all_results) - len(graded)
+        if graded:
+            correct = sum(1 for score in graded if score > 0.5)
+            print(f"Accuracy: {correct / len(graded):.1%} ({correct:,}/{len(graded):,} graded)")
+            print(f"Average score: {sum(graded) / len(graded):.3f}")
+        if ungraded:
+            print(f"Not scored: {ungraded:,} (excluded from accuracy)")
 
         print(f"\nFirst 3 results:")
         for i, result in enumerate(all_results[:3], 1):
-            print(f"  {i}. Score: {result.score:.3f}, Subset: {result.subset}")
+            score_str = f"{result.score:.3f}" if result.score is not None else f"not scored ({result.score_error})"
+            print(f"  {i}. Score: {score_str}, Subset: {result.subset}")
             print(f"     Prompt: {result.prompt[:100]}...")
             print(f"     Response: {result.result[:100]}...")
 
@@ -150,9 +154,9 @@ def main() -> None:
     all_results_auto = client.results.get_all(evaluation=evaluation)
     print(f"Retrieved {len(all_results_auto)} results in one call")
 
-    if all_results_auto:
-        avg_score = sum(r.score for r in all_results_auto) / len(all_results_auto)
-        print(f"Average score: {avg_score:.3f}")
+    graded_auto = [r.score for r in all_results_auto if r.score is not None]
+    if graded_auto:
+        print(f"Average score: {sum(graded_auto) / len(graded_auto):.3f} over {len(graded_auto):,} graded")
 
     print("\nDone.")
 
