@@ -141,7 +141,8 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
         except LayerLensError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-        except click.exceptions.Exit:
+        except (click.exceptions.Exit, click.ClickException, click.Abort):
+            # A usage error raised by the command is click's to report, with its exit code.
             raise
         except Exception as e:
             if ctx.obj.get("verbose"):

@@ -136,16 +136,17 @@ layerlens bulk eval \
 
 ```bash
 # In your GitHub Actions workflow:
-layerlens evaluate run \
+layerlens --format json evaluate run \
   --model openai/gpt-4o \
   --benchmark arc-agi-2 \
-  --wait
+  --wait > evaluation.json
 
-# Generate a summary for the GitHub job
-layerlens ci report -o "$GITHUB_STEP_SUMMARY"
+# Summarise that evaluation on the GitHub job page (appended, so earlier steps' summaries stay)
+layerlens ci report --evaluation-id "$(jq -r .id evaluation.json)" -o "$GITHUB_STEP_SUMMARY"
 
-# Or output JSON for custom processing
-layerlens ci report -o report.json
+# Or as JSON for custom processing, with a trace evaluation and an environment run
+layerlens --format json ci report --evaluation-id "$(jq -r .id evaluation.json)" \
+  --trace-evaluation-id <TRACE_EVALUATION_ID> --env-run support-desk:<RUN_ID> -o report.json
 ```
 
 ---

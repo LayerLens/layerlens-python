@@ -441,7 +441,7 @@ The `create`, `get_by_id` and `get_many` method returns an `Evaluation` objects 
 | `benchmark_id`       | `str`                         | ID of the benchmark used (aliased as "dataset_id" in API) |
 | `benchmark_name`     | `str`                         | Name of the benchmark (aliased as "dataset_name" in API, default: `""`) |
 | `average_duration`   | `int`                         | Average response time in milliseconds                     |
-| `accuracy`           | `float`                       | Overall accuracy score (0.0 to 1.0)                       |
+| `accuracy`           | `float`                       | Overall accuracy, as a percentage (0 to 100). Until the evaluation succeeds, it covers only the prompts graded so far |
 | `readability_score`  | `float \| None`               | Readability score, or `None` if the metric was not computed for this evaluation |
 | `toxicity_score`     | `float \| None`               | Toxicity score, or `None` if the metric was not computed for this evaluation |
 | `ethics_score`       | `float \| None`               | Ethics score, or `None` if the metric was not computed for this evaluation |

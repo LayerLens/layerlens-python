@@ -264,6 +264,7 @@ if estimate:
 | `trace_id`       | `str`                        | ID of the evaluated trace                |
 | `judge_id`       | `str`                        | ID of the judge used                     |
 | `status`         | `TraceEvaluationStatus`      | Current status of the evaluation         |
+| `status_description` | `str \| None`            | Why the evaluation failed, when `status` is `failure` |
 | `judge_snapshot` | `JudgeSnapshot \| None`      | Snapshot of judge config at run time     |
 | `created_at`     | `str \| None`                | ISO 8601 creation timestamp              |
 | `started_at`     | `str \| None`                | When evaluation started                  |

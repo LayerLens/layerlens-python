@@ -35,7 +35,7 @@ layerlens [global-options]
 ├── bulk
 │   └── eval          Run evaluations in bulk
 ├── ci
-│   └── report        Generate a CI summary report
+│   └── report        Summarise the evaluations and runs a CI step names
 ├── env               Environments: create, run your agent or a model, gate a build (see env.md)
 │   ├── world-types, list, get, create, status, wait, tools, reset, revert, delete
 │   ├── tasks         list, generate, delete
@@ -414,17 +414,68 @@ CI/CD pipeline helpers.
 
 ### `ci report`
 
-Generate a markdown summary of recent evaluations, suitable for GitHub Actions job summaries.
+Summarise what a CI step names, for its job page: benchmark evaluations, trace evaluations and
+environment runs, given by id, in one Markdown report (one JSON document with `--format json`).
+It reports only what it is given, never the project's latest unless asked with `--latest`.
 
 ```bash
-layerlens ci report [OPTIONS]
+layerlens ci report [--evaluation-id ID]... [--trace-evaluation-id ID]... [--env-run ENV:RUN_ID]... [OPTIONS]
 ```
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `--output`, `-o` | path | Output file (default: stdout) |
-| `--limit` | int | Number of evaluations to include (default: 10) |
-| `--dry-run` | flag | Preview without fetching data |
+| `--evaluation-id` | text | A benchmark evaluation, as `evaluate run` printed it. Repeatable |
+| `--trace-evaluation-id` | text | A trace evaluation, as `judge test` printed it. Repeatable |
+| `--env-run` | `ENV:RUN_ID` | An environment run: the environment's name or id, a colon, the run's id. Repeatable |
+| `--latest` | int | Also report the project's N most recent benchmark evaluations, whoever started them (1-500) |
+| `--output`, `-o` | path | Append the Markdown report to this file, so `$GITHUB_STEP_SUMMARY` keeps what earlier steps wrote; with `--format json`, write the JSON report to it, replacing the file (default: stdout) |
+| `--dry-run` | flag | Say what would be reported, without fetching it |
+
+Name at least one evaluation or run, or pass `--latest`: otherwise it is a usage error (exit `2`),
+and so is an empty id, which is what a variable holds when the step that should have set it
+failed. Each is reported once, however many times it is named.
+If one of them cannot be read (an unknown id, a refused request, a trace evaluation that
+succeeded but whose result is missing), it exits `1` with an `Error:` line naming it, and
+writes no report. An environment run needs an API key with **Automation** access, as
+[`layerlens env`](env.md) does; one Automation key can read all three kinds.
+
+It reports results without judging them: it exits `0` whatever they are. Gate the build with the
+commands that ran them (`env run exec --min-pass-rate`, for example), and run `ci report` even
+when they fail. GitHub Actions runs `run:` with `bash -e`, so save the exit status, write the id,
+then exit with it:
+
+```yaml
+- name: Evaluate
+  run: |
+    status=0
+    layerlens --format json evaluate run --model gpt-4o --benchmark mmlu --wait > evaluation.json || status=$?
+    echo "EVAL_ID=$(jq -r '.id // empty' evaluation.json)" >> "$GITHUB_ENV"
+    exit "$status"
+- name: Summarise
+  if: always() && env.EVAL_ID != ''
+  run: layerlens ci report --evaluation-id "$EVAL_ID" -o "$GITHUB_STEP_SUMMARY"
+```
+
+An environment run gets a section like `env run exec --markdown` writes: its counts, then every
+task that did not pass. A benchmark evaluation that has not succeeded shows no accuracy or failed
+prompts, which until then cover only the prompts graded so far, and a trace evaluation still
+running shows no verdict.
+
+With `--format json`, the report is:
+
+```json
+{
+  "generated_at": "2026-11-04T18:00:00Z",
+  "evaluations": [{"id": "…", "status": "success", "accuracy": 76.67, "...": "…"}],
+  "trace_evaluations": [{"id": "…", "status": "success", "...": "…", "result": {"passed": true, "score": 0.9, "...": "…"}}],
+  "environment_runs": [{"environment": "support-desk", "run_id": "…", "passed": 9, "total": 10, "...": "…"}]
+}
+```
+
+A benchmark evaluation has the fields `evaluate get --format json` prints. A trace evaluation
+has its `id`, `trace_id`, `judge_id` and `status`, and its `result`, the object `judge result`
+prints once it has succeeded (`null` until then). An environment run has the fields
+`env run results --format json` prints, and the `environment` as it was given.
 
 ---
 

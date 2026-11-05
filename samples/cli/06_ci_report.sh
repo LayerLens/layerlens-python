@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Generate a CI evaluation report (for GitHub Actions)
+# Summarise an evaluation in a CI report (for GitHub Actions, pass "$GITHUB_STEP_SUMMARY")
+#
+# Usage: ./06_ci_report.sh <EVALUATION_ID> [OUTPUT]
 set -euo pipefail
 
-OUTPUT="${1:-summary.md}"
+EVALUATION_ID="${1:?Usage: $0 <EVALUATION_ID> [OUTPUT]}"
+OUTPUT="${2:-summary.md}"
 
 echo "==> Generating CI report..."
-layerlens ci report --limit 10 -o "$OUTPUT"
+layerlens ci report --evaluation-id "$EVALUATION_ID" -o "$OUTPUT"
 
-echo "==> Report written to $OUTPUT"
+echo "==> Report appended to $OUTPUT"
 cat "$OUTPUT"

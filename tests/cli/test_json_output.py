@@ -379,8 +379,8 @@ RETURNS_NOTHING = [
     ("bulk", ["bulk", "eval", "--file", "{jobs}", "--dry-run"], "[dry-run] Would create 1 evaluation(s)"),
     ("bulk", ["bulk", "eval", "--model", "gpt-4", "--benchmark", "mmlu", "--dry-run"], "[dry-run] Would create"),
     ("bulk", ["bulk", "eval", "--judge-id", "j-1", "--traces", "{traces}", "--dry-run"], "trace=tr-1"),
-    ("ci", ["ci", "report", "--output", "{out}"], "Report written to"),
-    ("ci", ["ci", "report", "--dry-run"], "[dry-run] Would generate CI report"),
+    ("ci", ["ci", "report", "--latest", "1", "--output", "{out}"], "Report written to"),
+    ("ci", ["ci", "report", "--evaluation-id", "ev-1", "--dry-run"], "[dry-run] Would report 1 benchmark evaluation"),
 ]
 
 

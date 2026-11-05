@@ -84,3 +84,26 @@ def test_markdown_says_why_a_run_failed() -> None:
 def test_a_cost_under_a_cent_is_not_shown_as_zero() -> None:
     assert "<$0.01" in _run(cost_usd=0.0004).to_markdown()
     assert "| - |" in _run(cost_usd=None).to_markdown()
+
+
+# Text from the API, quoted from an agent's answer or a trace, as an attacker would write it.
+MARKUP = (
+    "![x](https://evil.example/p.png) [click](https://evil.example) <img src=x> **bold** `code` _u_ ~s~ $x$ & \\ "
+    "see HTTPS://evil.example/login or WWW.evil.example"
+)
+# The same text with every character that would make it markup escaped, so it renders as written.
+ESCAPED = (
+    r"\!\[x\](https\://evil.example/p.png) \[click\](https\://evil.example) \<img src=x\> \*\*bold\*\* "
+    r"\`code\` \_u\_ \~s\~ \$x\$ \& \\ see HTTPS\://evil.example/login or WWW\.evil.example"
+)
+
+
+def test_markdown_shows_text_from_the_api_as_text_never_as_markup() -> None:
+    run = RunResult.model_validate(
+        run_view(row(ATTEMPT_1, "fail", evidence=MARKUP), agent_name="agent_<b>", label="v1 `rm` | x")
+    )
+    text = run.to_markdown()
+    assert text.startswith(r"### LayerLens: agent\_\<b\> — ")
+    assert f"| task-1 | fail | {ESCAPED} |" in text
+    # Inside a code span a backslash is shown, not read: a backtick cannot close the span early.
+    assert "label `v1 'rm' | x`" in text

@@ -55,6 +55,23 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Changed
 
+- **`layerlens ci report` reports what the CI step names, not the project's latest evaluations.**
+  It summarised the 10 most recent benchmark evaluations in the project, whoever started them, so
+  a job summary showed other people's evaluations, and never a trace evaluation or an environment
+  run. It now reports `--evaluation-id`, `--trace-evaluation-id` and `--env-run ENV:RUN_ID` (each
+  repeatable, each reported once) in one Markdown report, or one JSON document with `--format json`.
+  The project's latest are reported only with `--latest N`; `--limit N` still works, as
+  `--latest N`, with a deprecation warning. Without any of them, or with an empty id, it is a usage
+  error (exit `2`), where it used to report the project's latest. If one of them cannot be read it
+  exits `1`, naming it, and writes no report. `-o FILE` now appends the Markdown report, so
+  `-o "$GITHUB_STEP_SUMMARY"` no longer erases what earlier steps wrote there (a JSON report still
+  replaces the file). A benchmark evaluation that has not succeeded shows no accuracy or failed
+  prompts, which until then cover only the prompts graded so far; one that has shows its accuracy as
+  the percentage the API sends (`76.7%`), where it multiplied it by 100 again (`7666.70%`). The JSON
+  report drops `total_evaluations` and `summary`, whose `passed` counted the evaluations that
+  completed, whatever they scored. The API reference now says `Evaluation.accuracy` is a percentage
+  (0 to 100), not 0.0 to 1.0. See [docs/cli/commands.md](docs/cli/commands.md#ci-report) (LAY-4431)
+
 - **The client is now `LayerLens`.** `Stratix` → `LayerLens`, `AsyncStratix` →
   `AsyncLayerLens`, `StratixError` → `LayerLensError`, and the CLI command is
   `layerlens`. The client is configured by `LAYERLENS_API_KEY` and
@@ -273,6 +290,27 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **OpenAI, Azure OpenAI, OpenRouter and LiteLLM: tool-call arguments are no longer read with `capture_content` off.** With it off, the trace drops the arguments, but they were still decoded, and arguments that are not valid JSON were logged as a warning with their first 200 characters, so they reached your logs anyway. They are now decoded only with `capture_content` on, and once per call: OpenAI, Azure OpenAI and OpenRouter logged a malformed call's warning twice. What the trace records is unchanged
 
 - **Anthropic and AWS Bedrock: a streamed tool call no longer breaks your loop or vanishes from the trace.** With Anthropic `messages.create(stream=True)`, tool input nested deeper than Python's JSON decoder goes raised `RecursionError` into your loop after the last event, whatever `capture_content` was set to. On Bedrock, the same input in a `converse_stream` turn dropped the call's `model.invoke`, `tool.call` and `cost.record`, and an `invoke_model` response nested that deep raised `RecursionError` from `client.invoke_model(...)`; one such chunk in an `invoke_model_with_response_stream` reply dropped the call's `model.invoke` and `cost.record`, and a request body nested that deep raised `RecursionError` from `client.invoke_model(...)` before the request was sent, or from `client.invoke_model_with_response_stream(...)` after it. A streamed Anthropic tool call also reached the trace with `null` input whenever a text block came before it, as it usually does in Claude's replies. Streamed tool input is now handled like OpenAI's: with `capture_content` on, it is the decoded object, or the string the model sent plus a warning when it does not decode; with it off, it is not read. A stream whose events cannot be aggregated (an OpenAI-compatible server that streams a tool call's arguments as an object raised `TypeError` there) no longer raises into your loop either: the call is recorded without its reply and the error is logged
+
+- **`TraceEvaluation.judge_snapshot` is read from the API, and `status_description` is new.**
+  atlas-app sends the snapshot as `judgeSnapshot`, which the model ignored, so `judge_snapshot` was
+  always `None` from `client.trace_evaluations.get` and `get_many` (and `judge result`). It is now
+  read. `status_description` says why a trace evaluation failed; `layerlens ci report` shows the
+  judge's name and version, and that reason (LAY-4431)
+
+- **Markdown reports show text from the API as text, never as markup.** `RunResult.to_markdown()`
+  (and so `env run exec --markdown` and `env run results --markdown`) wrote a task's evidence, the
+  agent's name and other text from the API into the summary as it came, escaping only `|`. That
+  text can quote what an agent or a trace said, so it could put an image (fetched when the CI job
+  page is opened), a link or HTML on that page. Every character that would make it markup is now
+  escaped, and so is what makes GitHub link a bare `https://…` or `www.…` address; an email address
+  still becomes a `mailto:` link to itself. A backtick can no longer close a code span early. `layerlens ci report` does the
+  same for model and benchmark names and a judge's reasoning (LAY-4431)
+
+- **A usage error inside a CLI command no longer reads as "Unexpected error".** Outside
+  `layerlens env`, a usage error a command found itself, such as `--api-key-file` with an empty
+  path, printed `Unexpected error: …` and exited `1`; it now prints click's usage message and exits
+  `2`. Declining `trace delete` or `scorer delete` printed `Unexpected error:` with nothing after it;
+  it now prints `Aborted!` (LAY-4431)
 
 ### Deprecated
 

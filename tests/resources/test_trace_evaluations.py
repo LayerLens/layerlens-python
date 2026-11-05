@@ -136,6 +136,39 @@ class TestTraceEvaluations:
         assert result.judge_snapshot.version == 1
         assert result.judge_snapshot.evaluation_goal == "Evaluate output quality"
 
+    def test_get_reads_the_judge_snapshot_and_failure_reason_as_atlas_sends_them(self, trace_evals_resource):
+        """atlas-app sends `judgeSnapshot` (camelCase) holding snake_case fields, and `status_description`."""
+        trace_evals_resource._get.return_value = {
+            "status": "success",
+            "data": {
+                "id": "te-123",
+                "organization_id": "org-123",
+                "project_id": "proj-456",
+                "trace_id": "trace-456",
+                "judge_id": "judge-789",
+                "user_id": "someone@example.com",
+                "status": "failure",
+                "status_description": "the judge model timed out after 120s",
+                "judgeSnapshot": {
+                    "name": "Quality Judge",
+                    "version": 2,
+                    "evaluation_goal": "Evaluate output quality",
+                    "model_id": "model-1",
+                    "model_name": "Claude Sonnet 4.5",
+                    "model_company": "Anthropic",
+                },
+                "created_at": "2026-11-04T12:00:00Z",
+            },
+        }
+
+        result = trace_evals_resource.get("te-123")
+
+        assert result.status_description == "the judge model timed out after 120s"
+        assert result.judge_snapshot is not None
+        assert (result.judge_snapshot.name, result.judge_snapshot.version) == ("Quality Judge", 2)
+        assert result.judge_snapshot.evaluation_goal == "Evaluate output quality"
+        assert result.judge_snapshot.model_name == "Claude Sonnet 4.5"
+
     def test_get_trace_evaluation_success(self, trace_evals_resource, sample_trace_eval_data):
         """get method returns TraceEvaluation on success."""
         trace_evals_resource._get.return_value = sample_trace_eval_data

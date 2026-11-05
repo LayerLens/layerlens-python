@@ -152,8 +152,10 @@ layerlens integration list
 
 ### Generate a CI report
 
+Summarise the evaluations and runs a CI step named; `-o` appends, so `$GITHUB_STEP_SUMMARY` works:
+
 ```bash
-layerlens ci report -o summary.md
+layerlens ci report --evaluation-id <EVALUATION_ID> -o summary.md
 ```
 
 ## Next steps

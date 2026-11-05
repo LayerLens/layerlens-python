@@ -466,77 +466,6 @@ class TestBulkCommands:
         assert "3 trace evaluation(s)" in result.output
 
 
-class TestCiCommands:
-    """Test ci CLI commands."""
-
-    @pytest.fixture
-    def runner(self):
-        return _make_runner()
-
-    def test_ci_report_dry_run(self, runner):
-        """ci report --dry-run previews."""
-        result = runner.invoke(
-            cli,
-            ["ci", "report", "--dry-run"],
-            env={"LAYERLENS_API_KEY": "test"},
-        )
-
-        assert result.exit_code == 0
-        assert "[dry-run]" in result.output
-
-    @patch("layerlens.cli.commands.ci.get_client")
-    def test_ci_report_markdown(self, mock_get_client, runner):
-        """ci report generates markdown."""
-        ev = Mock()
-        ev.id = "ev-1"
-        ev.status = "success"
-        ev.model_name = "GPT-4"
-        ev.benchmark_name = "MATH"
-        ev.accuracy = 0.95
-        ev.model_dump.return_value = {"id": "ev-1", "status": "success"}
-
-        client = Mock()
-        resp = Mock()
-        resp.evaluations = [ev]
-        client.evaluations.get_many.return_value = resp
-        mock_get_client.return_value = client
-
-        result = runner.invoke(cli, ["ci", "report"], env={"LAYERLENS_API_KEY": "test"})
-
-        assert result.exit_code == 0
-        assert "# LayerLens Evaluation Report" in result.output
-        assert "GPT-4" in result.output
-
-    @patch("layerlens.cli.commands.ci.get_client")
-    def test_ci_report_to_file(self, mock_get_client, runner, tmp_path):
-        """ci report --output writes to file."""
-        ev = Mock()
-        ev.id = "ev-1"
-        ev.status = "success"
-        ev.model_name = "GPT-4"
-        ev.benchmark_name = "MATH"
-        ev.accuracy = 0.95
-        ev.model_dump.return_value = {"id": "ev-1"}
-
-        client = Mock()
-        resp = Mock()
-        resp.evaluations = [ev]
-        client.evaluations.get_many.return_value = resp
-        mock_get_client.return_value = client
-
-        out_file = tmp_path / "report.md"
-        result = runner.invoke(
-            cli,
-            ["ci", "report", "-o", str(out_file)],
-            env={"LAYERLENS_API_KEY": "test"},
-        )
-
-        assert result.exit_code == 0
-        assert out_file.exists()
-        content = out_file.read_text()
-        assert "LayerLens Evaluation Report" in content
-
-
 class TestGlobalOptions:
     """Test global CLI options."""
 
@@ -592,3 +521,31 @@ class TestGlobalOptions:
         assert result.exit_code == 0
         # Banner goes to stderr; with -q it should be empty
         assert "STRATIX" not in result.stderr
+
+
+class TestClickErrorsInsideACommand:
+    """A usage error or an abort raised inside a command is click's to report, never "Unexpected error"."""
+
+    @pytest.fixture
+    def runner(self):
+        return _make_runner()
+
+    def test_a_bad_api_key_file_is_a_usage_error(self, runner):
+        # get_client raises the usage error from inside the command, under handle_errors.
+        result = runner.invoke(cli, ["trace", "list", "--api-key-file", ""])
+
+        assert result.exit_code == 2, result.output + result.stderr
+        assert "--api-key-file needs a path" in result.stderr
+        assert "Unexpected error" not in result.output + result.stderr
+
+    @patch("layerlens.cli.commands.trace.get_client")
+    def test_declining_a_delete_aborts_without_deleting(self, mock_get_client, runner):
+        client = Mock()
+        mock_get_client.return_value = client
+
+        result = runner.invoke(cli, ["trace", "delete", "trace-123"], input="n\n", env={"LAYERLENS_API_KEY": "test"})
+
+        assert result.exit_code == 1
+        assert "Aborted!" in result.stderr
+        assert "Unexpected error" not in result.output + result.stderr
+        client.traces.delete.assert_not_called()

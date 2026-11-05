@@ -97,11 +97,31 @@ def run_to_junit(run: RunResult, *, suite_name: Optional[str] = None) -> str:
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}\n'
 
 
+# What text from the API (evidence, an agent's answer, names, a judge's reasoning quoting a trace)
+# could otherwise turn into on a CI job page: an image, a link, an HTML tag, emphasis, math, a code
+# span or another table cell. CommonMark reads a backslash before any ASCII punctuation as "this
+# character, as text", in a table cell too. GitHub also links a bare `https://…` or `www.…`:
+# escaping the scheme's colon or the dot after `www` stops that (checked with cmark-gfm). It still
+# links an email address, to itself (`mailto:`), whatever is escaped.
+_MARKDOWN_SPECIAL = re.compile(r"([\\`*_~\[\]<>&|$!]|:(?=//)|(?<=[Ww][Ww][Ww])\.)")
+
+
 def _cell(text: Optional[str], limit: Optional[int] = None) -> str:
+    """``text`` on one line of Markdown, shown exactly as written; ``-`` when there is none."""
     value = " ".join((text or "").split())
     if limit is not None and len(value) > limit:
         value = value[: limit - 1] + "…"
-    return value.replace("\\", "\\\\").replace("|", "\\|") or "-"
+    return _MARKDOWN_SPECIAL.sub(r"\\\1", value) or "-"
+
+
+def _code(text: Optional[str], *, table: bool = False) -> str:
+    """``text`` for inside a code span, which shows a backslash instead of reading it.
+
+    A backtick would end the span, so it becomes ``'``; in a table cell a pipe would end the cell
+    even inside a span, and there (only) GitHub reads ``\\|`` as a pipe.
+    """
+    value = " ".join((text or "").split()).replace("`", "'")
+    return value.replace("|", "\\|") if table else value
 
 
 def _percent(rate: Optional[float]) -> str:
@@ -126,11 +146,11 @@ def run_to_markdown(run: RunResult, *, title: Optional[str] = None) -> str:
         f"{_dollars(run.cost_usd)} |",
         "",
     ]
-    about = [f"run `{run.run_id}`", f"environment version {run.environment_version}"]
+    about = [f"run `{_code(run.run_id)}`", f"environment version {run.environment_version}"]
     if run.label:
-        about.append(f"label `{_cell(run.label)}`")
+        about.append(f"label `{_code(run.label)}`")
     if run.model:
-        about.append(f"model `{_cell(run.model)}`")
+        about.append(f"model `{_code(run.model)}`")
     lines.append(" · ".join(about))
     lines.append("")
     if run.error:
@@ -149,7 +169,7 @@ def run_to_markdown(run: RunResult, *, title: Optional[str] = None) -> str:
             ]
         )
         for attempt in not_passed:
-            trace = f"`{attempt.trace_id}`" if attempt.trace_id else "-"
+            trace = f"`{_code(attempt.trace_id, table=True)}`" if attempt.trace_id else "-"
             lines.append(
                 f"| {_cell(_case_name(attempt))} | {_cell(attempt.verdict or 'pending')} | "
                 f"{_cell(attempt.evidence, _MARKDOWN_EVIDENCE_CHARS)} | {trace} |"

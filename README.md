@@ -46,7 +46,7 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 - **A 4-generation eval ladder.** Start with heuristic checks, graduate to model-graded scoring, add deliberation panels, then build auto-optimized GEPA judges. One SDK covers the full spectrum.
 - **Agent trace evaluation.** Upload a multi-step agent trace, replay it, and judge every step. Built for the world where agents do real work.
 - **[Adapters](#adapters) for the stack you already run.** Traces from your agent frameworks, protocols and model providers land in one schema, so a judge you tuned last quarter runs unchanged on next quarter's stack.
-- **CI/CD eval gates.** `layerlens ci report` emits a markdown summary for your job output, and [`samples/cicd/`](./samples/cicd/) has a ready-to-copy threshold gate that exits non-zero on regression.
+- **CI/CD eval gates.** `layerlens ci report` writes a markdown summary of the evaluations and runs your CI job names, and [`samples/cicd/`](./samples/cicd/) has a ready-to-copy threshold gate that exits non-zero on regression.
 
 ## How LayerLens Compares
 
@@ -263,8 +263,8 @@ layerlens trace list
 # Run a judge evaluation
 layerlens judge test --judge-id <id> --trace-id <id>
 
-# Emit a markdown eval summary for a CI job summary
-layerlens ci report -o "$GITHUB_STEP_SUMMARY"
+# Add the evaluations and runs this CI job named to its job summary
+layerlens ci report --evaluation-id "$EVAL_ID" --trace-evaluation-id "$TRACE_EVAL_ID" -o "$GITHUB_STEP_SUMMARY"
 ```
 
 `ci report` summarizes; it has no pass/fail semantics. For a gate that exits
