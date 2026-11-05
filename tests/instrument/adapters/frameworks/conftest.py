@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Type, Tuple, TypeVar, Optional
 from unittest.mock import Mock
 
 # Re-export from root conftest so framework tests can do `from .conftest import ...`
@@ -31,6 +31,23 @@ def capture_framework_trace(mock_client: Mock) -> Dict[str, Any]:
 
     mock_client.traces.upload.side_effect = _capture
     return uploaded
+
+
+_E = TypeVar("_E", bound=BaseException)
+
+
+def cause_of_type(exc: BaseException, cls: Type[_E]) -> _E:
+    """The first exception of type ``cls`` that ``exc`` was raised from: ``exc`` itself,
+    or one reached through ``__cause__``. A framework that wraps a provider's error
+    (``raise ServiceResponseException(...) from err``) keeps it there."""
+    seen: List[BaseException] = []
+    current: Optional[BaseException] = exc
+    while current is not None and not any(current is s for s in seen):
+        if isinstance(current, cls):
+            return current
+        seen.append(current)
+        current = current.__cause__
+    raise AssertionError(f"no {cls.__name__} in what {type(exc).__name__} was raised from: {exc!r}")
 
 
 def model_calls(events: List[Dict[str, Any]]) -> List[Tuple[Any, ...]]:

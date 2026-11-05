@@ -205,13 +205,15 @@ class TestRealErrorShape:
         assert isinstance(cause, openai.OpenAIError)
 
         events = uploaded["events"]
-        # A generator failure crashes the pipeline; the real openai error text —
-        # HTTP status + the provider's own reason code — flows verbatim onto
-        # ``agent.output.error``.
+        # A generator failure crashes the pipeline; the real openai error text flows
+        # verbatim onto ``agent.output.error``. That text is openai's to word: up to
+        # 3.37 it held the whole body, reason code included; from 3.38 it is the
+        # HTTP status and the provider's message.
         out = find_event(events, "agent.output")
         assert "error" in out["payload"], "provider failure dropped from agent.output"
+        assert str(cause) in out["payload"]["error"]
         assert "429" in out["payload"]["error"]
-        assert "rate_limit_exceeded" in out["payload"]["error"]
+        assert "Rate limit reached for gpt-4o-mini" in out["payload"]["error"]
 
 
 # ---------------------------------------------------------------------------

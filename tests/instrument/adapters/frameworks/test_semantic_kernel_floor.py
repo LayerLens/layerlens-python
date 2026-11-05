@@ -69,13 +69,13 @@ from semantic_kernel.connectors.ai.open_ai import (  # noqa: E402
 )
 from semantic_kernel.exceptions.kernel_exceptions import KernelInvokeException  # noqa: E402
 
-from openai import AsyncOpenAI  # noqa: E402
+from openai import AsyncOpenAI, AuthenticationError  # noqa: E402
 from layerlens.attestation._verify import verify_chain  # noqa: E402
 from layerlens.attestation._envelope import HashScope, AttestationEnvelope  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.frameworks.semantic_kernel import SemanticKernelAdapter  # noqa: E402
 
-from .conftest import find_event, find_events, capture_framework_trace  # noqa: E402
+from .conftest import find_event, find_events, cause_of_type, capture_framework_trace  # noqa: E402
 from ..._recorded import load_recorded, mock_transport  # noqa: E402
 
 SENTINEL = "LL-SENTINEL-7f3a9c2e"
@@ -161,9 +161,10 @@ class TestRealErrorShape:
         # The 401 propagates out of kernel.invoke (SK wraps it in a
         # KernelInvokeException); the LLM-level agent.error is emitted before the
         # re-raise, and the function filter's finally still flushes the trace.
-        with pytest.raises(KernelInvokeException):
+        with pytest.raises(KernelInvokeException) as exc_info:
             asyncio.run(kernel.invoke(fn, question="hi"))
         adapter.disconnect()
+        provider_error = cause_of_type(exc_info.value, AuthenticationError)
 
         events = uploaded["events"]
         errors = find_events(events, "agent.error")
@@ -182,13 +183,15 @@ class TestRealErrorShape:
         assert payload["model"] == _MODEL
         assert payload["framework"] == "semantic_kernel"
         assert "latency_ms" in payload
-        # The REAL underlying openai exception flows through verbatim (bite:
-        # dropped/mangled error text fails here) — proof a genuine SDK error, not
-        # a synthetic string, reached the adapter. "401"/"invalid_api_key" survive
-        # the secret-scrub chokepoint.
+        # The REAL underlying openai exception's text flows through verbatim (bite:
+        # dropped/mangled error text fails here) — proof a genuine SDK error, not a
+        # synthetic string, reached the adapter, and it survives the secret-scrub
+        # chokepoint. That text is openai's to word: up to 3.37 it held the whole
+        # body, reason code included; from 3.38 it is the status and the message.
+        assert str(provider_error) in payload["error"]
         assert "AuthenticationError" in payload["error"]
         assert "401" in payload["error"]
-        assert "invalid_api_key" in payload["error"]
+        assert "Incorrect API key provided." in payload["error"]
 
 
 # ---------------------------------------------------------------------------

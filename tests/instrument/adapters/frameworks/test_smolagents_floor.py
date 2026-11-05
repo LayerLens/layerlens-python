@@ -189,10 +189,12 @@ class TestRealErrorShape:
         assert payload["error_type"] == "AgentGenerationError"
         assert payload["framework"] == "smolagents"
         # The real openai error text flows through verbatim (bite: dropped/mangled
-        # error text fails here). Tied to the real HTTP status + openai error code.
+        # error text fails here), tied to the real HTTP status and the provider's
+        # message. That text is openai's to word: up to 3.37 it held the whole body,
+        # reason code included; from 3.38 it is the status and the message.
+        assert str(raised.__cause__) in payload["error"]
         assert "404" in payload["error"]
         assert "does not exist" in payload["error"]
-        assert "model_not_found" in payload["error"]
 
 
 # ---------------------------------------------------------------------------
