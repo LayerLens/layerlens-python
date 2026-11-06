@@ -23,6 +23,8 @@ import tempfile
 import threading
 from typing import Any, Dict, Tuple, Callable, Optional
 
+from .._trace_id_file import offer_trace_id
+
 log: logging.Logger = logging.getLogger(__name__)
 
 
@@ -35,6 +37,16 @@ def _upload_succeeded(result: Any) -> bool:
     breaker stays blind to persistent rejects and the trace is silently lost while
     counted as delivered."""
     return result is not None and bool(getattr(result, "trace_ids", None))
+
+
+def _offer_server_trace_id(result: Any) -> None:
+    """Hand ``layerlens env run exec`` the id the server gave an accepted trace (LAY-4430).
+
+    One payload is uploaded per file, so the first id is that trace's.
+    """
+    ids = getattr(result, "trace_ids", None)
+    if isinstance(ids, list) and ids and isinstance(ids[0], str):
+        offer_trace_id(ids[0])
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +177,7 @@ class UploadChannel:
                 result = client.traces.upload(path)
                 if _upload_succeeded(result):
                     self._on_success()
+                    _offer_server_trace_id(result)
                 else:
                     self._on_failure()
                     _record_loss("rejected", payload)
@@ -231,6 +244,7 @@ class UploadChannel:
             result = client.traces.upload(path)
             if _upload_succeeded(result):
                 self._on_success()
+                _offer_server_trace_id(result)
             else:
                 self._on_failure()
                 _record_loss("rejected", payload)

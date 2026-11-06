@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import mimetypes
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import httpx
 
@@ -46,6 +46,23 @@ def _validate_upload_filename(filename: str) -> str:
     if _UNSAFE_FILENAME_CHARS.search(filename):
         raise ValueError(f"upload filename contains path separators or control characters: {filename!r}")
     return filename
+
+
+def _tag_values(tags: Sequence[str]) -> List[str]:
+    """``tags`` as the API's ``tag`` query values, one per tag; a trace matches when it carries every one.
+
+    A lone string is refused rather than read as its letters, and a blank tag rather than
+    sent: the API ignores a blank tag, so the filter would widen to every trace in the project.
+    """
+    if isinstance(tags, str):
+        raise TypeError("tags is a list of tags, not one string: pass tags=[...]")
+    values = list(tags)
+    for tag in values:
+        if not isinstance(tag, str):
+            raise TypeError(f"each tag is a string, got {type(tag).__name__}")
+        if not tag.strip():
+            raise ValueError("a tag cannot be empty: the API would ignore it and list every trace")
+    return values
 
 
 class Traces(SyncAPIResource):
@@ -157,10 +174,17 @@ class Traces(SyncAPIResource):
         status: Optional[str] = None,
         time_range: Optional[str] = None,
         search: Optional[str] = None,
+        tags: Optional[Sequence[str]] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[TracesResponse]:
+        """A page of the project's traces, filtered.
+
+        ``tags`` keeps the traces that carry every one of them, for example the
+        ``environment`` tag, the environment's name and the run's label of an environment run.
+        """
+        tag_values = _tag_values(tags) if tags is not None else None
         params: Dict[str, Any] = {}
 
         effective_page_size = min(max(page_size, 1), MAX_PAGE_SIZE) if page_size is not None else DEFAULT_PAGE_SIZE
@@ -179,6 +203,8 @@ class Traces(SyncAPIResource):
             params["time_range"] = time_range
         if search is not None:
             params["search"] = search
+        if tag_values:
+            params["tag"] = tag_values
         if sort_by is not None:
             params["sort_by"] = sort_by
         if sort_order is not None:
@@ -348,10 +374,17 @@ class AsyncTraces(AsyncAPIResource):
         status: Optional[str] = None,
         time_range: Optional[str] = None,
         search: Optional[str] = None,
+        tags: Optional[Sequence[str]] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> Optional[TracesResponse]:
+        """A page of the project's traces, filtered.
+
+        ``tags`` keeps the traces that carry every one of them, for example the
+        ``environment`` tag, the environment's name and the run's label of an environment run.
+        """
+        tag_values = _tag_values(tags) if tags is not None else None
         params: Dict[str, Any] = {}
 
         effective_page_size = min(max(page_size, 1), MAX_PAGE_SIZE) if page_size is not None else DEFAULT_PAGE_SIZE
@@ -370,6 +403,8 @@ class AsyncTraces(AsyncAPIResource):
             params["time_range"] = time_range
         if search is not None:
             params["search"] = search
+        if tag_values:
+            params["tag"] = tag_values
         if sort_by is not None:
             params["sort_by"] = sort_by
         if sort_order is not None:

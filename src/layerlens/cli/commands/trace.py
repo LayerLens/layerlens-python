@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import json
+from typing import Any, List, Tuple, Callable
 
 import click
 
@@ -17,6 +18,24 @@ TRACE_COLUMNS = [
     ("filename", "Filename"),
     ("evaluations_count", "Evaluations"),
 ]
+
+
+def _tags(ctx: click.Context, param: click.Parameter, value: Tuple[str, ...]) -> List[str]:
+    # A blank tag (an unset variable in `--tag "$GIT_SHA"`) would be ignored by the API,
+    # which would then list every trace in the project as if it were the run's.
+    if any(not tag.strip() for tag in value):
+        raise click.BadParameter("a tag cannot be empty", ctx=ctx, param=param)
+    return list(value)
+
+
+def _tag_option(fn: Callable[..., Any]) -> Callable[..., Any]:
+    return click.option(
+        "--tag",
+        "tags",
+        multiple=True,
+        callback=_tags,
+        help="Only traces with this tag. Repeat it for traces with every one.",
+    )(fn)
 
 
 @click.group(cls=LayerLensGroup)
@@ -38,6 +57,7 @@ def trace() -> None:
 @click.option("--page-size", default=None, type=int, help="Results per page.")
 @click.option("--source", default=None, help="Filter by source.")
 @click.option("--status", default=None, help="Filter by status.")
+@_tag_option
 @click.option("--sort-by", default=None, help="Sort field.")
 @click.option("--sort-order", default=None, type=click.Choice(["asc", "desc"]), help="Sort order.")
 @click.pass_context
@@ -48,6 +68,7 @@ def list_traces(
     page_size: int | None,
     source: str | None,
     status: str | None,
+    tags: List[str],
     sort_by: str | None,
     sort_order: str | None,
 ) -> None:
@@ -58,6 +79,7 @@ def list_traces(
       layerlens trace list
       layerlens trace list --page-size 10
       layerlens trace list --source sdk --sort-by created_at --sort-order desc
+      layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"
     """
     client = get_client(ctx)
     result = client.traces.get_many(
@@ -65,6 +87,7 @@ def list_traces(
         page_size=page_size,
         source=source,
         status=status,
+        tags=tags,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -109,6 +132,7 @@ def get_trace(ctx: click.Context, id: str) -> None:
 @click.option("--page-size", default=None, type=int, help="Results per page.")
 @click.option("--source", default=None, help="Filter by source.")
 @click.option("--status", default=None, help="Filter by status.")
+@_tag_option
 @click.option("--sort-by", default=None, help="Sort field.")
 @click.option("--sort-order", default=None, type=click.Choice(["asc", "desc"]), help="Sort order.")
 @click.pass_context
@@ -120,6 +144,7 @@ def search_traces(
     page_size: int | None,
     source: str | None,
     status: str | None,
+    tags: List[str],
     sort_by: str | None,
     sort_order: str | None,
 ) -> None:
@@ -129,6 +154,7 @@ def search_traces(
     Examples:
       layerlens trace search "user login"
       layerlens trace search "error" --source sdk --page-size 5
+      layerlens trace search "refund" --tag support-desk
     """
     client = get_client(ctx)
     result = client.traces.get_many(
@@ -137,6 +163,7 @@ def search_traces(
         page_size=page_size,
         source=source,
         status=status,
+        tags=tags,
         sort_by=sort_by,
         sort_order=sort_order,
     )

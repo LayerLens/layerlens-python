@@ -107,7 +107,7 @@ if trace:
     print(f"Data keys: {list(trace.data.keys())}")
 ```
 
-### `get_many(page=None, page_size=None, source=None, judge_id=None, status=None, time_range=None, search=None, sort_by=None, sort_order=None, timeout=None)`
+### `get_many(page=None, page_size=None, source=None, judge_id=None, status=None, time_range=None, search=None, tags=None, sort_by=None, sort_order=None, timeout=None)`
 
 Retrieves multiple traces with filtering, searching, and pagination.
 
@@ -122,6 +122,7 @@ Retrieves multiple traces with filtering, searching, and pagination.
 | `status`     | `str \| None`                    | No       | Filter by evaluation status                         |
 | `time_range` | `str \| None`                    | No       | Filter by time range (e.g., "7d", "30d")            |
 | `search`     | `str \| None`                    | No       | Search term to filter traces                        |
+| `tags`       | `Sequence[str] \| None`          | No       | Only traces that carry every one of these tags      |
 | `sort_by`    | `str \| None`                    | No       | Field to sort by (e.g., "created_at")               |
 | `sort_order` | `str \| None`                    | No       | Sort direction: "asc" or "desc"                     |
 | `timeout`    | `float \| httpx.Timeout \| None` | No       | Override request timeout                            |
@@ -151,7 +152,17 @@ response = client.traces.get_many(
     sort_order="desc",
     page_size=20,
 )
+
+# The traces of the environment runs labelled 3f2c1ab (`--label`, here a commit SHA): a trace
+# matches when it carries every tag
+response = client.traces.get_many(tags=["environment", "support-desk", "3f2c1ab"])
+for trace in response.traces:
+    print(trace.id, trace.tags)
 ```
+
+`tags` is a list: one string raises `TypeError` rather than being read as its letters. An
+empty tag raises `ValueError` before anything is sent, since the API would ignore it and
+list every trace. `trace.tags` holds a trace's tags.
 
 ### `delete(id, timeout=None)`
 
@@ -211,6 +222,7 @@ print(f"Available sources: {sources}")
 | `data`            | `Dict[str, Any]`  | The trace data                       |
 | `input`           | `str \| None`     | Input text or prompt                 |
 | `integration_id`  | `str \| None`     | Integration that created this trace  |
+| `tags`            | `List[str]`       | The trace's tags; empty when it has none. `get_many(tags=...)` filters by them |
 
 ### TraceWithEvaluations Object Properties
 

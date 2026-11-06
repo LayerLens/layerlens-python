@@ -87,8 +87,14 @@ layerlens trace list [OPTIONS]
 | `--page-size` | int | Results per page |
 | `--source` | text | Filter by source |
 | `--status` | text | Filter by status |
+| `--tag` | text | Only traces with this tag. Repeat it for traces with every one; an empty tag is a usage error |
 | `--sort-by` | text | Sort field |
 | `--sort-order` | asc/desc | Sort order |
+
+```bash
+# The traces of the environment runs labelled with this commit
+layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"
+```
 
 ### `trace get`
 
@@ -112,6 +118,7 @@ layerlens trace search <QUERY> [OPTIONS]
 | `--page-size` | int | Results per page |
 | `--source` | text | Filter by source |
 | `--status` | text | Filter by status |
+| `--tag` | text | Only traces with this tag; repeatable, as on `trace list` |
 | `--sort-by` | text | Sort field |
 | `--sort-order` | asc/desc | Sort order |
 

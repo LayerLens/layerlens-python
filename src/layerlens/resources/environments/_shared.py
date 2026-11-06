@@ -43,6 +43,9 @@ SUBMIT_RETRY_SECONDS = 3.0
 
 SUBMIT_OUTCOMES = ("answered", "error", "timeout")
 
+# The API links an agent's own trace to an attempt by an id of at most this many bytes, trimmed.
+MAX_TRACE_ID_BYTES = 256
+
 # The API refuses a larger request body with 413; one over Lambda's 6 MB never reaches it,
 # and comes back as a bare gateway error instead.
 MAX_REQUEST_BODY_BYTES = 5 << 20
@@ -248,11 +251,22 @@ def task_choice(
     return body
 
 
+def trace_id_problem(trace_id: str) -> Optional[str]:
+    """Why the API would refuse ``trace_id`` with a submit, or ``None`` when it takes it."""
+    size = len(trace_id.strip().encode("utf-8"))
+    if size > MAX_TRACE_ID_BYTES:
+        return f"trace_id is {size} bytes; the limit is {MAX_TRACE_ID_BYTES}"
+    return None
+
+
 def submit_body(
     *, answer: Optional[str], outcome: str, error: Optional[str], trace_id: Optional[str]
 ) -> Dict[str, Any]:
     if outcome not in SUBMIT_OUTCOMES:
         raise InvalidArgument(f"outcome must be one of {', '.join(SUBMIT_OUTCOMES)}, got {outcome!r}")
+    problem = trace_id_problem(trace_id) if trace_id is not None else None
+    if problem is not None:
+        raise InvalidArgument(problem)
     body: Dict[str, Any] = {"outcome": outcome}
     if answer is not None:
         body["answer"] = answer

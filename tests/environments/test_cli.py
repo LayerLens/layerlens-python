@@ -224,6 +224,21 @@ else:
 """
 
 
+TRACE_IDS = {f"task-{i}": "6a91c0f2a7b8c9d0e1f2a3b" + str(i) for i in range(1, 4)}
+TRACE_IDS["task-4"] = "x" * 300
+
+TRACING_AGENT = r"""
+import os, sys, time, json
+name = os.environ["LAYERLENS_TASK_NAME"]
+open(os.environ["LAYERLENS_TRACE_ID_FILE"], "w").write(json.loads(os.environ["TRACE_IDS"])[name])
+if name == "task-2":
+    sys.exit(3)
+if name == "task-3":
+    time.sleep(30)
+print("the answer")
+"""
+
+
 def _exec_api(api: FakeAPI, final: dict) -> None:
     start = {
         "run_id": RUN_ID,
@@ -294,6 +309,35 @@ class TestExec:
         assert summary.read_text().startswith("# Earlier step\n### LayerLens")
         assert 'failures="1" errors="2"' in junit.read_text()
         assert "below --min-pass-rate" in result.stderr
+
+    def test_the_agents_own_trace_is_linked_to_its_attempt_however_it_ends(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        _exec_api(api, self.FINAL)
+        agent = tmp_path / "agent.py"
+        agent.write_text(TRACING_AGENT)
+        result = invoke(
+            runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "support-agent", "--parallel", "4",
+            "--attempt-timeout", "2s", "--", sys.executable, str(agent),
+            env={**KEY_ENV, "TRACE_IDS": json.dumps(TRACE_IDS)},
+        )  # fmt: skip
+        assert result.exit_code == 0, result.stderr
+
+        submits = _submits(api)
+        assert submits[A[0]] == {"outcome": "answered", "answer": "the answer\n", "trace_id": TRACE_IDS["task-1"]}
+        assert submits[A[1]] == {
+            "outcome": "error",
+            "error": "the agent exited with status 3",
+            "trace_id": TRACE_IDS["task-2"],
+        }
+        assert submits[A[2]]["outcome"] == "timeout" and submits[A[2]]["trace_id"] == TRACE_IDS["task-3"]
+        # An id the API would refuse is not sent: the answer is still graded, and the run goes on.
+        assert submits[A[3]] == {"outcome": "answered", "answer": "the answer\n"}
+        assert api.calls("POST", f"/{ENV_ID}/runs/{RUN_ID}/cancel") == []
+
+        assert f"task-1: answered (" in result.stderr and f"trace {TRACE_IDS['task-1']}" in result.stderr
+        assert "task-4: answered (" in result.stderr
+        assert "no trace linked: LAYERLENS_TRACE_ID_FILE: trace_id is 300 bytes; the limit is 256" in result.stderr
 
     def test_a_command_that_cannot_start_cancels_the_run_and_exits_1(
         self, runner: CliRunner, api: FakeAPI, tmp_path: Path

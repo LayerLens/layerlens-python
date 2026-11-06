@@ -44,6 +44,25 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   [docs/api-reference/environments.md](docs/api-reference/environments.md) and
   [docs/cli/env.md](docs/cli/env.md)
 
+- **`layerlens env run exec` links the agent's own trace to its attempt.** Each attempt's
+  command gets `LAYERLENS_TRACE_ID_FILE` beside `LAYERLENS_ANSWER_FILE`; the trace id the
+  command leaves there is submitted with the attempt, whether it answered, failed or timed
+  out, so the run's results carry it as `agent_trace_id`, and the attempt's progress line
+  names it. An agent traced with the LayerLens SDK needs no code: the SDK writes the id of the
+  first trace it uploads there, unless the file already holds one. A file with more than one
+  id, or an id over 256 bytes, is not linked and the progress line says why; the answer is
+  graded all the same, where the API's refusal of the submit would have cancelled the run.
+  `runs.submit`, `attempt.submit` and `attempt.submit_error` refuse a `trace_id` over 256
+  bytes with `ValueError` before sending it. See [docs/cli/env.md](docs/cli/env.md)
+
+- **Filter traces by tag: `client.traces.get_many(tags=[...])` and `layerlens trace list --tag`.**
+  A trace matches when it carries every tag, so `layerlens trace list --tag environment --tag
+  support-desk --tag "$GIT_SHA"` lists the traces of the environment runs labelled with that
+  commit. `--tag` is repeatable, on `trace search` too, and each trace's `tags` are now read
+  (`Trace.tags`). An empty tag, such as an unset variable, is refused (`ValueError`; a usage
+  error in the CLI) rather than sent, since the API would ignore it and list every trace; one
+  string passed as `tags` raises `TypeError`
+
 - **`--api-key-file PATH` reads the CLI's API key from a file, or from standard input with `-`.**
   It works on every command, like `--api-key`, and keeps the key out of the command line and the
   environment. Giving both is a usage error, and so is `-` on `env delete` or `env tasks delete`

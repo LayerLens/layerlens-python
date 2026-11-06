@@ -156,3 +156,109 @@ def test_the_agents_standard_error_is_passed_on_and_its_end_kept(
     assert outcome.stderr_tail.endswith("Traceback: the last line\n")
     assert len(outcome.stderr_tail.encode()) == STDERR_TAIL_BYTES
     assert "Traceback: the last line" in capfd.readouterr().err
+
+
+# LAY-4430: the agent's own trace, linked to the attempt.
+SERVER_ID = "6a91c0f2a7b8c9d0e1f2a3b4"
+WRITES_TRACE_ID = "import os; open(os.environ['LAYERLENS_TRACE_ID_FILE'], 'w').write(%r)\n"
+
+
+def test_the_trace_id_file_sits_beside_the_answer_file_and_starts_empty(tmp_path: Path) -> None:
+    script = (
+        "import os, sys; t = os.environ['LAYERLENS_TRACE_ID_FILE']; a = os.environ['LAYERLENS_ANSWER_FILE']\n"
+        "print(os.path.dirname(t) == os.path.dirname(a), os.path.getsize(t))\n"
+    )
+    outcome = _run(tmp_path, script)
+    assert outcome.answer == "True 0\n"
+    assert outcome.trace_id is None and outcome.trace_problem is None
+
+
+@pytest.mark.parametrize(
+    "ending, outcome_name",
+    [("print('the answer')", "answered"), ("raise SystemExit(3)", "error"), ("import time; time.sleep(30)", "timeout")],
+)
+def test_the_trace_id_is_read_however_the_attempt_ends(tmp_path: Path, ending: str, outcome_name: str) -> None:
+    outcome = _run(tmp_path, WRITES_TRACE_ID % SERVER_ID + ending, timeout=2.0)
+    assert outcome.outcome == outcome_name
+    assert outcome.trace_id == SERVER_ID and outcome.trace_problem is None
+
+
+def test_the_trace_id_is_trimmed(tmp_path: Path) -> None:
+    outcome = _run(tmp_path, WRITES_TRACE_ID % f"  {SERVER_ID}\n" + "print('a')")
+    assert outcome.trace_id == SERVER_ID
+
+
+def test_a_utf16_trace_id_file_with_a_byte_order_mark_is_read_as_text(tmp_path: Path) -> None:
+    script = "import os; open(os.environ['LAYERLENS_TRACE_ID_FILE'], 'wb').write(%r); print('a')" % (
+        codecs.BOM_UTF16_LE + SERVER_ID.encode("utf-16-le")
+    )
+    assert _run(tmp_path, script).trace_id == SERVER_ID
+
+
+def test_a_deleted_trace_id_file_is_no_trace(tmp_path: Path) -> None:
+    outcome = _run(tmp_path, "import os; os.remove(os.environ['LAYERLENS_TRACE_ID_FILE']); print('a')")
+    assert outcome.outcome == "answered"
+    assert outcome.trace_id is None and outcome.trace_problem is None
+
+
+@pytest.mark.parametrize(
+    "written, problem",
+    [
+        (f"{SERVER_ID}\n6a91c0f2a7b8c9d0e1f2a3b5\n", "holds more than one trace id"),
+        ("not one id", "holds more than one trace id"),
+        ("é" * 128 + "x", "trace_id is 257 bytes; the limit is 256"),
+    ],
+)
+def test_a_trace_id_the_api_would_refuse_is_not_linked_and_says_why(tmp_path: Path, written: str, problem: str) -> None:
+    outcome = _run(tmp_path, WRITES_TRACE_ID % written + "print('the answer')")
+    assert outcome.outcome == "answered" and outcome.answer == "the answer\n"
+    assert outcome.trace_id is None
+    assert outcome.trace_problem is not None and problem in outcome.trace_problem
+    assert "LAYERLENS_TRACE_ID_FILE" in outcome.trace_problem
+
+
+SDK_AGENT = r"""
+from layerlens.models import CreateTracesResponse
+from layerlens.instrument._collector import TraceCollector
+from layerlens.instrument._capture_config import CaptureConfig
+
+class Traces:
+    def upload(self, path):
+        return CreateTracesResponse(trace_ids=[%r])
+
+class Client:
+    traces = Traces()
+
+collector = TraceCollector(Client(), CaptureConfig())
+collector.emit("model.invoke", {"model": "test-model", "latency_ms": 1}, span_id="s00001")
+collector.flush()  # queued for the background uploader, which drains as the process exits
+print("the answer")
+"""
+
+
+def test_an_agent_traced_with_the_sdk_links_its_trace_with_no_code(tmp_path: Path) -> None:
+    outcome = _run(tmp_path, SDK_AGENT % SERVER_ID)
+    assert outcome.outcome == "answered" and outcome.answer == "the answer\n", outcome.stderr_tail
+    assert outcome.trace_id == SERVER_ID
+
+
+def test_an_attempt_removes_its_own_files(tmp_path: Path) -> None:
+    # Each attempt owns its files: a worker still finishing an attempt after Ctrl-C must not
+    # race the run's cleanup of a directory the two share.
+    outcome = _run(tmp_path, WRITES_TRACE_ID % SERVER_ID + "print('the answer')")
+    assert outcome.trace_id == SERVER_ID
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_trace_id_file_that_is_not_text_is_not_linked(tmp_path: Path) -> None:
+    script = "import os; open(os.environ['LAYERLENS_TRACE_ID_FILE'], 'wb').write(b'6a91c0f2\\xff\\xfe7b8c'); print('a')"
+    outcome = _run(tmp_path, script)
+    assert outcome.outcome == "answered" and outcome.trace_id is None
+    assert outcome.trace_problem is not None and "not UTF-8" in outcome.trace_problem
+
+
+def test_a_huge_trace_id_file_is_refused_without_reading_it_all(tmp_path: Path) -> None:
+    script = "import os; open(os.environ['LAYERLENS_TRACE_ID_FILE'], 'w').write('x' * (8 << 20)); print('a')"
+    outcome = _run(tmp_path, script)
+    assert outcome.trace_id is None
+    assert outcome.trace_problem is not None and "more than" in outcome.trace_problem

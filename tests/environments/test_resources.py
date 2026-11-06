@@ -23,6 +23,7 @@ from layerlens.resources.environments._shared import (
     BUSY_RETRY_SECONDS,
     MAX_ESCAPED_BODY_BYTES,
     MAX_REQUEST_BODY_BYTES,
+    InvalidArgument,
 )
 
 from .conftest import (
@@ -402,6 +403,17 @@ class TestSubmit:
         result = client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "9900001017", trace_id="t1")
         assert result.answered == 1
         assert body_of(api.requests[0]) == {"outcome": "answered", "answer": "9900001017", "trace_id": "t1"}
+
+    def test_a_trace_id_at_the_apis_limit_is_sent(self, client, api: FakeAPI) -> None:
+        api.on("POST", SUBMIT, ok(submitted(ATTEMPT_1)))
+        trace_id = "é" * 128  # 256 bytes, the API's limit; it measures the id trimmed
+        client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "x", trace_id=f" {trace_id}\n")
+        assert body_of(api.requests[0])["trace_id"] == f" {trace_id}\n"
+
+    def test_a_trace_id_past_the_apis_limit_is_refused_before_sending(self, client, api: FakeAPI) -> None:
+        with pytest.raises(InvalidArgument, match="trace_id is 257 bytes; the limit is 256"):
+            client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "x", trace_id="é" * 128 + "x")
+        assert api.requests == []
 
     def test_a_second_submit_of_a_graded_attempt_is_a_conflict(self, client, api: FakeAPI) -> None:
         api.on("POST", SUBMIT, err(409, f"attempt {ATTEMPT_1}, for task x, is already submitted"))

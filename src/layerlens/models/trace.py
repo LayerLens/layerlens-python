@@ -14,6 +14,7 @@ class Trace(BaseModel):
     data: Dict[str, Any] = {}
     input: Optional[str] = None
     integration_id: Optional[str] = None
+    tags: List[str] = []
 
 
 class TraceEvaluationSummary(BaseModel):

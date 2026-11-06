@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from typing import Any, Dict, List, Tuple, Optional, Sequence
-from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait as wait_for_futures
 
 import click
@@ -102,9 +100,11 @@ def exec_command(
 
     For each task CMD runs with LAYERLENS_ENV_BASE_URL, LAYERLENS_ATTEMPT_TOKEN,
     LAYERLENS_TASK_PROMPT (also on standard input), LAYERLENS_TASK_ID, LAYERLENS_TASK_NAME,
-    LAYERLENS_ATTEMPT_ID and LAYERLENS_ANSWER_FILE set, and without the LayerLens API key
-    variables. Its answer is LAYERLENS_ANSWER_FILE, or its standard output when that file
-    is empty. A non-zero exit grades the attempt `error`.
+    LAYERLENS_ATTEMPT_ID, LAYERLENS_ANSWER_FILE and LAYERLENS_TRACE_ID_FILE set, and without
+    the LayerLens API key variables. Its answer is LAYERLENS_ANSWER_FILE, or its standard
+    output when that file is empty. A non-zero exit grades the attempt `error`. The trace id
+    it leaves in LAYERLENS_TRACE_ID_FILE, however it ends, links its own trace to the
+    attempt; the LayerLens SDK's tracing writes it there.
 
     The API key cannot be given with --api-key here, since every user on the machine can
     read a command line: use LAYERLENS_API_KEY or --api-key-file.
@@ -146,13 +146,11 @@ def exec_command(
     agent_env = agent_environment(dict(os.environ), api_key=client.api_key)
     live = LiveProcesses()
     outcomes: List[Tuple[ExternalAttempt, AttemptOutcome]] = []
-    with tempfile.TemporaryDirectory(prefix="layerlens-exec-") as workdir, sigterm_as_interrupt():
+    with sigterm_as_interrupt():
         try:
             with external:
                 progress(f"Run {external.run_id}: {len(external.attempts)} attempts, {parallel} at a time")
-                outcomes = _execute(
-                    external.attempts, command, parallel, attempt_timeout, agent_env, Path(workdir), live
-                )
+                outcomes = _execute(external.attempts, command, parallel, attempt_timeout, agent_env, live)
         except KeyboardInterrupt:
             if not external.started:
                 fail("interrupted while starting the run; if it started, it closes on its own within 24 hours",
@@ -179,23 +177,20 @@ def _execute(
     parallel: int,
     attempt_timeout: float,
     agent_env: Dict[str, str],
-    workdir: Path,
     live: LiveProcesses,
 ) -> List[Tuple[ExternalAttempt, AttemptOutcome]]:
     """Run every attempt and submit what it did; returns each attempt's outcome, in the run's order."""
 
     def work(attempt: ExternalAttempt) -> AttemptOutcome:
-        outcome = run_attempt(
-            attempt, command, timeout_seconds=attempt_timeout, environment=agent_env, workdir=workdir, live=live
-        )
+        outcome = run_attempt(attempt, command, timeout_seconds=attempt_timeout, environment=agent_env, live=live)
         if live.stopping:
             return outcome
         try:
             if outcome.outcome == "answered":
                 assert outcome.answer is not None
-                attempt.submit(outcome.answer)
+                attempt.submit(outcome.answer, trace_id=outcome.trace_id)
             else:
-                attempt.submit_error(outcome.error, timeout=outcome.outcome == "timeout")
+                attempt.submit_error(outcome.error, timeout=outcome.outcome == "timeout", trace_id=outcome.trace_id)
         except LayerLensError as err:
             why = api_error_text(err) if isinstance(err, APIStatusError) else str(err)
             raise _NotSubmitted(

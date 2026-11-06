@@ -6,16 +6,19 @@ import os
 import time
 import codecs
 import signal
+import tempfile
 import threading
 import subprocess
-from typing import IO, Set, Dict, List, Callable, Optional, Sequence
+from typing import IO, Set, Dict, List, Tuple, Callable, Optional, Sequence
 from pathlib import Path
 from dataclasses import dataclass
 
 import click
 
 from ...._env import API_KEY_ENV, LEGACY_API_KEY_ENVS
+from ...._trace_id_file import TRACE_ID_FILE_ENV
 from ....resources.environments import ExternalAttempt
+from ....resources.environments._shared import MAX_TRACE_ID_BYTES, trace_id_problem
 
 # The API limits a submitted answer, and the reason given with an error, to this many bytes.
 MAX_ANSWER_BYTES = 65536
@@ -25,6 +28,9 @@ KEY_VARIABLES = (API_KEY_ENV, *LEGACY_API_KEY_ENVS)
 
 # How much of the end of an agent's standard error is kept, to explain a run that never got an answer.
 STDERR_TAIL_BYTES = 2048
+
+# The most of LAYERLENS_TRACE_ID_FILE that is read: far more than an id, far less than stray output.
+TRACE_ID_FILE_READ_BYTES = 64 << 10
 
 
 class LaunchError(Exception):
@@ -39,6 +45,10 @@ class AttemptOutcome:
     error: Optional[str]
     seconds: float
     stderr_tail: str = ""
+    # The agent's own trace, from LAYERLENS_TRACE_ID_FILE, linked when the attempt is submitted.
+    trace_id: Optional[str] = None
+    # Why what the file held is not linked, when it held something the API would refuse.
+    trace_problem: Optional[str] = None
 
 
 def agent_environment(base: Dict[str, str], *, api_key: Optional[str] = None) -> Dict[str, str]:
@@ -54,7 +64,7 @@ def agent_environment(base: Dict[str, str], *, api_key: Optional[str] = None) ->
     return environment
 
 
-def attempt_variables(attempt: ExternalAttempt, answer_file: Path) -> Dict[str, str]:
+def attempt_variables(attempt: ExternalAttempt, answer_file: Path, trace_id_file: Path) -> Dict[str, str]:
     return {
         "LAYERLENS_ENV_BASE_URL": attempt.base_url or "",
         "LAYERLENS_ATTEMPT_TOKEN": attempt.token,
@@ -63,6 +73,7 @@ def attempt_variables(attempt: ExternalAttempt, answer_file: Path) -> Dict[str, 
         "LAYERLENS_TASK_NAME": attempt.task_name,
         "LAYERLENS_ATTEMPT_ID": attempt.attempt_id,
         "LAYERLENS_ANSWER_FILE": str(answer_file),
+        TRACE_ID_FILE_ENV: str(trace_id_file),
     }
 
 
@@ -170,8 +181,8 @@ def run_attempt(
     *,
     timeout_seconds: float,
     environment: Dict[str, str],
-    workdir: Path,
     live: LiveProcesses,
+    workdir: Optional[Path] = None,
 ) -> AttemptOutcome:
     """Run the command for one attempt and read its answer.
 
@@ -179,10 +190,30 @@ def run_attempt(
     process group is killed then. The answer is ``LAYERLENS_ANSWER_FILE`` when the command
     wrote it, else its standard output; its standard error is passed on to the CLI's. A
     non-zero exit, no answer, or an answer over the API's limit is an ``error``; running past
-    ``timeout_seconds`` is a ``timeout``.
+    ``timeout_seconds`` is a ``timeout``. However it ends, the id the command left in
+    ``LAYERLENS_TRACE_ID_FILE`` is the trace the attempt links.
+
+    The two files sit in a directory of the attempt's own, made in ``workdir`` (the system's
+    temporary directory by default) and removed as the attempt ends. A worker still finishing
+    an attempt after an interrupt so never writes into a directory another thread is removing.
     """
-    answer_file = workdir / f"answer-{attempt.attempt_id}.txt"
+    with tempfile.TemporaryDirectory(prefix=f"layerlens-exec-{attempt.attempt_id}-", dir=workdir) as own:
+        return _run_in(Path(own), attempt, command, timeout_seconds=timeout_seconds, environment=environment, live=live)
+
+
+def _run_in(
+    directory: Path,
+    attempt: ExternalAttempt,
+    command: Sequence[str],
+    *,
+    timeout_seconds: float,
+    environment: Dict[str, str],
+    live: LiveProcesses,
+) -> AttemptOutcome:
+    answer_file = directory / "answer.txt"
     answer_file.write_bytes(b"")
+    trace_id_file = directory / "trace-id.txt"
+    trace_id_file.write_bytes(b"")
     started = time.monotonic()
     try:
         process = subprocess.Popen(
@@ -190,7 +221,7 @@ def run_attempt(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env={**environment, **attempt_variables(attempt, answer_file)},
+            env={**environment, **attempt_variables(attempt, answer_file, trace_id_file)},
             start_new_session=True,
         )
     except (OSError, ValueError) as err:
@@ -220,9 +251,10 @@ def run_attempt(
     stdout = drain.output(closed_by)
     tail = errors.output(closed_by).decode("utf-8", errors="replace")
     seconds = time.monotonic() - started
+    trace_id, trace_problem = read_trace_id(trace_id_file)
 
     def failed(outcome: str, reason: str) -> AttemptOutcome:
-        return AttemptOutcome(outcome, None, reason, seconds, tail)
+        return AttemptOutcome(outcome, None, reason, seconds, tail, trace_id, trace_problem)
 
     if process.returncode is None:
         return failed("error", f"the agent (pid {process.pid}) could not be stopped")
@@ -240,14 +272,46 @@ def run_attempt(
     size = len(answer.strip().encode("utf-8"))
     if size > MAX_ANSWER_BYTES:
         return failed("error", f"the agent's answer is {size} bytes; the limit is {MAX_ANSWER_BYTES}")
-    return AttemptOutcome("answered", answer, None, seconds, tail)
+    return AttemptOutcome("answered", answer, None, seconds, tail, trace_id, trace_problem)
 
 
-def _text(data: bytes) -> str:
-    """An answer's bytes as text: UTF-8, or UTF-16 when it starts with a byte order mark."""
+def read_trace_id(path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """The trace id the agent left in ``path``, or why what it left there is not linked.
+
+    Empty, or deleted, is no trace. The file holds one id, as text; a value the API would
+    refuse is reported rather than sent, since a refused submit would cancel the whole run.
+    """
+    try:
+        with path.open("rb") as f:
+            data = f.read(TRACE_ID_FILE_READ_BYTES + 1)
+    except FileNotFoundError:
+        return None, None
+    except OSError as err:
+        return None, f"{TRACE_ID_FILE_ENV} could not be read: {err}"
+    if len(data) > TRACE_ID_FILE_READ_BYTES:
+        return None, (
+            f"{TRACE_ID_FILE_ENV} holds more than {TRACE_ID_FILE_READ_BYTES >> 10} KiB; "
+            f"a trace id is at most {MAX_TRACE_ID_BYTES} bytes"
+        )
+    try:
+        trace_id = _text(data, errors="strict").strip()
+    except UnicodeDecodeError:
+        return None, f"{TRACE_ID_FILE_ENV} is not UTF-8 or UTF-16 text"
+    if not trace_id:
+        return None, None
+    if not trace_id.isprintable() or " " in trace_id:
+        return None, f"{TRACE_ID_FILE_ENV} holds more than one trace id, or text that is not one"
+    problem = trace_id_problem(trace_id)
+    if problem is not None:
+        return None, f"{TRACE_ID_FILE_ENV}: {problem}"
+    return trace_id, None
+
+
+def _text(data: bytes, *, errors: str = "replace") -> str:
+    """A file's bytes as text: UTF-8, or UTF-16 when they start with a byte order mark."""
     if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
-        return data.decode("utf-16", errors="replace")
-    return data.decode("utf-8-sig", errors="replace")
+        return data.decode("utf-16", errors=errors)
+    return data.decode("utf-8-sig", errors=errors)
 
 
 def _exit_reason(code: int) -> str:
@@ -266,7 +330,12 @@ def outcome_line(index: int, total: int, attempt: ExternalAttempt, outcome: Atte
         "timeout": "timed out",
         "error": f"error: {outcome.error}",
     }.get(outcome.outcome, outcome.outcome)
-    return f"[{index}/{total}] {attempt.task_name}: {what} ({outcome.seconds:.1f}s)"
+    line = f"[{index}/{total}] {attempt.task_name}: {what} ({outcome.seconds:.1f}s)"
+    if outcome.trace_id is not None:
+        return f"{line}, trace {outcome.trace_id}"
+    if outcome.trace_problem is not None:
+        return f"{line}; no trace linked: {outcome.trace_problem}"
+    return line
 
 
 __all__: List[str] = [
@@ -275,5 +344,6 @@ __all__: List[str] = [
     "LiveProcesses",
     "agent_environment",
     "outcome_line",
+    "read_trace_id",
     "run_attempt",
 ]

@@ -113,6 +113,7 @@ For each task, the command after `--` runs with:
 | `LAYERLENS_TASK_PROMPT` | The task; also on standard input |
 | `LAYERLENS_TASK_ID`, `LAYERLENS_TASK_NAME`, `LAYERLENS_ATTEMPT_ID` | Which attempt this is |
 | `LAYERLENS_ANSWER_FILE` | Where to write the final answer. If it is empty, standard output is the answer |
+| `LAYERLENS_TRACE_ID_FILE` | Where to write the id of the agent's own trace, to link it to the attempt. Optional |
 
 Standard input, standard output and the answer file are UTF-8. A Python command gets
 `PYTHONIOENCODING=utf-8` unless you set it; write the answer file with `encoding="utf-8"`.
@@ -130,6 +131,26 @@ attempt timed out, or answered, is gated as usual.
 A command that cannot be started at all, or an answer the API refuses (the error names the
 task), cancels the run and exits `1`. Ctrl-C or SIGTERM cancels the run, if it is still open,
 and exits `11`, as does grading still unfinished at `--timeout`.
+
+#### Linking the agent's own trace
+
+When the command writes the id of the trace it sent to `LAYERLENS_TRACE_ID_FILE`, `exec`
+links that trace to the attempt, whether the attempt answered, failed or timed out. The
+run's results carry it as `agent_trace_id`, beside `trace_id`, LayerLens's own trace of the
+attempt, and each attempt's progress line names it: `[1/4] refund-request: answered (4.2s),
+trace 6a91c0f2a7b8c9d0e1f2a3b4`.
+
+An agent traced with the LayerLens SDK needs no code for this: the SDK writes there the id
+the API gives the first trace it uploads, unless the file already holds an id, so an id the
+agent writes itself is the one linked. `exec` keeps `LAYERLENS_API_KEY` from the agent, so
+give it a key of its own with Standard access, under another name, and build its client
+with that key: `LayerLens(api_key=os.environ["AGENT_LAYERLENS_KEY"])`. The SDK uploads in
+the background, and waits up to 5 seconds for queued uploads as the process exits: a trace
+not uploaded by then, such as the one an agent killed at `--attempt-timeout` was recording,
+is not linked.
+
+The file holds one id. A file with more than one, or an id over 256 bytes, is not linked:
+the attempt is graded all the same, and its progress line says why.
 
 #### Keeping the key from the agent
 
@@ -167,7 +188,8 @@ In GitHub Actions, run the agent in a container:
 ```
 
 The container sees only the variables named with `-e`, and none of the runner's processes.
-It prints its answer, since `LAYERLENS_ANSWER_FILE` is a path on the runner. A timed-out
+It prints its answer, since `LAYERLENS_ANSWER_FILE` is a path on the runner; so is
+`LAYERLENS_TRACE_ID_FILE`, so this agent's trace is not linked. A timed-out
 attempt kills the `docker` client, not the container, so the agent gets its own, shorter
 limit inside: `timeout -k 10s 9m` sends SIGTERM at 9 minutes and SIGKILL 10 seconds later,
 for an agent that ignores SIGTERM.
@@ -243,9 +265,13 @@ finds it ended, is read once more and gated as it ended; Ctrl-C exits `11` and l
 it.
 
 `layerlens --format json env run results support-desk RUN_ID` prints the run with every
-attempt's verdict, evidence, answer and trace id. `status` is `pending`, `in_progress`,
+attempt's verdict, evidence, answer, trace id and the agent's own trace id. `status` is `pending`, `in_progress`,
 `success`, `failure` or `cancelled`; `verdict` is `pass`, `fail`, `error` or `timeout`, or
 `off_script` when a conversation task's persona broke its script, which counts neither way.
+
+Each attempt's trace is tagged `environment`, with the environment's name and the run's
+`--label`, so `layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"`
+lists the traces of the runs labelled with that commit.
 
 ## Retries and reruns
 

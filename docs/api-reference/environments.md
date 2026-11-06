@@ -155,8 +155,10 @@ print(f"{result.passed}/{result.total} passed")
   the `repr()` of `ExternalRunStart` and `ExternalRunAttempt`, so logging them does not leak
   it; `model_dump()` still has it.
 - **Submitting:** `attempt.submit(answer, *, trace_id=None)` returns once the answer is
-  graded. `attempt.submit_error(error=None, *, timeout=False)` records an agent that gave no
-  answer, as verdict `error` or `timeout`. Each attempt is submitted once.
+  graded. `attempt.submit_error(error=None, *, timeout=False, trace_id=None)` records an agent
+  that gave no answer, as verdict `error` or `timeout`. Each attempt is submitted once.
+  `trace_id` links the agent's own trace, which the results carry as `agent_trace_id`; one
+  over 256 bytes raises `ValueError` before anything is sent.
 - **Finishing:** the run finishes on its own when its last attempt is graded. Leaving the
   `with` block finishes it, grading unsubmitted attempts `error`; a run in which no attempt
   was submitted at all ends `failure`. Leaving the block on an exception cancels the run
