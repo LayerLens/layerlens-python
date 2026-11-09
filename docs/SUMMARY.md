@@ -18,6 +18,7 @@
   * [Judges](api-reference/judges.md)
   * [Scorers](api-reference/scorers.md)
   * [Traces](api-reference/traces.md)
+    * [Trace tags](instrumentation/tags.md)
   * [Trace Evaluations](api-reference/trace-evaluations.md)
   * [Judge Optimizations](api-reference/judge-optimizations.md)
   * [Environments](api-reference/environments.md)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Union, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Union, Mapping, Iterator, Optional, Sequence, AsyncIterator
 from pathlib import Path
 
 from ._shared import (
+    SUBMIT_LESS,
     DEFAULT_POLL_SECONDS,
     DEFAULT_WAIT_SECONDS,
+    RUN_FEWER_INLINE_TASKS,
     TaskInput,
     SubmitState,
     SubmitPolicy,
@@ -20,7 +22,7 @@ from ._shared import (
 )
 from ..._polling import POLL_RETRIES, is_transient
 from ..._exceptions import LayerLensError
-from ...models.environment import RunResult, SubmitResult, ExternalRunStart
+from ...models.environment import RunPage, RunResult, RunSummary, SubmitResult, ExternalRunStart
 
 if TYPE_CHECKING:
     from .environments import Environments, AsyncEnvironments
@@ -63,8 +65,58 @@ class Runs:
         )  # fmt: skip
         return envs._call(
             "POST", envs._path(envs.resolve(environment), "rollout-runs"), RunResult, body=body,
-            idempotency_key=idempotency_key or new_idempotency_key(),
+            idempotency_key=idempotency_key or new_idempotency_key(), remedy=RUN_FEWER_INLINE_TASKS,
         )  # fmt: skip
+
+    def list(
+        self,
+        environment: str,
+        *,
+        label: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> RunPage:
+        """One page of the environment's runs, newest first; :meth:`iter` reads every page.
+
+        ``label`` and ``agent_name`` match exactly, as the run was started with them; ``kind``
+        is ``"external"`` or ``"rollout"``; ``status`` is the status a run shows, as
+        :meth:`get` returns it. ``limit`` is up to 50 (20 by default). Pass the page's
+        ``next_cursor`` as ``cursor`` for the next one. A page filtered by ``status`` can
+        hold fewer runs than ``limit``, or none, and still have a ``next_cursor``.
+
+        The newest run on ``main`` that finished::
+
+            page = client.environments.runs.list("support-desk", label="main", status="success", limit=1)
+        """
+        envs = self._environments
+        params = runs_list_params(label, agent_name, kind, status, limit, cursor)
+        return envs._call("GET", envs._path(envs.resolve(environment), "runs"), RunPage, params=params)
+
+    def iter(
+        self,
+        environment: str,
+        *,
+        label: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        page_size: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> Iterator[RunSummary]:
+        """Every run :meth:`list` matches, newest first, reading a page at a time as you go."""
+        environment_id = self._environments.resolve(environment)
+        while True:
+            page = self.list(
+                environment_id, label=label, agent_name=agent_name, kind=kind, status=status, limit=page_size,
+                cursor=cursor,
+            )  # fmt: skip
+            yield from page.runs
+            if page.next_cursor is None:
+                return
+            cursor = page.next_cursor
 
     def get(self, environment: str, run_id: str) -> RunResult:
         return self._read(self._environments.resolve(environment), run_id)
@@ -129,7 +181,7 @@ class Runs:
         envs = self._environments
         return envs._call(
             "POST", envs._path(envs.resolve(environment), "external-runs"), ExternalRunStart, body=body,
-            idempotency_key=idempotency_key,
+            idempotency_key=idempotency_key, remedy=RUN_FEWER_INLINE_TASKS,
         )  # fmt: skip
 
     def submit(
@@ -161,7 +213,7 @@ class Runs:
         while True:
             if send:
                 try:
-                    return envs._call("POST", path, SubmitResult, body=body, max_retries=0)
+                    return envs._call("POST", path, SubmitResult, body=body, max_retries=0, remedy=SUBMIT_LESS)
                 except LayerLensError as err:
                     wait = policy.after_error(err)
                 if wait is not None:
@@ -215,8 +267,46 @@ class AsyncRuns:
         )  # fmt: skip
         return await envs._call(
             "POST", envs._path(await envs.resolve(environment), "rollout-runs"), RunResult, body=body,
-            idempotency_key=idempotency_key or new_idempotency_key(),
+            idempotency_key=idempotency_key or new_idempotency_key(), remedy=RUN_FEWER_INLINE_TASKS,
         )  # fmt: skip
+
+    async def list(
+        self,
+        environment: str,
+        *,
+        label: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> RunPage:
+        envs = self._environments
+        params = runs_list_params(label, agent_name, kind, status, limit, cursor)
+        return await envs._call("GET", envs._path(await envs.resolve(environment), "runs"), RunPage, params=params)
+
+    async def iter(
+        self,
+        environment: str,
+        *,
+        label: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        page_size: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> AsyncIterator[RunSummary]:
+        environment_id = await self._environments.resolve(environment)
+        while True:
+            page = await self.list(
+                environment_id, label=label, agent_name=agent_name, kind=kind, status=status, limit=page_size,
+                cursor=cursor,
+            )  # fmt: skip
+            for run in page.runs:
+                yield run
+            if page.next_cursor is None:
+                return
+            cursor = page.next_cursor
 
     async def get(self, environment: str, run_id: str) -> RunResult:
         return await self._read(await self._environments.resolve(environment), run_id)
@@ -270,7 +360,7 @@ class AsyncRuns:
         envs = self._environments
         return await envs._call(
             "POST", envs._path(await envs.resolve(environment), "external-runs"), ExternalRunStart, body=body,
-            idempotency_key=idempotency_key,
+            idempotency_key=idempotency_key, remedy=RUN_FEWER_INLINE_TASKS,
         )  # fmt: skip
 
     async def submit(
@@ -293,7 +383,7 @@ class AsyncRuns:
         while True:
             if send:
                 try:
-                    return await envs._call("POST", path, SubmitResult, body=body, max_retries=0)
+                    return await envs._call("POST", path, SubmitResult, body=body, max_retries=0, remedy=SUBMIT_LESS)
                 except LayerLensError as err:
                     wait = policy.after_error(err)
                 if wait is not None:
@@ -315,6 +405,30 @@ class AsyncRuns:
         envs = self._environments
         path = envs._path(await envs.resolve(environment), "external-runs", run_id, "finish")
         return await envs._call("POST", path, RunResult)
+
+
+def runs_list_params(
+    label: Optional[str],
+    agent_name: Optional[str],
+    kind: Optional[str],
+    status: Optional[str],
+    limit: Optional[int],
+    cursor: Optional[str],
+) -> Dict[str, Any]:
+    """The query of ``GET /{id}/runs``. A blank label or agent name is refused here, as the API refuses it."""
+    params: Dict[str, Any] = {}
+    for name, value in (("label", label), ("agent_name", agent_name)):
+        if value is None:
+            continue
+        if not value.strip():
+            raise InvalidArgument(f"{name} is blank; pass None to list runs of every {name.replace('_', ' ')}")
+        params[name] = value.strip()
+    for name, given in (("kind", kind), ("status", status), ("cursor", cursor)):
+        if given is not None:
+            params[name] = given
+    if limit is not None:
+        params["limit"] = limit
+    return params
 
 
 def _rollout_body(

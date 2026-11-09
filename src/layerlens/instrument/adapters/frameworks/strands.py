@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from ._utils import safe_serialize
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 from ..providers.pricing import BEDROCK_PRICING
@@ -380,7 +381,7 @@ class StrandsAdapter(FrameworkAdapter):
             exception = getattr(event, "exception", None)
             if exception is not None:
                 payload["error"] = str(exception)
-                payload["error_type"] = type(exception).__name__
+                payload.update(error_category(exception))
 
             stop_response = getattr(event, "stop_response", None)
             if stop_response is not None:
@@ -454,7 +455,7 @@ class StrandsAdapter(FrameworkAdapter):
             exception = getattr(event, "exception", None)
             if exception is not None:
                 result_payload["error"] = str(exception)
-                result_payload["error_type"] = type(exception).__name__
+                result_payload.update(error_category(exception))
 
             self._fire(
                 "tool.result",

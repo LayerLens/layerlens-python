@@ -57,7 +57,9 @@ jobs:
             --description-file ci/environment.md --if-not-exists --wait
 
       # `exec` hands the shell over to layerlens, so a cancelled job's signal reaches it and
-      # it cancels the run; the shell would not pass the signal on.
+      # it cancels the run; the shell would not pass the signal on. `--label` tags the run's
+      # traces, and the agent's own when it is traced with the LayerLens SDK, so
+      # `layerlens trace list --tag <sha>` lists both.
       - name: Run agent
         env:
           LAYERLENS_API_KEY: ${{ secrets.LAYERLENS_AUTOMATION_KEY }}

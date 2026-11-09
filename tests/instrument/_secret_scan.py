@@ -56,3 +56,16 @@ def scan_for_secrets(events: List[Dict[str, Any]]) -> None:
             "secret-shaped value(s) reached an uploaded event (scrub at the emit site via "
             "layerlens.instrument._secret_scrub.safe_error):\n  " + "\n  ".join(hits)
         )
+
+
+def scan_tags_for_secrets(tags: List[str]) -> None:
+    """Assert no uploaded trace tag carries a secret-shaped value.
+
+    Tags are sent whatever the capture config, so they are scrubbed like event text.
+    """
+    hits = [f"tags[{i}] matched secret pattern {name!r}" for i, tag in enumerate(tags) for name in find_secrets(tag)]
+    if hits:
+        raise AssertionError(
+            "secret-shaped value(s) reached an uploaded trace tag (tags pass through "
+            "layerlens.instrument._tags, which scrubs them):\n  " + "\n  ".join(hits)
+        )

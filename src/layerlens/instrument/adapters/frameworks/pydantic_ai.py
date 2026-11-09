@@ -33,6 +33,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 from ._utils import safe_serialize
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -312,7 +313,7 @@ class PydanticAIAdapter(FrameworkAdapter):
 
         payload = self._payload(
             error=str(error),
-            error_type=type(error).__name__,
+            **error_category(error),
         )
         if agent_name:
             payload["agent_name"] = agent_name
@@ -384,7 +385,7 @@ class PydanticAIAdapter(FrameworkAdapter):
     def _emit_model_error(self, error: BaseException, latency_ms: float) -> None:
         payload = self._payload(
             error=str(error),
-            error_type=type(error).__name__,
+            **error_category(error),
             latency_ms=latency_ms,
         )
         self._emit("agent.error", payload)

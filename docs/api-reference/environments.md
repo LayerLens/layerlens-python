@@ -158,7 +158,9 @@ print(f"{result.passed}/{result.total} passed")
   graded. `attempt.submit_error(error=None, *, timeout=False, trace_id=None)` records an agent
   that gave no answer, as verdict `error` or `timeout`. Each attempt is submitted once.
   `trace_id` links the agent's own trace, which the results carry as `agent_trace_id`; one
-  over 256 bytes raises `ValueError` before anything is sent.
+  over 256 bytes raises `ValueError` before anything is sent. So does an answer, or an
+  `error`, over 64 KiB (65,536 bytes), the API's limit; each is measured without the
+  whitespace around it, as the API measures it.
 - **Finishing:** the run finishes on its own when its last attempt is graded. Leaving the
   `with` block finishes it, grading unsubmitted attempts `error`; a run in which no attempt
   was submitted at all ends `failure`. Leaving the block on an exception cancels the run
@@ -246,6 +248,55 @@ result.to_junit("results.xml")  # one test case per task
 print(result.to_markdown())  # a summary for a CI job page
 ```
 
+## Finding runs
+
+`runs.list(environment, ...)` returns one page of the environment's runs, newest first, as a
+`RunPage` (`runs`, `next_cursor`); `runs.iter(environment, ...)` reads every page as you go.
+Each run is a `RunSummary`: a `RunResult` without `attempts`, plus `created_at`,
+`started_at` and `finished_at`.
+
+| Argument | |
+| --- | --- |
+| `label`, `agent_name` | Exact matches on what the run was started with. A blank one raises `InvalidArgument` |
+| `kind` | `"external"` or `"rollout"` |
+| `status` | The status a run shows, as `runs.get` returns it |
+| `limit` (`page_size` on `iter`) | Up to 50 a page; 20 by default |
+| `cursor` | A page's `next_cursor`, to read the page after it |
+
+A page filtered by `status` can hold fewer runs than `limit`, or none, and still have a
+`next_cursor`: the API reads at most 200 runs per request looking for ones that show it.
+
+```python
+# The newest run on main that finished.
+page = client.environments.runs.list("support-desk", label="main", status="success", limit=1)
+baseline = client.environments.runs.get("support-desk", page.runs[0].run_id)
+```
+
+## Comparing two runs
+
+`RunComparison.between(baseline, candidate)` compares two finished `RunResult`s task by
+task (it raises `ValueError` for a run still going). A task regressed when it passed on the
+baseline and fails on the candidate (`fail`, `error` or `timeout`); `regression` is true when
+any did. Tasks match by `task_id`, and a task in one run only is listed, never a regression.
+
+| Field | |
+| --- | --- |
+| `baseline`, `candidate` | The two runs, as `RunSummary` |
+| `pass_rate_delta` | `candidate.pass_rate - baseline.pass_rate`; `None` when either is `None` |
+| `regressed`, `recovered` | `TaskChange`s: `task_id`, `task_name`, and the task's row in each run (`baseline`, `candidate`) |
+| `only_in_baseline`, `only_in_candidate` | The rows of tasks in one run only |
+| `regression` | Whether any task regressed |
+| `environment_versions_differ` | The runs were served different versions of the environment |
+
+```python
+comparison = RunComparison.between(baseline, candidate)
+for change in comparison.regressed:
+    print(change.task_name, change.candidate.verdict, change.candidate.evidence)
+print(comparison.to_markdown())  # a summary for a CI job page
+```
+
+`layerlens env run compare` is the same comparison from a CI step.
+
 ## Retries
 
 The SDK sends an `Idempotency-Key` with each call that creates or starts something
@@ -263,8 +314,9 @@ never derive one from a CI variable shared by several jobs or reruns.
 A request body is at most 5 MiB (5,242,880 bytes) of JSON, and at most 5.75 MiB (6,029,312
 bytes) once the API's gateway escapes it as text for Lambda, where every quote and backslash
 counts twice. The SDK refuses a larger one (`ValueError`) before sending it, since one past
-the gateway's limit would come back as a bare 5xx; run fewer or shorter inline tasks, or store
-them in a set and run it with `set_name`. A 413 from the API is never retried.
+the gateway's limit would come back as a bare 5xx. The refusal says what to send less of: for
+a run, fewer or shorter inline tasks, or a set run with `set_name`; for a submit, the answer
+without the whitespace around it. A 413 from the API is never retried.
 
 A submit that times out, or fails on the server's side, may still have been graded. The
 SDK retries it and reads the run to settle it, within about 7 minutes. Submitting an

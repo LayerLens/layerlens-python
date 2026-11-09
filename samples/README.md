@@ -124,7 +124,7 @@ Trace and evaluate outputs from major LLM providers -- both manual trace upload 
 |--------|----------|
 | `openai_traced.py` | Trace an OpenAI completion and evaluate it with a judge (manual trace upload) |
 | `anthropic_traced.py` | Capture multi-turn Claude conversations with tracing and evaluation (manual trace upload) |
-| `openai_instrumented.py` | Auto-instrument OpenAI with `instrument_openai()`, `@trace`, and `span()` for zero-code span capture |
+| `openai_instrumented.py` | Auto-instrument OpenAI with `instrument_openai()`, `@trace`, `span()` and `emit()`: each call recorded in a trace |
 | `langchain_instrumented.py` | Auto-capture LangChain LCEL chain execution with `LangChainCallbackHandler` |
 
 ---

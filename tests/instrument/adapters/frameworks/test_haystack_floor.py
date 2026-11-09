@@ -212,6 +212,9 @@ class TestRealErrorShape:
         out = find_event(events, "agent.output")
         assert "error" in out["payload"], "provider failure dropped from agent.output"
         assert str(cause) in out["payload"]["error"]
+        # The provider's reason survives whatever openai prints: it is read off the
+        # error's cause chain, not its text (LAY-4454).
+        assert out["payload"]["error_code"] == "rate_limit_exceeded"
         assert "429" in out["payload"]["error"]
         assert "Rate limit reached for gpt-4o-mini" in out["payload"]["error"]
 

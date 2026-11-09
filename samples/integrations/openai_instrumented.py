@@ -1,4 +1,4 @@
-"""Example: Instrument OpenAI with automatic LLM span capture.
+"""Example: Instrument OpenAI and record each call in a trace.
 
 Requires:
     uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]"
@@ -8,7 +8,7 @@ Requires:
 
 import openai
 from layerlens import LayerLens
-from layerlens.instrument import span, trace
+from layerlens.instrument import emit, span, trace
 from layerlens.instrument.adapters.providers.openai import instrument_openai
 
 
@@ -16,24 +16,24 @@ def main() -> None:
     client = LayerLens()
     openai_client = openai.OpenAI()
 
-    # Instrument the OpenAI client — all chat.completions.create calls
-    # inside a @trace will generate LLM spans automatically.
+    # Instrument the OpenAI client — every chat.completions.create call made
+    # inside a @trace records model.invoke and cost.record automatically.
     instrument_openai(openai_client)
 
     @trace(client)
     def qa_agent(question: str):
         """Simple Q&A agent with a retrieval step and an LLM call."""
 
-        # Manual span for a retrieval step
-        with span("retrieve", kind="retriever") as s:
+        # A span of its own for the retrieval step, and the event it records
+        with span("retrieve"):
             # In a real app, this would query a vector database
             docs = [
                 "Python is a programming language.",
                 "It was created by Guido van Rossum.",
             ]
-            s.output = docs
+            emit("retrieval.query", {"query": question, "result_count": len(docs)})
 
-        # The OpenAI call is automatically instrumented — no span() needed
+        # The OpenAI call is recorded by the adapter — no span() or emit() needed
         response = openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[

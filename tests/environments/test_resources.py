@@ -20,9 +20,13 @@ from layerlens._exceptions import (
 )
 from layerlens.resources.environments.runs import external_run_body
 from layerlens.resources.environments._shared import (
+    SUBMIT_LESS,
+    MAX_ANSWER_BYTES,
+    SEND_LESS_AT_ONCE,
     BUSY_RETRY_SECONDS,
     MAX_ESCAPED_BODY_BYTES,
     MAX_REQUEST_BODY_BYTES,
+    RUN_FEWER_INLINE_TASKS,
     InvalidArgument,
 )
 
@@ -415,6 +419,37 @@ class TestSubmit:
             client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "x", trace_id="é" * 128 + "x")
         assert api.requests == []
 
+    def test_an_answer_at_the_apis_limit_is_sent_as_given(self, client, api: FakeAPI) -> None:
+        # LAY-4454: 64 KiB is the API's own limit, measured trimmed, as for the trace id.
+        api.on("POST", SUBMIT, ok(submitted(ATTEMPT_1)))
+        answer = "é" * (MAX_ANSWER_BYTES // 2)
+        client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, f"\n{answer}  \n")
+        assert body_of(api.requests[0])["answer"] == f"\n{answer}  \n"
+
+    def test_an_answer_past_the_apis_limit_is_refused_naming_the_answer(self, client, api: FakeAPI) -> None:
+        # LAY-4454: it was sent, and one past 5 MiB was refused with how to start a run.
+        with pytest.raises(InvalidArgument) as refused:
+            client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "x" * (6 << 20))
+        assert str(refused.value) == f"answer is {6 << 20} bytes; the limit is {MAX_ANSWER_BYTES}"
+        assert api.requests == []
+
+    def test_an_error_past_the_apis_limit_is_refused_naming_the_error(self, client, api: FakeAPI) -> None:
+        with pytest.raises(InvalidArgument, match=f"^error is {MAX_ANSWER_BYTES + 1} bytes; the limit is 65536$"):
+            client.environments.runs.submit(
+                ENV_ID, RUN_ID, ATTEMPT_1, outcome="error", error="e" * (MAX_ANSWER_BYTES + 1)
+            )
+        assert api.requests == []
+
+    def test_a_submit_too_big_for_the_gateway_says_how_to_send_the_answer_not_a_run(self, client, api: FakeAPI) -> None:
+        # Whitespace the API would trim still travels: the body's own limit catches it, and
+        # its refusal is about the answer, not inline tasks or task sets.
+        with pytest.raises(InvalidArgument) as refused:
+            client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "4" + " " * (6 << 20))
+        assert str(refused.value).endswith(f": {SUBMIT_LESS}")
+        assert "65536 bytes each once the whitespace around them is trimmed" in str(refused.value)
+        assert "task" not in str(refused.value)
+        assert api.requests == []
+
     def test_a_second_submit_of_a_graded_attempt_is_a_conflict(self, client, api: FakeAPI) -> None:
         api.on("POST", SUBMIT, err(409, f"attempt {ATTEMPT_1}, for task x, is already submitted"))
         api.on("GET", RUN, ok(run_view(row(ATTEMPT_1, "pass"), row(ATTEMPT_2, None), status="in_progress")))
@@ -719,8 +754,24 @@ class TestResends:
 
     def test_a_body_over_the_apis_limit_is_refused_before_it_is_sent(self, client, api: FakeAPI) -> None:
         tasks = [{"name": f"t{i}", "prompt": "x" * 20_000, "grader": {"kind": "answer"}} for i in range(300)]
-        with pytest.raises(ValueError, match=r"5.00 MiB \(5242880 bytes\).*task set"):
+        with pytest.raises(ValueError, match=r"5.00 MiB \(5242880 bytes\).*task set") as refused:
             client.environments.runs.start_external(ENV_ID, agent_name="a", tasks=tasks)
+        assert str(refused.value).endswith(f": {RUN_FEWER_INLINE_TASKS}")
+        assert api.requests == []
+
+    def test_a_model_run_too_big_to_send_says_to_run_fewer_inline_tasks(self, client, api: FakeAPI) -> None:
+        tasks = [{"name": f"t{i}", "prompt": "x" * 250_000} for i in range(25)]
+        with pytest.raises(InvalidArgument) as refused:
+            client.environments.runs.run_model(ENV_ID, budget_usd=1.0, model="m", tasks=tasks)
+        assert str(refused.value).endswith(f": {RUN_FEWER_INLINE_TASKS}")
+        assert api.requests == []
+
+    def test_any_other_body_too_big_to_send_says_to_send_less_at_once(self, client, api: FakeAPI) -> None:
+        # LAY-4454: every refusal used to end with how to start a run, whatever the request was.
+        with pytest.raises(InvalidArgument) as refused:
+            client.environments.create("support-desk", "zendesk", description="x" * (6 << 20))
+        assert str(refused.value).endswith(f": {SEND_LESS_AT_ONCE}")
+        assert "task" not in str(refused.value)
         assert api.requests == []
 
     def test_a_body_at_the_apis_limit_is_sent(self, client, api: FakeAPI) -> None:

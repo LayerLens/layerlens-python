@@ -35,6 +35,11 @@ KNOWN_SKIP_TARGETS = {
     "ollama",
     "openai",
     "vertexai.generative_models",
+    # provider SDKs whose real exceptions test_error_code.py raises, to read each
+    # one's reason code where that SDK keeps it (LAY-4454)
+    "anthropic",
+    "groq",
+    "cohere",
     # framework adapters (installed per-venv; absent on the base env by design)
     "pydantic_ai",
     "langchain",

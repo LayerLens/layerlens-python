@@ -9,19 +9,22 @@ import signal
 import tempfile
 import threading
 import subprocess
-from typing import IO, Set, Dict, List, Tuple, Callable, Optional, Sequence
+from typing import IO, Set, Dict, List, Tuple, Callable, Iterator, Optional, Sequence
 from pathlib import Path
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import click
 
 from ...._env import API_KEY_ENV, LEGACY_API_KEY_ENVS
+from ...._trace_tags import TRACE_TAGS_ENV, join_tags, split_tags
 from ...._trace_id_file import TRACE_ID_FILE_ENV
 from ....resources.environments import ExternalAttempt
-from ....resources.environments._shared import MAX_TRACE_ID_BYTES, trace_id_problem
+from ....resources.environments._shared import MAX_ANSWER_BYTES, MAX_TRACE_ID_BYTES, trace_id_problem
 
-# The API limits a submitted answer, and the reason given with an error, to this many bytes.
-MAX_ANSWER_BYTES = 65536
+# On an interrupt, how long the answers already being submitted get to finish before the run is
+# cancelled. Short of a CI runner's wait between its SIGINT and its SIGTERM (7.5s on GitHub).
+SUBMIT_GRACE_SECONDS = 5.0
 
 # Never handed to the agent: an Automation key can read the expected answers.
 KEY_VARIABLES = (API_KEY_ENV, *LEGACY_API_KEY_ENVS)
@@ -64,6 +67,27 @@ def agent_environment(base: Dict[str, str], *, api_key: Optional[str] = None) ->
     return environment
 
 
+def with_run_label(environment: Dict[str, str], label: Optional[str]) -> Dict[str, str]:
+    """``environment`` with the run's label first in ``LAYERLENS_TRACE_TAGS``, before the tags it lists.
+
+    LayerLens tags each attempt's own trace with the label; with it in this variable, an agent
+    traced with the LayerLens SDK tags every trace it records with it too, so filtering traces
+    on the label finds both. First, because a trace keeps its first 32 tags: the label is what
+    finds the run's traces. The SDK ignores a value it cannot read, label included, so such a
+    value is replaced by the label alone, with a warning.
+    """
+    label = (label or "").strip()
+    if not label:
+        return environment
+    try:
+        tags = [tag.strip() for tag in split_tags(environment.get(TRACE_TAGS_ENV, ""))]
+    except ValueError as err:
+        click.echo(f"Warning: {err}. The agent's traces are tagged with the run's label alone.", err=True)
+        tags = []
+    tags = [label, *(tag for tag in tags if tag and tag != label)]
+    return {**environment, TRACE_TAGS_ENV: join_tags(tags)}
+
+
 def attempt_variables(attempt: ExternalAttempt, answer_file: Path, trace_id_file: Path) -> Dict[str, str]:
     return {
         "LAYERLENS_ENV_BASE_URL": attempt.base_url or "",
@@ -78,11 +102,14 @@ def attempt_variables(attempt: ExternalAttempt, answer_file: Path, trace_id_file
 
 
 class LiveProcesses:
-    """The agent processes running now, so an interrupt can stop every one of them."""
+    """The agent processes running now, and the answers being submitted, so an interrupt can
+    stop every process and let no answer start on its way after it."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._submits_ended = threading.Condition(self._lock)
         self._processes: Set[subprocess.Popen[bytes]] = set()
+        self._submits = 0
         self.stopping = False
 
     def add(self, process: subprocess.Popen[bytes]) -> None:
@@ -102,6 +129,38 @@ class LiveProcesses:
             processes = list(self._processes)
         for process in processes:
             kill(process)
+
+    @contextmanager
+    def submitting(self) -> Iterator[bool]:
+        """Whether an attempt may submit now: ``False`` once :meth:`stop_all` has run.
+
+        The check and the count of submits under way change under the lock :meth:`stop_all`
+        takes, so a submit either starts before the stop, and :meth:`wait_for_submits` sees it,
+        or not at all. Checked without it, an interrupt between the check and the submit sent
+        the answer while the run was being cancelled (LAY-4454).
+        """
+        with self._lock:
+            allowed = not self.stopping
+            if allowed:
+                self._submits += 1
+        try:
+            yield allowed
+        finally:
+            if allowed:
+                with self._lock:
+                    self._submits -= 1
+                    if not self._submits:
+                        self._submits_ended.notify_all()
+
+    def submits_under_way(self) -> int:
+        with self._lock:
+            return self._submits
+
+    def wait_for_submits(self, timeout: float) -> int:
+        """Wait up to ``timeout`` seconds for the submits under way to end; returns how many have not."""
+        with self._submits_ended:
+            self._submits_ended.wait_for(lambda: not self._submits, timeout)
+            return self._submits
 
 
 def kill(process: subprocess.Popen[bytes]) -> None:

@@ -5,10 +5,11 @@ import time
 import uuid
 import logging
 import threading
-from typing import Any, Dict, List, Callable, Optional
+from typing import Any, Dict, List, Callable, Iterable, Optional
 
 from layerlens.attestation import HashChain
 
+from ._tags import trace_tags, tags_argument
 from ._events import TRACE_ROOT, AGENT_IDENTITY
 from ._upload import enqueue_upload
 from ._identity import honest_agent_identity
@@ -117,9 +118,18 @@ class TraceCollector:
     # the count cap (MAX_EVENTS) alone doesn't bound size.
     MAX_EVENT_BYTES = 256 * 1024
 
-    def __init__(self, client: Any, config: CaptureConfig) -> None:
+    def __init__(self, client: Any, config: CaptureConfig, *, tags: Optional[Iterable[str]] = None) -> None:
+        """A trace uploaded through ``client``.
+
+        ``tags`` are this trace's own; it also carries ``LAYERLENS_TRACE_TAGS`` and the tags of
+        the ``trace``/``trace_context`` blocks it starts in (see :mod:`._tags`). Raises
+        ``TypeError`` when ``tags`` is not a list of strings.
+        """
+        own_tags = tags_argument(tags)
         self._client = client
         self._config = config
+        # Fixed as the trace starts. Outside the hash chain: tags are labels, not evidence.
+        self._tags = trace_tags(own_tags)
         self._trace_id = uuid.uuid4().hex[:16]
         self._events: List[Dict[str, Any]] = []
         self._sequence: int = 0
@@ -135,6 +145,11 @@ class TraceCollector:
     @property
     def config(self) -> CaptureConfig:
         return self._config
+
+    @property
+    def tags(self) -> List[str]:
+        """The tags this trace is uploaded with (a copy)."""
+        return list(self._tags)
 
     @property
     def sealed(self) -> bool:
@@ -325,7 +340,8 @@ class TraceCollector:
         """Return the trace as a replay-ready dict.
 
         Same shape as the payload uploaded to the API: ``trace_id``,
-        ``events``, ``capture_config``, ``attestation``. Safe to call at
+        ``events``, ``capture_config``, ``attestation``, and ``tags`` when
+        the trace has any. Safe to call at
         any time — even before flush — and idempotent (does not seal the
         collector or the hash chain). Use this to persist a trace for
         later replay via :mod:`layerlens.replay.snapshot`.
@@ -371,6 +387,10 @@ class TraceCollector:
             "capture_config": self._config.to_dict(),
             "attestation": attestation,
         }
+        if self._tags:
+            # The API stores a trace's top-level ``tags`` as its tags. Beside the
+            # attestation, not in it: the chain covers the events alone.
+            trace_payload["tags"] = list(self._tags)
         if self._capped:
             trace_payload["truncated"] = True
             trace_payload["max_events"] = self.MAX_EVENTS

@@ -162,7 +162,9 @@ for trace in response.traces:
 
 `tags` is a list: one string raises `TypeError` rather than being read as its letters. An
 empty tag raises `ValueError` before anything is sent, since the API would ignore it and
-list every trace. `trace.tags` holds a trace's tags.
+list every trace. `trace.tags` holds a trace's tags. The SDK's tracing tags the traces it records
+with `trace(..., tags=[...])`, `trace_context(..., tags=[...])` and `LAYERLENS_TRACE_TAGS`: see
+[Trace tags](../instrumentation/tags.md).
 
 ### `delete(id, timeout=None)`
 

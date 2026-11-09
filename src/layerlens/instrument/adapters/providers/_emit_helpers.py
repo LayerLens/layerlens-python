@@ -14,6 +14,7 @@ from ..._events import (
 )
 from ..._context import _current_span_id, _current_collector
 from .token_usage import NormalizedTokenUsage
+from ..._error_code import error_category
 from ..._secret_scrub import safe_error
 from .._tool_arguments import parse_tool_arguments
 
@@ -254,7 +255,7 @@ def emit_llm_error(
         # Provider auth/validation exceptions routinely echo the API key /
         # bearer token; scrub before it enters the (always-uploaded) payload.
         "error": safe_error(error),
-        "error_type": type(error).__name__,
+        **error_category(error),
         "latency_ms": latency_ms,
     }
     if partial_chunks is not None:

@@ -46,6 +46,10 @@ SUBMIT_OUTCOMES = ("answered", "error", "timeout")
 # The API links an agent's own trace to an attempt by an id of at most this many bytes, trimmed.
 MAX_TRACE_ID_BYTES = 256
 
+# The API takes an attempt's answer, and the reason given with an error, of at most this many
+# bytes each, trimmed.
+MAX_ANSWER_BYTES = 64 << 10
+
 # The API refuses a larger request body with 413; one over Lambda's 6 MB never reaches it,
 # and comes back as a bare gateway error instead.
 MAX_REQUEST_BODY_BYTES = 5 << 20
@@ -53,6 +57,15 @@ MAX_REQUEST_BODY_BYTES = 5 << 20
 # The gateway hands the body to Lambda as a JSON string inside its event, which holds at most
 # 6 MiB; this leaves 256 KiB of it for the headers and the request context.
 MAX_ESCAPED_BODY_BYTES = (6 << 20) - (256 << 10)
+
+# What to do about a body over those limits. The request that is refused says which: the API
+# words its own 413 per route the same way.
+SEND_LESS_AT_ONCE = "send less in one request"
+RUN_FEWER_INLINE_TASKS = "run fewer or shorter inline tasks, or store the tasks in a task set and run the set"
+SUBMIT_LESS = (
+    f"an answer, and the reason given with an error, are at most {MAX_ANSWER_BYTES} bytes each once the "
+    "whitespace around them is trimmed, so send them without it"
+)
 
 # How long, in all, a request that carries an Idempotency-Key keeps waiting out a 503 that
 # came with Retry-After.
@@ -68,9 +81,13 @@ class InvalidArgument(ValueError):
 IdempotencyKey = Optional[str]
 
 
-def check_body_size(body: Any) -> None:
+def check_body_size(body: Any, *, remedy: str = SEND_LESS_AT_ONCE) -> None:
     """Refuse a body the API would not take, before sending it: by its own size, or by its size
-    once the gateway escapes it into Lambda's event (non-ASCII text is not escaped there)."""
+    once the gateway escapes it into Lambda's event (non-ASCII text is not escaped there).
+
+    ``remedy`` ends the refusal. It is the request's own: starting a run is helped by fewer
+    inline tasks, a submit by a shorter answer (LAY-4454).
+    """
     content = httpx.Request("POST", "https://api.invalid", json=body).content
     size = len(content)
     escaped = len(json.dumps(content.decode("utf-8"), ensure_ascii=False).encode("utf-8"))
@@ -79,8 +96,7 @@ def check_body_size(body: Any) -> None:
             f"this request is {_mib(size)} ({size} bytes) of JSON, {_mib(escaped)} ({escaped} bytes) once the "
             "API's gateway escapes it, where every quote and backslash counts twice, and the API takes at most "
             f"{_mib(MAX_REQUEST_BODY_BYTES)} ({MAX_REQUEST_BODY_BYTES} bytes), or {_mib(MAX_ESCAPED_BODY_BYTES)} "
-            f"({MAX_ESCAPED_BODY_BYTES} bytes) escaped: run fewer or shorter inline tasks, or store the tasks in "
-            "a task set and run the set"
+            f"({MAX_ESCAPED_BODY_BYTES} bytes) escaped: {remedy}"
         )
 
 
@@ -251,12 +267,23 @@ def task_choice(
     return body
 
 
+def _over_limit(field: str, value: str, limit: int) -> Optional[str]:
+    """Why the API would refuse ``value`` as a submit's ``field``, worded as the API words it,
+    or ``None`` when it takes it.
+
+    The API trims the value before it measures it. ``str.strip`` trims every character Go's
+    ``strings.TrimSpace`` does, and a few control characters more, so this never refuses what
+    the API would take.
+    """
+    size = len(value.strip().encode("utf-8"))
+    if size > limit:
+        return f"{field} is {size} bytes; the limit is {limit}"
+    return None
+
+
 def trace_id_problem(trace_id: str) -> Optional[str]:
     """Why the API would refuse ``trace_id`` with a submit, or ``None`` when it takes it."""
-    size = len(trace_id.strip().encode("utf-8"))
-    if size > MAX_TRACE_ID_BYTES:
-        return f"trace_id is {size} bytes; the limit is {MAX_TRACE_ID_BYTES}"
-    return None
+    return _over_limit("trace_id", trace_id, MAX_TRACE_ID_BYTES)
 
 
 def submit_body(
@@ -264,9 +291,16 @@ def submit_body(
 ) -> Dict[str, Any]:
     if outcome not in SUBMIT_OUTCOMES:
         raise InvalidArgument(f"outcome must be one of {', '.join(SUBMIT_OUTCOMES)}, got {outcome!r}")
-    problem = trace_id_problem(trace_id) if trace_id is not None else None
-    if problem is not None:
-        raise InvalidArgument(problem)
+    # The API's own per-field limits: a submit over one is refused here, naming the field and
+    # its limit, rather than after sending it (LAY-4454).
+    for field, value, limit in (
+        ("answer", answer, MAX_ANSWER_BYTES),
+        ("error", error, MAX_ANSWER_BYTES),
+        ("trace_id", trace_id, MAX_TRACE_ID_BYTES),
+    ):
+        problem = None if value is None else _over_limit(field, value, limit)
+        if problem is not None:
+            raise InvalidArgument(problem)
     body: Dict[str, Any] = {"outcome": outcome}
     if answer is not None:
         body["answer"] = answer

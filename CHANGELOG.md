@@ -13,6 +13,16 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Added
 
+- **Find environment runs, and compare two (LAY-4432).** `layerlens env run list ENV
+  [--label] [--agent-name] [--kind] [--status]` lists an environment's runs newest first, and
+  `client.environments.runs.list(...)` / `runs.iter(...)` read them in Python, with an
+  Automation key. `layerlens env run compare ENV --baseline-label main RUN_ID` compares a run
+  with the newest run on `main` of the same agent that succeeded (or two run ids): it prints the
+  pass-rate change and every task that passed on the baseline and fails on the candidate,
+  appends the same to `--markdown FILE`, and exits `1` on a regression and `2` when the runs
+  could not be compared, never `1` for an error. `RunComparison.between(baseline, candidate)`
+  is the same comparison in Python. Runs now carry `created_at`, `started_at` and
+  `finished_at`. Needs the API's `GET /environments/{id}/runs`.
 - **Environments from CI: `client.environments` and `layerlens env`.** With an API key that has
   **Automation** access (Organization Settings → API Keys), create and mint an environment, keep
   task sets, and run graded evaluations of your own agent or of a model, then fail a build on the
@@ -62,6 +72,40 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   (`Trace.tags`). An empty tag, such as an unset variable, is refused (`ValueError`; a usage
   error in the CLI) rather than sent, since the API would ignore it and list every trace; one
   string passed as `tags` raises `TypeError`
+
+- **A recorded error keeps the provider's reason code, as `error_code`.** Since openai 3.38 an
+  error's text no longer holds the reason (`Error code: 429 - Rate limit reached`, without
+  `rate_limit_exceeded`), so traces lost it. Every adapter, and `@trace`, now reads the reason off
+  the exception, or the error that caused it when a framework wrapped it in its own: openai's
+  `code` (also Azure OpenAI and LiteLLM), a relayed error body's `error.code` (groq,
+  pydantic-ai), AWS's `Error.Code`, Google Gen AI's `status`, anthropic's `type`. Like
+  `error_type`, it is kept under `capture_content=False`, where the error's text is not, so a
+  trace recorded with the default capture config now says why a call failed. Only a short
+  token is kept, never text. See
+  [docs/api-reference/instrumentation.md](docs/api-reference/instrumentation.md#error-events)
+  (LAY-4454)
+
+- **The SDK tags the traces it records: `trace(..., tags=[...])`, `trace_context(..., tags=[...])`
+  and `LAYERLENS_TRACE_TAGS`.** A trace is uploaded with the variable's tags, then those of the
+  `trace`/`trace_context` blocks it started in, outermost first, then its own; a block's tags also
+  reach the traces adapters open of their own inside it (OpenAI Agents, LlamaIndex,
+  OpenInference). The variable tags every trace a process records with no code change, so CI can
+  find one run's traces with `layerlens trace list --tag`, and grader rules and batch evaluations
+  can target them, where searching by agent name missed traces a framework names. It is
+  comma-separated, or a JSON array of strings for a tag with a comma. Each tag is trimmed (the
+  API's filter trims what it is asked for, so an untrimmed tag could never be found) and
+  secret-scrubbed like event text; blanks and repeats are dropped; a tag over 128 bytes or with
+  a control or format character, and tags past 32, are dropped with a warning, never cut (the
+  limits LayerLens's OpenTelemetry ingest applies).
+  `tags` that is not a list of strings raises `TypeError` where it is given. Tags sit outside the
+  attestation chain and are sent whatever the capture configuration. See
+  [docs/instrumentation/tags.md](docs/instrumentation/tags.md)
+
+- **`layerlens env run exec --label` tags the agent's own traces with the label.** It puts the
+  label first in the command's `LAYERLENS_TRACE_TAGS`, before the tags already there (a trace
+  keeps its first 32), so an agent traced with the LayerLens SDK tags every trace it records as
+  LayerLens tags each attempt's trace: `layerlens trace list --tag "$GIT_SHA"` lists both, and `--tag environment` keeps
+  LayerLens's alone. A label with a comma stays one tag. See [docs/cli/env.md](docs/cli/env.md)
 
 - **`--api-key-file PATH` reads the CLI's API key from a file, or from standard input with `-`.**
   It works on every command, like `--api-key`, and keeps the key out of the command line and the
@@ -123,6 +167,35 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **`Result.score` is now `Optional[float]`, and `Result` gains `score_error: Optional[str]`.** The API returns `score: null` with a `score_error` reason for a prompt the scorer could not grade (judge unreachable, scorer crash); such prompts are excluded from the evaluation's accuracy. Previously the SDK raised a `ValidationError` on every results page containing one. Treat `None` as "not scored", never as `0`.
 
 ### Fixed
+
+- **A program no longer waits 5 seconds at exit for nothing.** At exit the SDK told each upload
+  thread to stop with a marker on its queue, and dropped the marker when the queue was full (64
+  traces): the thread sent the queued traces, then waited for more, and the exit waited out its
+  whole 5-second timeout, once per client. Each thread now stops as soon as its queue is sent, all
+  of them are told at once, and the exit waits at most 5 seconds in all. A trace queued after a
+  shutdown still starts a new thread. A trace the exit could not wait for used to vanish without
+  a word; it is now counted as lost (`exit_timeout`, also through the loss callback) and a warning
+  says how many (LAY-4454)
+
+- **`layerlens env run exec` submits nothing after Ctrl-C.** A worker could pass the check for an
+  interrupt just before Ctrl-C and send its answer while the run was being cancelled. Whether an
+  attempt may submit is now decided under the lock the interrupt takes, and the answers already
+  on their way get up to 5 seconds to be graded before the run is cancelled, so the API sees them
+  before the cancel (LAY-4454)
+
+- **An answer over the API's 64 KiB limit is refused naming the answer.** `runs.submit`,
+  `attempt.submit`, `attempt.submit_error` and `layerlens env run submit` sent it, and one over
+  5 MiB was refused with how to start a run ("run fewer or shorter inline tasks..."). An answer or
+  an error over 65,536 bytes, trimmed, is now refused before sending, as the API words it
+  (`answer is 70000 bytes; the limit is 65536`), and a request too big to send says what to send
+  less of for that request (LAY-4454)
+
+- **The instrumentation docs describe the API that exists.** The reference and the guides showed
+  `TraceRecorder`, `SpanData`, `span(name, kind=...)` yielding an object to set `.output` on, and
+  `provider.connect_client(...)`, all removed long ago: copied, they raised `TypeError` or
+  `AttributeError`, as did `samples/integrations/openai_instrumented.py`. They now show `span()`,
+  `emit()`, `trace_context()`, error events and uploading as they work, and a test checks every
+  instrumentation example in the docs and samples against the code (LAY-4454)
 
 - **`layerlens evaluations compare` exits `2`, not `1`, when it cannot read a run.** A file that
   was not valid JSON, lacked a field or had one of the wrong type raised a Python traceback and

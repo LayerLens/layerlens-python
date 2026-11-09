@@ -12,7 +12,8 @@ from datetime import datetime
 
 from pydantic import Field, BaseModel, ConfigDict
 
-from ._run_reports import run_to_junit, run_to_markdown
+from ._run_reports import run_to_junit, run_to_markdown, comparison_to_markdown
+from ._run_comparison import task_changes, unfinished_reason
 
 __all__ = [
     "BUILD_READY",
@@ -41,7 +42,11 @@ __all__ = [
     "JobProgress",
     "Job",
     "RunAttempt",
+    "RunSummary",
     "RunResult",
+    "RunPage",
+    "TaskChange",
+    "RunComparison",
     "ExternalRunAttempt",
     "ExternalRunStart",
     "SubmitResult",
@@ -307,8 +312,8 @@ class RunAttempt(_Model):
         return self.verdict not in UNCOUNTED_VERDICTS
 
 
-class RunResult(_Model):
-    """``GET /{id}/runs/{run_id}``: a run of either kind, with one row per task."""
+class RunSummary(_Model):
+    """A run as ``runs.list`` lists it: a :class:`RunResult` without its per-task rows."""
 
     run_id: str
     # "external" (your agent) or "rollout" (a model or endpoint).
@@ -337,7 +342,10 @@ class RunResult(_Model):
     pass_rate: Optional[float] = None
     # None when the run's cost is not known (an endpoint, own: or custom: model).
     cost_usd: Optional[float] = None
-    attempts: List[RunAttempt] = []
+    # When the run was started, began and ended; None from a server that predates them.
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
 
     @property
     def finished(self) -> bool:
@@ -347,6 +355,12 @@ class RunResult(_Model):
     def out_of(self) -> int:
         """What ``passed`` is out of: ``counted``, or ``total`` from a server that does not send it."""
         return self.total if self.counted is None else self.counted
+
+
+class RunResult(RunSummary):
+    """``GET /{id}/runs/{run_id}``: a run of either kind, with one row per task."""
+
+    attempts: List[RunAttempt] = []
 
     @property
     def uncounted(self) -> int:
@@ -368,6 +382,94 @@ class RunResult(_Model):
     def to_markdown(self, *, title: Optional[str] = None) -> str:
         """A Markdown summary for a CI job page: the counts, then every task that did not pass."""
         return run_to_markdown(self, title=title)
+
+
+class RunPage(_Model):
+    """``GET /{id}/runs``: one page of an environment's runs, newest first."""
+
+    runs: List[RunSummary] = []
+    # Pass it back as ``cursor`` for the next page; None on the last page.
+    next_cursor: Optional[str] = None
+
+
+class TaskChange(_Model):
+    """One task whose verdict changed between two runs, with its row in each."""
+
+    task_id: str
+    task_name: Optional[str] = None
+    baseline: RunAttempt
+    candidate: RunAttempt
+
+
+class RunComparison(_Model):
+    """How a candidate run differs from a baseline run: :meth:`between` builds it.
+
+    A regression is a task that passed on the baseline and fails on the candidate: graded
+    ``fail``, ``error`` or ``timeout``, the verdicts the pass rate counts against the agent.
+    Tasks in only one run are listed, and never a regression: a task added to the file, or
+    one whose prompt or grader changed (which gives it a new id), says nothing about whether
+    the agent got worse at the tasks both runs share.
+    """
+
+    baseline: RunSummary
+    candidate: RunSummary
+    # candidate.pass_rate - baseline.pass_rate; None when either run has no pass rate.
+    pass_rate_delta: Optional[float] = None
+    regressed: List[TaskChange] = []
+    recovered: List[TaskChange] = []
+    only_in_baseline: List[RunAttempt] = []
+    only_in_candidate: List[RunAttempt] = []
+    # True when any task regressed.
+    regression: bool = False
+
+    @classmethod
+    def between(cls, baseline: RunResult, candidate: RunResult) -> RunComparison:
+        """Compare two finished runs. Raises :class:`ValueError` for a run still in progress."""
+        for role, run in (("baseline", baseline), ("candidate", candidate)):
+            why = unfinished_reason(role, run)
+            if why is not None:
+                raise ValueError(why)
+        changes = task_changes(baseline, candidate)
+        before = {a.task_id: a for a in baseline.attempts}
+
+        def changed(rows: List[RunAttempt]) -> List[TaskChange]:
+            return [
+                TaskChange(
+                    task_id=a.task_id,
+                    task_name=a.task_name or before[a.task_id].task_name,
+                    baseline=before[a.task_id],
+                    candidate=a,
+                )  # fmt: skip
+                for a in rows
+            ]
+
+        delta = None
+        if baseline.pass_rate is not None and candidate.pass_rate is not None:
+            delta = candidate.pass_rate - baseline.pass_rate
+        regressed = changed(changes["regressed"])
+        return cls(
+            baseline=_summary_of(baseline),
+            candidate=_summary_of(candidate),
+            pass_rate_delta=delta,
+            regressed=regressed,
+            recovered=changed(changes["recovered"]),
+            only_in_baseline=changes["only_in_baseline"],
+            only_in_candidate=changes["only_in_candidate"],
+            regression=bool(regressed),
+        )
+
+    @property
+    def environment_versions_differ(self) -> bool:
+        """The runs were served different versions of the environment."""
+        return self.baseline.environment_version != self.candidate.environment_version
+
+    def to_markdown(self, *, title: Optional[str] = None) -> str:
+        """A Markdown summary for a CI job page: the pass rates, then every task that regressed."""
+        return comparison_to_markdown(self, title=title)
+
+
+def _summary_of(run: RunResult) -> RunSummary:
+    return RunSummary.model_validate(run.model_dump(exclude={"attempts"}))
 
 
 class ExternalRunAttempt(_Model):

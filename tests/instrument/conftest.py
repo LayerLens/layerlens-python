@@ -9,7 +9,7 @@ import pytest
 
 from layerlens.models import CreateTracesResponse
 
-from ._secret_scan import scan_for_secrets
+from ._secret_scan import scan_for_secrets, scan_tags_for_secrets
 from ._event_schema import validate_events
 
 # ---------------------------------------------------------------------------
@@ -58,6 +58,8 @@ def _enforce_schema_lock():
 
     def _observe(payload: Dict[str, Any]) -> None:
         record_for_schema_lock(payload.get("events", []))
+        # The trace's tags are uploaded beside its events and scrubbed like them (LAY-4449).
+        scan_tags_for_secrets(payload.get("tags", []))
 
     _collector_mod.set_trace_observer(_observe)
     _pending_schema_events.clear()

@@ -7,6 +7,12 @@ import pytest
 
 from layerlens import LayerLensError, EnvironmentBuildError, EnvironmentConflictError
 from layerlens._exceptions import ConflictError
+from layerlens.resources.environments._shared import (
+    SUBMIT_LESS,
+    MAX_ANSWER_BYTES,
+    RUN_FEWER_INLINE_TASKS,
+    InvalidArgument,
+)
 
 from .conftest import (
     ENV_ID,
@@ -87,6 +93,25 @@ def test_a_conflict_on_an_attempt_graded_before_is_raised(async_client, api: Fak
     with pytest.raises(ConflictError):
         asyncio.run(async_client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "a"))
     assert len(api.calls("POST", SUBMIT_1)) == 1
+
+
+def test_an_async_answer_past_the_apis_limit_is_refused_naming_the_answer(async_client, api: FakeAPI) -> None:
+    with pytest.raises(InvalidArgument, match=f"^answer is {MAX_ANSWER_BYTES + 1} bytes; the limit is 65536$"):
+        asyncio.run(async_client.environments.runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "x" * (MAX_ANSWER_BYTES + 1)))
+    assert api.requests == []
+
+
+def test_async_refusals_of_a_body_too_big_to_send_name_what_to_send_less_of(async_client, api: FakeAPI) -> None:
+    # LAY-4454: the remedy is the request's own, on the async client as on the sync one.
+    runs = async_client.environments.runs
+    with pytest.raises(InvalidArgument) as submit:
+        asyncio.run(runs.submit(ENV_ID, RUN_ID, ATTEMPT_1, "4" + " " * (6 << 20)))
+    with pytest.raises(InvalidArgument) as start:
+        tasks = [{"name": f"t{i}", "prompt": "x" * 20_000} for i in range(300)]
+        asyncio.run(runs.start_external(ENV_ID, agent_name="a", tasks=tasks))
+    assert str(submit.value).endswith(f": {SUBMIT_LESS}")
+    assert str(start.value).endswith(f": {RUN_FEWER_INLINE_TASKS}")
+    assert api.requests == []
 
 
 def test_an_async_submit_held_back_by_a_call_goes_through(async_client, api: FakeAPI) -> None:

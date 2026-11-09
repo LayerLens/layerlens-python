@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Tuple, Callable, Optional
 from ._utils import truncate, safe_serialize
 from ..._context import _current_run, _current_collector
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -640,7 +641,7 @@ class MirascopeAdapter(FrameworkAdapter):
         if latency_ms is not None:
             call_payload["latency_ms"] = latency_ms
         if error is not None:
-            call_payload["error_type"] = type(error).__name__
+            call_payload.update(error_category(error))
         self._set_if_capturing(call_payload, "input", _render_input(args, kwargs))
         self._emit(
             "tool.call",
@@ -657,7 +658,7 @@ class MirascopeAdapter(FrameworkAdapter):
         if error is not None:
             # error_type is metadata and survives redaction; the message can
             # quote the prompt, so it is gated as content.
-            result_payload["error_type"] = type(error).__name__
+            result_payload.update(error_category(error))
             self._set_if_capturing(result_payload, "error", truncate(str(error), _TEXT_LIMIT))
         else:
             self._set_if_capturing(result_payload, "output", _render_output(response))
@@ -698,7 +699,7 @@ class MirascopeAdapter(FrameworkAdapter):
         tokens = self._normalize_tokens(getattr(response, "usage", None))
         invoke_payload.update(tokens)
         if error is not None:
-            invoke_payload["error_type"] = type(error).__name__
+            invoke_payload.update(error_category(error))
             self._set_if_capturing(invoke_payload, "error", truncate(str(error), _TEXT_LIMIT))
         self._emit(
             "model.invoke",

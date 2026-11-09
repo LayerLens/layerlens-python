@@ -7,7 +7,16 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 
 import click
 
-from ._exec import LaunchError, LiveProcesses, AttemptOutcome, run_attempt, outcome_line, agent_environment
+from ._exec import (
+    SUBMIT_GRACE_SECONDS,
+    LaunchError,
+    LiveProcesses,
+    AttemptOutcome,
+    run_attempt,
+    outcome_line,
+    with_run_label,
+    agent_environment,
+)
 from ._common import (
     DURATION,
     DEFAULT_TIMEOUT,
@@ -70,7 +79,11 @@ def run() -> None:
 @click.argument("environment", metavar="ENV")
 @task_options
 @click.option("--agent-name", required=True, help="How the agent is labelled in results and traces.")
-@click.option("--label", default=None, help="Free text stored with the run, for example a commit SHA.")
+@click.option(
+    "--label",
+    default=None,
+    help="Free text stored with the run, for example a commit SHA. Tags its traces, and the agent's own.",
+)
 @click.option(
     "--parallel", default=1, type=click.IntRange(1, MAX_PARALLEL), help=f"Attempts at once, up to {MAX_PARALLEL}."
 )
@@ -104,7 +117,9 @@ def exec_command(
     the LayerLens API key variables. Its answer is LAYERLENS_ANSWER_FILE, or its standard
     output when that file is empty. A non-zero exit grades the attempt `error`. The trace id
     it leaves in LAYERLENS_TRACE_ID_FILE, however it ends, links its own trace to the
-    attempt; the LayerLens SDK's tracing writes it there.
+    attempt; the LayerLens SDK's tracing writes it there. With --label, the label goes first in
+    LAYERLENS_TRACE_TAGS, so the SDK tags every trace the agent records with it, as LayerLens
+    tags each attempt's own trace.
 
     The API key cannot be given with --api-key here, since every user on the machine can
     read a command line: use LAYERLENS_API_KEY or --api-key-file.
@@ -143,7 +158,8 @@ def exec_command(
         task_names=task_names(tasks),
         label=label,
     )
-    agent_env = agent_environment(dict(os.environ), api_key=client.api_key)
+    # The label first: a label that holds the key is then dropped with every other variable that does.
+    agent_env = agent_environment(with_run_label(dict(os.environ), label), api_key=client.api_key)
     live = LiveProcesses()
     outcomes: List[Tuple[ExternalAttempt, AttemptOutcome]] = []
     with sigterm_as_interrupt():
@@ -183,19 +199,20 @@ def _execute(
 
     def work(attempt: ExternalAttempt) -> AttemptOutcome:
         outcome = run_attempt(attempt, command, timeout_seconds=attempt_timeout, environment=agent_env, live=live)
-        if live.stopping:
-            return outcome
-        try:
-            if outcome.outcome == "answered":
-                assert outcome.answer is not None
-                attempt.submit(outcome.answer, trace_id=outcome.trace_id)
-            else:
-                attempt.submit_error(outcome.error, timeout=outcome.outcome == "timeout", trace_id=outcome.trace_id)
-        except LayerLensError as err:
-            why = api_error_text(err) if isinstance(err, APIStatusError) else str(err)
-            raise _NotSubmitted(
-                f"the answer to task {attempt.task_name!r} ({attempt.task_id}) was refused: {why}"
-            ) from err
+        with live.submitting() as allowed:
+            if not allowed:
+                return outcome
+            try:
+                if outcome.outcome == "answered":
+                    assert outcome.answer is not None
+                    attempt.submit(outcome.answer, trace_id=outcome.trace_id)
+                else:
+                    attempt.submit_error(outcome.error, timeout=outcome.outcome == "timeout", trace_id=outcome.trace_id)
+            except LayerLensError as err:
+                why = api_error_text(err) if isinstance(err, APIStatusError) else str(err)
+                raise _NotSubmitted(
+                    f"the answer to task {attempt.task_name!r} ({attempt.task_id}) was refused: {why}"
+                ) from err
         return outcome
 
     pool = ThreadPoolExecutor(max_workers=parallel, thread_name_prefix="layerlens-exec")
@@ -215,9 +232,27 @@ def _execute(
         for future in futures:
             future.cancel()
         pool.shutdown(wait=False)
+        _let_submits_end(live)
         raise
     pool.shutdown(wait=True)
     return [(attempt, future.result()) for future, attempt in futures.items()]
+
+
+def _let_submits_end(live: LiveProcesses) -> None:
+    """Once the run is stopping, give the answers already on their way time to be graded.
+
+    The run is cancelled next. Waiting first means the API takes the run's submits, then its
+    cancel, in that order; a submit still going after ``SUBMIT_GRACE_SECONDS`` meets a cancelled
+    run and is refused. A second Ctrl-C cuts the wait short.
+    """
+    under_way = live.submits_under_way()
+    if not under_way:
+        return
+    answers = "answer is" if under_way == 1 else "answers are"
+    progress(
+        f"{under_way} {answers} being submitted; waiting up to {SUBMIT_GRACE_SECONDS:g}s before cancelling the run"
+    )
+    live.wait_for_submits(SUBMIT_GRACE_SECONDS)
 
 
 def _no_answer(outcomes: Sequence[Tuple[ExternalAttempt, AttemptOutcome]]) -> Optional[str]:

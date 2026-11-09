@@ -42,6 +42,7 @@ from ...._events import (
 )
 from .agent_card import parse_agent_card, summarize_signatures
 from ...._context import _current_span_id
+from ...._error_code import error_category
 from .acp_normalizer import ACPNormalizer
 from .task_lifecycle import TaskState, TaskStateMachine
 from .._base_protocol import BaseProtocolAdapter
@@ -68,6 +69,7 @@ def _maybe_emit_task_error(
     parent: str | None = None,
     error: Any = None,
     error_type: str | None = None,
+    error_code: str | None = None,
 ) -> None:
     """Emit ``agent.error`` for a terminal a2a FAILURE (failed/rejected) so the
     trace's derived status is ``error``, not ``completed`` (S12/F4).
@@ -77,7 +79,9 @@ def _maybe_emit_task_error(
     the atlas default. No invented detail: ``error``/``error_type`` are only what
     the failure actually carried; when the terminal status arrived without an
     exception the honest ``error_type`` is the state itself (``a2a_task_<status>``).
-    Shared by the client-wrap, server, and client-helper paths.
+    ``error_code`` is the provider's reason when the exception, or one that caused
+    it, carries one (``error_category``). Shared by the client-wrap, server, and
+    client-helper paths.
     """
     if status not in _A2A_ERROR_STATES:
         return
@@ -86,6 +90,8 @@ def _maybe_emit_task_error(
         "source": "a2a",
         "error_type": error_type or f"a2a_task_{status}",
     }
+    if error_code is not None:
+        payload["error_code"] = error_code
     if error is not None:
         payload["error"] = str(error)
     adapter.emit(AGENT_ERROR, payload, parent_span_id=parent)
@@ -216,7 +222,7 @@ class A2AProtocolAdapter(BaseProtocolAdapter):
                         TaskState.FAILED.value,
                         parent=parent,
                         error=str(exc),
-                        error_type=type(exc).__name__,
+                        **error_category(exc),
                     )
                 raise
             if is_send:
@@ -364,7 +370,7 @@ class A2AProtocolAdapter(BaseProtocolAdapter):
                     TaskState.FAILED.value,
                     parent=parent,
                     error=str(exc),
-                    error_type=type(exc).__name__,
+                    **error_category(exc),
                 )
                 raise
             status = _task_status(result)

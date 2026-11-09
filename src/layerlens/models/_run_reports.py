@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, List, Optional
 from xml.etree import ElementTree
 
 if TYPE_CHECKING:
-    from .environment import RunResult, RunAttempt
+    from .environment import RunResult, RunAttempt, RunSummary, RunComparison
 
 # XML 1.0 cannot carry these code points, even escaped.
 _XML_INVALID = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
@@ -19,7 +19,7 @@ def _xml_text(text: Optional[str]) -> str:
     return _XML_INVALID.sub("�", text or "")
 
 
-def _suite_name(run: RunResult) -> str:
+def _suite_name(run: RunSummary) -> str:
     return run.agent_name or run.model or "run"
 
 
@@ -176,3 +176,74 @@ def run_to_markdown(run: RunResult, *, title: Optional[str] = None) -> str:
             )
         lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def points(delta: Optional[float]) -> str:
+    """A pass-rate change in percentage points: ``+12.5``, ``-16.7``, ``0.0``; ``-`` when not known."""
+    if delta is None:
+        return "-"
+    value = round(delta * 100, 1)
+    return f"{value:+.1f}" if value else "0.0"
+
+
+def comparison_to_markdown(comparison: RunComparison, *, title: Optional[str] = None) -> str:
+    baseline, candidate = comparison.baseline, comparison.candidate
+    regressed = len(comparison.regressed)
+    verdict = f"{regressed} task{'s' if regressed != 1 else ''} regressed" if regressed else "no regression"
+    heading = title or f"LayerLens: {_suite_name(candidate)}"
+    lines = [
+        f"### {_cell(heading)} \u2014 {verdict}",
+        "",
+        "| | Run | Label | Passed | Pass rate | Status |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for role, run in (("Baseline", baseline), ("Candidate", candidate)):
+        label = f"`{_code(run.label, table=True)}`" if run.label else "-"
+        lines.append(
+            f"| {role} | `{_code(run.run_id, table=True)}` | {label} | {run.passed}/{run.out_of} | "
+            f"{_percent(run.pass_rate)} | {_cell(run.status)} |"
+        )
+    lines.extend(["", f"Pass rate {points(comparison.pass_rate_delta)} points.", ""])
+    if comparison.environment_versions_differ:
+        lines.extend([
+            f"The runs were served different environment versions: {baseline.environment_version} "
+            f"and {candidate.environment_version}.",
+            "",
+        ])  # fmt: skip
+    if comparison.regressed:
+        lines.extend([
+            f"**Regressed** ({regressed}): passed on the baseline, fails on the candidate",
+            "",
+            "| Task | Verdict | Evidence | Trace |",
+            "| --- | --- | --- | --- |",
+        ])  # fmt: skip
+        for change in comparison.regressed:
+            now = change.candidate
+            trace = f"`{_code(now.trace_id, table=True)}`" if now.trace_id else "-"
+            lines.append(
+                f"| {_cell(change.task_name or change.task_id)} | {_cell(now.verdict)} | "
+                f"{_cell(now.evidence, _MARKDOWN_EVIDENCE_CHARS)} | {trace} |"
+            )
+        lines.append("")
+    lines.append(_cell(tally(comparison)))
+    return "\n".join(lines) + "\n"
+
+
+_TALLY_NAMES = 5
+
+
+def tally(comparison: RunComparison) -> str:
+    """The tasks that recovered or are in one run only: how many, and the first few by name."""
+
+    def named(names: List[str]) -> str:
+        if not names:
+            return "0"
+        shown = ", ".join(names[:_TALLY_NAMES])
+        more = f" and {len(names) - _TALLY_NAMES} more" if len(names) > _TALLY_NAMES else ""
+        return f"{len(names)} ({shown}{more})"
+
+    return (
+        f"Recovered: {named([c.task_name or c.task_id for c in comparison.recovered])} · "
+        f"only on the baseline: {named([a.task_name or a.task_id for a in comparison.only_in_baseline])} · "
+        f"only on the candidate: {named([a.task_name or a.task_id for a in comparison.only_in_candidate])}"
+    )

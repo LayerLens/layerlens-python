@@ -82,7 +82,9 @@ python = "3.11"
 # them on Python 3.9, where uv.lock resolves 0.8.1. Pinning this row back to 0.8.1
 # also needs "opentelemetry-api<1.44": 0.8.1's logfire path imports
 # ``opentelemetry._events``, which 1.44 removed.
-install = ["pydantic-ai==2.57.0"]
+# From 2.64 a provider's 404 raises a ModelHTTPError subclass named for its category,
+# ModelNotFoundError; the floor test reads the name off the error raised (LAY-4454).
+install = ["pydantic-ai==2.66.0"]
 tests = [
     "tests/instrument/adapters/frameworks/test_pydantic_ai.py",
     "tests/instrument/adapters/frameworks/test_concurrency.py",

@@ -18,6 +18,12 @@ def _upload_sync_mode():
     _upload._sync_mode = False
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_trace_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the LAYERLENS_TRACE_TAGS of the shell or CI job running the tests off their traces."""
+    monkeypatch.delenv("LAYERLENS_TRACE_TAGS", raising=False)
+
+
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "live: run against the real LayerLens API")

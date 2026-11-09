@@ -1,6 +1,8 @@
 # Agent Framework Instrumentation
 
-Framework adapters plug into agent frameworks as callback handlers. Unlike provider adapters (which monkey-patch SDK methods), framework adapters receive events from the framework and build span trees from them.
+Framework adapters plug into agent frameworks as callback handlers. Unlike provider adapters (which
+wrap SDK methods), framework adapters receive the framework's own callbacks and record each run as a
+trace of its own.
 
 ## Supported Frameworks
 
@@ -34,24 +36,30 @@ result = chain.invoke(
 )
 ```
 
-The handler automatically captures:
+The handler records:
 
-| Event | Span Kind | Captured Data |
-| ----- | --------- | ------------- |
-| Chain start/end | `chain` | Chain name, input, output |
-| LLM start/end | `llm` | Model name, prompts, response, token usage |
-| Tool start/end | `tool` | Tool name, input query, output |
-| Retriever start/end | `retriever` | Query, retrieved documents |
+| Callbacks | Events | Captured Data |
+| --------- | ------ | ------------- |
+| Chain start/end | `agent.input` / `agent.output` | Chain name; its input and output with content capture |
+| LLM start/end | `model.invoke`, `cost.record`, `tool.call` | Model, parameters, token usage, latency, cost; each tool the model calls |
+| Tool start/end | `tool.call` / `tool.result` | Tool name; its input and output with content capture |
+| Retriever start/end | `tool.call` / `tool.result` | Retriever name; the query and documents with content capture |
+| Any error | `agent.error` | `error_type`, the provider's `error_code`, `status="error"`; the text with content capture |
 
 ### How It Works
 
-LangChain provides `run_id` (UUID) and `parent_run_id` for every callback event. The handler uses these to build a span tree:
+LangChain passes a `run_id` and a `parent_run_id` with every callback. The handler maps each run to
+a span, so a nested run's events sit in a child span of its parent's:
 
-1. `on_chain_start` — creates a root span (or child span if `parent_run_id` exists)
-2. `on_llm_start` / `on_tool_start` / `on_retriever_start` — creates child spans
-3. `on_*_end` — finishes the span with output data
-4. `on_*_error` — finishes the span with `status="error"`
-5. When the root chain ends — the full span tree is flushed as a trace
+1. An `on_chain_start` with no `parent_run_id` starts a run: it opens a trace with the run as its
+   root span, or joins the trace of an enclosing `trace` or `trace_context` block
+2. Each nested run (`on_llm_start`, `on_tool_start`, `on_retriever_start`, ...) gets a span under its parent
+3. `on_*_end` and `on_*_error` record the run's result, or its error
+4. When the root chain ends or fails, the trace it opened is sealed and uploaded. A trace it joined
+   is uploaded by the block that opened it, when that block ends
+
+An LLM, tool or retriever run with no chain around it, outside any `trace` or `trace_context`
+block, starts no trace, and its events are not recorded.
 
 ### Example: RAG Chain
 
@@ -76,19 +84,18 @@ result = chain.invoke(
 )
 ```
 
-This produces a trace like:
+This records a trace like:
 
 ```
-RunnableSequence (kind=chain)
-├── ChatPromptTemplate (kind=chain)
-├── ChatOpenAI (kind=llm)
-│   metadata: {model: "gpt-4o", usage: {total_tokens: 150}}
-└── StrOutputParser (kind=chain)
+RunnableSequence                    agent.input ... agent.output
+├── ChatPromptTemplate              agent.input ... agent.output
+├── ChatOpenAI                      model.invoke {model: "gpt-4o", usage: {total_tokens: 150}}, cost.record
+└── StrOutputParser                 agent.input ... agent.output
 ```
 
 ### Error Handling
 
-Chain and LLM errors are captured automatically:
+Chain, LLM, tool and retriever errors are recorded automatically:
 
 ```python
 handler = LangChainCallbackHandler(client)
@@ -96,7 +103,7 @@ handler = LangChainCallbackHandler(client)
 try:
     chain.invoke(input, config={"callbacks": [handler]})
 except Exception:
-    pass  # Trace still uploads with error spans
+    pass  # the trace still uploads, with the failure as agent.error
 ```
 
 ## LangGraph
@@ -125,6 +132,9 @@ result = graph.invoke(
 )
 ```
 
+Besides the LangChain events, it records `agent.node.enter` and `agent.node.exit` for each graph
+node it runs, and `agent.state.change` when a node changes the graph's state.
+
 ### Node Name Extraction
 
 LangGraph attaches metadata to chain events that identifies which graph node is executing. The adapter extracts this to produce cleaner span names:
@@ -138,18 +148,18 @@ This means your traces show meaningful names like `agent`, `tools`, `retrieve` i
 ### Example Trace Output
 
 ```
-StateGraph (kind=chain)
-├── agent (kind=chain, node)
-│   └── ChatOpenAI (kind=llm)
-├── tools (kind=chain, node)
-│   └── search (kind=tool)
-└── agent (kind=chain, node)
-    └── ChatOpenAI (kind=llm)
+StateGraph
+├── agent      agent.node.enter, agent.node.exit
+│   └── ChatOpenAI   model.invoke, cost.record
+├── tools      agent.node.enter, agent.node.exit
+│   └── search       tool.call, tool.result
+└── agent      agent.node.enter, agent.node.exit
+    └── ChatOpenAI   model.invoke, cost.record
 ```
 
 ## Framework vs Provider Adapters
 
-You can use both together. For example, use the LangChain callback handler for span tree structure, and a provider adapter to enrich LLM spans with token usage:
+You can use both together. For example, use the LangChain callback handler for the run structure, and a provider adapter to record each OpenAI call the chain makes:
 
 ```python
 from layerlens.instrument.adapters.providers.openai import instrument_openai
@@ -162,9 +172,9 @@ handler = LangChainCallbackHandler(client)
 chain.invoke(input, config={"callbacks": [handler]})
 ```
 
-Note: When using both, you may get duplicate LLM spans (one from the provider adapter, one from the framework callback). In most cases, using just the framework adapter is sufficient since it captures LLM events through callbacks.
+Note: When using both, a model call may be recorded twice (once by the provider adapter, once by the framework callback). In most cases, using just the framework adapter is sufficient since it records LLM calls through callbacks.
 
 ## Next Steps
 
 - [LLM Providers](providers.md) — Auto-instrument OpenAI, Anthropic, and LiteLLM
-- [Quick Start](quickstart.md) — Manual instrumentation with `@trace` and `span()`
+- [Quick Start](quickstart.md) — Manual instrumentation with `@trace`, `span()` and `emit()`

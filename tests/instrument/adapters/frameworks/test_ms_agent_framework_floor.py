@@ -232,6 +232,9 @@ class TestRealErrorShape:
         # chokepoint. That text is openai's to word: up to 3.37 it held the whole
         # body, reason code included; from 3.38 it is the status and the message.
         assert str(provider_error) in payload["error"]
+        # The provider's reason survives whatever openai prints: it is read off the
+        # error's cause chain, not its text (LAY-4454).
+        assert payload["error_code"] == "invalid_api_key"
         assert "AuthenticationError" in payload["error"]
         assert "401" in payload["error"]
         assert "Incorrect API key provided." in payload["error"]

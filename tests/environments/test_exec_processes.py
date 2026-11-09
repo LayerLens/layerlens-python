@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import codecs
+import threading
 from pathlib import Path
 
 import pytest
@@ -16,11 +17,64 @@ from layerlens.cli.commands.env._exec import (
     LaunchError,
     LiveProcesses,
     run_attempt,
+    with_run_label,
     agent_environment,
 )
 from layerlens.resources.environments import ExternalAttempt
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX")
+
+
+class TestSubmitsAroundAnInterrupt:
+    """LAY-4454: whether an attempt may submit is decided under the lock ``stop_all`` takes."""
+
+    def test_no_submit_starts_once_the_run_is_stopping(self) -> None:
+        live = LiveProcesses()
+        with live.submitting() as allowed:
+            assert allowed
+        live.stop_all()
+        with live.submitting() as allowed:
+            assert not allowed
+        assert live.submits_under_way() == 0
+
+    def test_a_submit_under_way_at_the_stop_is_waited_for(self) -> None:
+        live = LiveProcesses()
+        inside, release = threading.Event(), threading.Event()
+
+        def submit() -> None:
+            with live.submitting() as allowed:
+                assert allowed
+                inside.set()
+                release.wait(5.0)
+
+        worker = threading.Thread(target=submit)
+        worker.start()
+        try:
+            assert inside.wait(5.0)
+            live.stop_all()
+            assert live.submits_under_way() == 1
+            started = time.monotonic()
+            assert live.wait_for_submits(0.2) == 1  # still going at the timeout
+            assert time.monotonic() - started >= 0.2
+            threading.Timer(0.1, release.set).start()
+            assert live.wait_for_submits(5.0) == 0
+        finally:
+            release.set()
+            worker.join(5.0)
+
+    def test_a_refused_submit_still_counts_as_ended(self) -> None:
+        live = LiveProcesses()
+        with pytest.raises(RuntimeError), live.submitting():
+            raise RuntimeError("the API refused it")
+        assert live.submits_under_way() == 0
+        assert live.wait_for_submits(0.0) == 0
+
+    def test_with_nothing_under_way_the_wait_returns_at_once(self) -> None:
+        live = LiveProcesses()
+        live.stop_all()
+        started = time.monotonic()
+        assert live.wait_for_submits(5.0) == 0
+        assert time.monotonic() - started < 1.0
 
 
 def _attempt(prompt: str = "the task") -> ExternalAttempt:
@@ -262,3 +316,67 @@ def test_a_huge_trace_id_file_is_refused_without_reading_it_all(tmp_path: Path) 
     outcome = _run(tmp_path, script)
     assert outcome.trace_id is None
     assert outcome.trace_problem is not None and "more than" in outcome.trace_problem
+
+
+# ---------------------------------------------------------------------------
+# The run's label on the agent's own traces (LAY-4449)
+# ---------------------------------------------------------------------------
+
+
+def test_the_runs_label_is_added_to_the_agents_trace_tags() -> None:
+    assert with_run_label({"PATH": "/usr/bin"}, "3f2c1ab") == {"PATH": "/usr/bin", "LAYERLENS_TRACE_TAGS": "3f2c1ab"}
+
+
+def test_the_label_goes_before_the_tags_already_set() -> None:
+    assert (
+        with_run_label({"LAYERLENS_TRACE_TAGS": "ci, nightly"}, "3f2c1ab")["LAYERLENS_TRACE_TAGS"]
+        == "3f2c1ab,ci,nightly"
+    )
+
+
+def test_the_label_reaches_the_traces_whatever_the_variable_already_lists(monkeypatch: pytest.MonkeyPatch) -> None:
+    from layerlens.instrument import _tags
+
+    crowded = ",".join(f"t{i}" for i in range(_tags.MAX_TAGS + 8))
+    environment = with_run_label({"LAYERLENS_TRACE_TAGS": crowded}, "3f2c1ab")
+    monkeypatch.setenv("LAYERLENS_TRACE_TAGS", environment["LAYERLENS_TRACE_TAGS"])
+    # A trace keeps its first 32 tags, and the label is what finds the run's traces.
+    assert _tags.env_tags()[0] == "3f2c1ab"
+
+
+def test_a_label_already_listed_is_not_repeated() -> None:
+    assert with_run_label({"LAYERLENS_TRACE_TAGS": "3f2c1ab,ci"}, " 3f2c1ab ")["LAYERLENS_TRACE_TAGS"] == "3f2c1ab,ci"
+
+
+@pytest.mark.parametrize("label", [None, "", "   "])
+def test_no_label_leaves_the_agents_trace_tags_as_they_are(label: object) -> None:
+    base = {"LAYERLENS_TRACE_TAGS": " ci ,nightly"}
+    assert with_run_label(base, label) == base  # type: ignore[arg-type]
+
+
+def test_a_label_with_a_comma_is_one_tag_for_the_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    from layerlens.instrument import _tags
+
+    environment = with_run_label({"LAYERLENS_TRACE_TAGS": '["a, b"]'}, "release 1.2, hotfix")
+    assert environment["LAYERLENS_TRACE_TAGS"] == '["release 1.2, hotfix", "a, b"]'
+    monkeypatch.setenv("LAYERLENS_TRACE_TAGS", environment["LAYERLENS_TRACE_TAGS"])
+    assert _tags.env_tags() == ("release 1.2, hotfix", "a, b")
+
+
+def test_tags_the_sdk_could_not_read_give_way_to_the_label(capsys: pytest.CaptureFixture[str]) -> None:
+    environment = with_run_label({"LAYERLENS_TRACE_TAGS": "[ci, nightly]"}, "3f2c1ab")
+    assert environment["LAYERLENS_TRACE_TAGS"] == "3f2c1ab"
+    assert "LAYERLENS_TRACE_TAGS starts with '[' but is not a JSON array of strings" in capsys.readouterr().err
+
+
+def test_the_callers_environment_is_left_alone() -> None:
+    base = {"LAYERLENS_TRACE_TAGS": "ci"}
+    with_run_label(base, "3f2c1ab")
+    assert base == {"LAYERLENS_TRACE_TAGS": "ci"}
+
+
+def test_a_label_that_holds_the_key_never_reaches_the_agent() -> None:
+    # exec adds the label before it drops every variable holding the key, so even
+    # `--label "$LAYERLENS_API_KEY"` cannot hand the agent the key.
+    environment = agent_environment(with_run_label({"PATH": "/usr/bin"}, "llk_SECRET"), api_key="llk_SECRET")
+    assert "LAYERLENS_TRACE_TAGS" not in environment

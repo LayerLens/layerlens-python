@@ -193,6 +193,9 @@ class TestRealErrorShape:
         # message. That text is openai's to word: up to 3.37 it held the whole body,
         # reason code included; from 3.38 it is the status and the message.
         assert str(raised.__cause__) in payload["error"]
+        # The provider's reason survives whatever openai prints: it is read off the
+        # error's cause chain, not its text (LAY-4454).
+        assert payload["error_code"] == "model_not_found"
         assert "404" in payload["error"]
         assert "does not exist" in payload["error"]
 

@@ -24,6 +24,7 @@ from .pricing import BEDROCK_PRICING
 from ..._events import TOOL_CALL, AGENT_ERROR, MODEL_INVOKE
 from ..._context import _current_span_id, _current_collector
 from .token_usage import NormalizedTokenUsage
+from ..._error_code import error_category
 from ._emit_helpers import _emit_cost, _flat_token_fields  # type: ignore[attr-defined]
 from ..._secret_scrub import safe_error
 from .._tool_arguments import parse_tool_arguments
@@ -1029,7 +1030,7 @@ def _emit_error(event: str, exc: Exception, latency_ms: float) -> None:
         {
             "name": event,
             "error": safe_error(exc),
-            "error_type": type(exc).__name__,
+            **error_category(exc),
             "status": "error",
             "latency_ms": latency_ms,
         },

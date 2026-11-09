@@ -6,8 +6,9 @@ fails in plain CI with no credentials and no network:
 
 * Error-paths — a REAL provider HTTP failure driven through the instrumented
                 ``_InstrumentedModel.request`` seam surfaces as ``agent.error``
-                with the REAL ``pydantic_ai.exceptions.ModelHTTPError`` class name
-                and the real error text verbatim. The existing suite only fires a
+                with the REAL class name of the ``pydantic_ai.exceptions.ModelHTTPError``
+                raised (``ModelNotFoundError`` from 2.64, which subclasses it) and
+                the real error text verbatim. The existing suite only fires a
                 synthetic tool ``ValueError`` and never asserts ``error_type``,
                 and the model-level ``_emit_model_error`` path (the except branch
                 inside ``_InstrumentedModel.request``) was untested offline. We
@@ -123,7 +124,7 @@ class TestRealErrorShape:
         uploaded = capture_framework_trace(mock_client)
         adapter = PydanticAIAdapter(mock_client, capture_config=CaptureConfig.full())
         adapter.connect(target=agent)
-        with pytest.raises(ModelHTTPError):
+        with pytest.raises(ModelHTTPError) as raised:
             agent.run_sync("hi")
         adapter.disconnect()
 
@@ -141,10 +142,16 @@ class TestRealErrorShape:
         )
         payload = model_level[0]["payload"]
 
-        # The REAL SDK exception class name — not a synthetic RuntimeError/str.
-        assert payload["error_type"] == ModelHTTPError.__name__ == "ModelHTTPError"
+        # The REAL SDK exception class name — not a synthetic RuntimeError/str. From
+        # pydantic-ai 2.64 a 404 raises a private ModelHTTPError subclass that also
+        # subclasses the error's category, ModelNotFoundError, and takes its name, so
+        # tracebacks and spans read as the category (LAY-4454, drift canary #72).
+        assert payload["error_type"] == type(raised.value).__name__
+        assert payload["error_type"] in {"ModelHTTPError", "ModelNotFoundError"}
         assert payload["framework"] == "pydantic-ai"
         assert "latency_ms" in payload
+        # The provider's reason, read off the error, not its text (LAY-4454).
+        assert payload["error_code"] == "model_not_found"
         # The real exception text flows through verbatim (bite: dropped/mangled
         # error text fails here). Tied to the real HTTP status the class carries.
         assert "status_code: 404" in payload["error"]

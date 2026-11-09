@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import signal
+import threading
 from typing import Any, Dict, List, Iterator
 from pathlib import Path
 from unittest.mock import patch
@@ -239,6 +240,31 @@ print("the answer")
 """
 
 
+# An agent traced with the LayerLens SDK, its uploads caught: each attempt writes the tags
+# its trace was uploaded with to SEEN_DIR/<task>.tags.json.
+TAGGING_AGENT = r"""
+import os, json
+from layerlens.models import CreateTracesResponse
+from layerlens.instrument import emit, trace_context
+
+class Traces:
+    def upload(self, path):
+        with open(path) as f:
+            payload = json.load(f)[0]
+        seen = os.path.join(os.environ["SEEN_DIR"], os.environ["LAYERLENS_TASK_NAME"] + ".tags.json")
+        with open(seen, "w") as f:
+            json.dump(payload.get("tags"), f)
+        return CreateTracesResponse(trace_ids=["6a91c0f2a7b8c9d0e1f2a3b4"])
+
+class Client:
+    traces = Traces()
+
+with trace_context(Client(), tags=["support-agent"]):
+    emit("tool.call", {"tool_name": "lookup"})
+print("the answer")
+"""
+
+
 def _exec_api(api: FakeAPI, final: dict) -> None:
     start = {
         "run_id": RUN_ID,
@@ -338,6 +364,42 @@ class TestExec:
         assert f"task-1: answered (" in result.stderr and f"trace {TRACE_IDS['task-1']}" in result.stderr
         assert "task-4: answered (" in result.stderr
         assert "no trace linked: LAYERLENS_TRACE_ID_FILE: trace_id is 300 bytes; the limit is 256" in result.stderr
+
+    def test_the_agents_traces_carry_the_runs_label_before_the_tags_it_was_given(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        _exec_api(api, self.FINAL)
+        agent = tmp_path / "agent.py"
+        agent.write_text(TAGGING_AGENT)
+        result = invoke(
+            runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "support-agent",
+            "--label", "release 1.2, hotfix", "--parallel", "4", "--attempt-timeout", "30s",
+            "--", sys.executable, str(agent),
+            env={**KEY_ENV, "SEEN_DIR": str(tmp_path), "LAYERLENS_TRACE_TAGS": "ci"},
+        )  # fmt: skip
+        assert result.exit_code == 0, result.stderr
+
+        # The label first (a comma and all: one tag), the variable's own tags, then the agent's.
+        for i in range(1, 5):
+            tags = json.loads((tmp_path / f"task-{i}.tags.json").read_text())
+            assert tags == ["release 1.2, hotfix", "ci", "support-agent"], i
+        # LayerLens's own attempt traces are tagged by the API; exec sends the label with the start.
+        assert body_of(api.calls("POST", f"/{ENV_ID}/external-runs")[0])["label"] == "release 1.2, hotfix"
+
+    def test_a_label_holding_the_key_does_not_carry_it_to_the_agent(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        _exec_api(api, self.FINAL)
+        agent = tmp_path / "agent.py"
+        agent.write_text(AGENT)
+        result = invoke(
+            runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "a", "--label", "test-key",
+            "--tasks", "task-1", "--attempt-timeout", "5s", "--", sys.executable, str(agent),
+            env={**KEY_ENV, "SEEN_DIR": str(tmp_path)},
+        )  # fmt: skip
+        assert result.exit_code == 0, result.stderr
+        seen = json.loads((tmp_path / "task-1.json").read_text())
+        assert seen["copies"] == []
 
     def test_a_command_that_cannot_start_cancels_the_run_and_exits_1(
         self, runner: CliRunner, api: FakeAPI, tmp_path: Path
@@ -711,6 +773,40 @@ class TestTimeoutsAndInterrupts:
         assert result.exit_code == 11, result.stderr
         assert f"interrupted, so run {RUN_ID} was cancelled" in result.stderr
         assert len(api.calls("POST", self.CANCEL)) == 2
+
+    @posix_only
+    def test_ctrl_c_lets_an_answer_already_sent_be_graded_before_the_run_is_cancelled(
+        self, runner: CliRunner, api: FakeAPI
+    ) -> None:
+        # LAY-4454: a worker checked for the interrupt without the lock, then submitted, so
+        # the cancel and an answer still being graded reached the API in either order.
+        seen: List[str] = []
+
+        def graded_after_the_interrupt(request: httpx.Request) -> Any:  # noqa: ARG001
+            # To the main thread itself: a process-wide signal may land on this worker thread,
+            # and reach the main thread only at its next poll, after this submit has ended.
+            signal.pthread_kill(threading.main_thread().ident or 0, signal.SIGINT)
+            threading.Event().wait(1.0)  # the judge grading it (time.sleep is patched out here)
+            seen.append("graded")
+            return ok(submitted(A[0], total=4))
+
+        def cancel(request: httpx.Request) -> Any:  # noqa: ARG001
+            seen.append("cancel")
+            return ok({**TestExec.FINAL, "status": "cancelled"})
+
+        _exec_api(api, TestExec.FINAL)
+        api.routes[("POST", f"/{ENV_ID}/external-runs/{RUN_ID}/attempts/{A[0]}/submit")] = [graded_after_the_interrupt]
+        api.routes[("POST", self.CANCEL)] = [cancel]
+        result = runner.invoke(
+            cli, ["-q", "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "a", "--",
+                  sys.executable, "-c", "print('x')"], env=KEY_ENV,
+        )  # fmt: skip
+        assert result.exit_code == 11, result.stderr
+        assert seen == ["graded", "cancel", "cancel"]
+        assert "1 answer is being submitted; waiting up to 5s before cancelling the run" in result.stderr
+        assert f"interrupted, so run {RUN_ID} was cancelled" in result.stderr
+        # The interrupt came while task-1 was submitting: no later attempt submitted anything.
+        assert [r.url.path.split("/")[-2] for r in api.requests if r.url.path.endswith("/submit")] == [A[0]]
 
     @pytest.mark.parametrize("rate", ["nan", "inf", "-0.1", "1.5"])
     def test_a_pass_rate_that_is_not_one_is_a_usage_error(self, runner: CliRunner, api: FakeAPI, rate: str) -> None:

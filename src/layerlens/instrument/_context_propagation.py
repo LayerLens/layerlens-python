@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, Optional, Generator
+from typing import Any, Dict, Iterable, Optional, Generator
 from contextlib import contextmanager
 
+from ._tags import _pop_scope, _push_scope, tags_argument
 from ._context import (
     _pop_span,
     _push_span,
@@ -21,6 +22,7 @@ def trace_context(
     *,
     capture_config: Optional[CaptureConfig] = None,
     from_context: Optional[Dict[str, Any]] = None,
+    tags: Optional[Iterable[str]] = None,
 ) -> Generator[TraceCollector, None, None]:
     """Establish a shared trace context for multiple adapters.
 
@@ -40,13 +42,19 @@ def trace_context(
         capture_config: Optional capture configuration.  Falls back to
             :meth:`CaptureConfig.standard` if not provided.
         from_context: Optional dict produced by :func:`get_trace_context`.
-            When supplied the collector inherits the original trace_id.
+            When supplied the collector inherits the original trace_id, but
+            not the original trace's tags: those stay with the caller.
+        tags: Labels for this trace, and for every trace started inside the
+            block, such as one an adapter opens of its own. Every trace also
+            carries ``LAYERLENS_TRACE_TAGS``. ``TypeError`` when not a list of
+            strings.
 
     Yields:
         The shared :class:`TraceCollector`.
     """
+    own_tags = tags_argument(tags)
     config = capture_config or CaptureConfig.standard()
-    collector = TraceCollector(client, config)
+    collector = TraceCollector(client, config, tags=own_tags)
 
     if from_context is not None:
         collector._trace_id = from_context["trace_id"]  # noqa: SLF001
@@ -55,9 +63,11 @@ def trace_context(
 
     col_token = _current_collector.set(collector)
     span_snapshot = _push_span(root_span_id, "trace_context")
+    tag_token = _push_scope(own_tags)
     try:
         yield collector
     finally:
+        _pop_scope(tag_token)
         _pop_span(span_snapshot)
         _current_collector.reset(col_token)
         collector.flush()

@@ -130,7 +130,10 @@ attempt timed out, or answered, is gated as usual.
 
 A command that cannot be started at all, or an answer the API refuses (the error names the
 task), cancels the run and exits `1`. Ctrl-C or SIGTERM cancels the run, if it is still open,
-and exits `11`, as does grading still unfinished at `--timeout`.
+and exits `11`, as does grading still unfinished at `--timeout`. Once interrupted, `exec`
+submits no more answers: it kills the agents still running, gives the answers already on
+their way up to 5 seconds to be graded, then cancels the run. A second Ctrl-C cancels it at
+once.
 
 #### Linking the agent's own trace
 
@@ -151,6 +154,25 @@ is not linked.
 
 The file holds one id. A file with more than one, or an id over 256 bytes, is not linked:
 the attempt is graded all the same, and its progress line says why.
+
+#### Tagging the agent's own traces
+
+With `--label`, `exec` puts the label first in `LAYERLENS_TRACE_TAGS` for the command, before
+any tags that variable already lists: a trace keeps its first 32 tags, and the label is the one
+that finds the run's traces. An agent traced with the LayerLens SDK puts those tags on every
+trace it records, so the agent's traces carry the run's label as LayerLens's own attempt traces
+do, however many traces each attempt records:
+
+```bash
+layerlens trace list --tag "$GIT_SHA"                    # both: the attempts' and the agent's
+layerlens trace list --tag environment --tag "$GIT_SHA"  # only LayerLens's attempt traces
+```
+
+The agent's traces are not tagged `environment` or with the environment's name, so a filter or a
+grader rule on those keeps matching LayerLens's attempt traces alone. A label with a comma in it
+stays one tag: `exec` then writes the variable as a JSON array. With a Standard key, LayerLens's
+attempt traces are listed but cannot be opened, as their grading is for an Automation key to
+read. See [Trace tags](../instrumentation/tags.md).
 
 #### Keeping the key from the agent
 
@@ -201,7 +223,7 @@ it on, and the run stays open until it expires.
 | Option | |
 | --- | --- |
 | `--agent-name NAME` | Required. How the agent is labelled in results and traces |
-| `--label TEXT` | Free text stored with the run, such as a commit SHA |
+| `--label TEXT` | Free text stored with the run, such as a commit SHA. It tags the run's attempt traces, and the agent's own (see above) |
 | `--parallel N` | Attempts at once, up to `25`. Default `1`. The agents' stderr is not separated |
 | `--attempt-timeout DURATION` | Per attempt. Default `10m` |
 | `--min-pass-rate R` | `0`-`1`; compared with the run's pass rate, over the rows whose verdict counts, and sets the exit code. A run in which no verdict counts is below any minimum above `0` |
@@ -271,7 +293,62 @@ attempt's verdict, evidence, answer, trace id and the agent's own trace id. `sta
 
 Each attempt's trace is tagged `environment`, with the environment's name and the run's
 `--label`, so `layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"`
-lists the traces of the runs labelled with that commit.
+lists the traces of the runs labelled with that commit. `run exec` tags the agent's own traces
+with the label too (see [Tagging the agent's own traces](#tagging-the-agents-own-traces)).
+
+### Finding runs, and comparing two
+
+```bash
+layerlens env run list support-desk --label main --status success --limit 5
+layerlens env run compare support-desk --baseline-label main "$RUN_ID" --markdown "$GITHUB_STEP_SUMMARY"
+layerlens env run compare support-desk BASELINE_RUN_ID CANDIDATE_RUN_ID
+```
+
+`run list` prints an environment's runs, newest first: `--label` and `--agent-name` match
+exactly what the run was started with, `--kind` is `external` or `rollout`, and `--status`
+is the status a run shows (as `run status` prints it). It lists 20 runs, or `--limit` (up to
+1000), and prints a `--cursor` to go on from when more are left; `--format json` prints the
+runs and `next_cursor`.
+
+`run compare` compares two runs task by task. A task **regressed** when it passed on the
+baseline and fails on the candidate: graded `fail`, `error` or `timeout`, the verdicts the
+pass rate counts against the agent. It prints both runs, the pass-rate change in points,
+every task that regressed with its evidence and trace, and how many recovered or are in one
+run only; `--format json` prints the comparison, and `--markdown FILE` appends it to a file
+such as `$GITHUB_STEP_SUMMARY`. Tasks match by id. A task sent from a tasks file has an id
+made from its name, prompt and grader, so the same line in two runs is the same task, and
+an edited line is a new task: listed, and never a regression. A task added to the file
+never regresses either, even though it moves the pass rate.
+
+With `--baseline-label main`, pass only the candidate's run id: the baseline is the newest
+run started with `--label main` that succeeded, of the candidate's agent and kind, other
+than the candidate itself. Both runs must have succeeded: a run still going, failed or
+cancelled says nothing reliable about the agent, and is not compared. The baseline is the
+same agent's so that another agent sharing the environment is never the baseline; when
+each version of your agent runs under its own `--agent-name`, name the one on `main` with
+`--baseline-agent-name`. A run with no agent name (`run model` without `--agent-name`) needs
+`--baseline-agent-name` or the baseline's run id: by label alone, any agent's or model's run
+could be taken as the baseline.
+
+`run compare` exits as `evaluations compare` does, not as the other `env` commands:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | No task regressed. |
+| `1` | A task regressed. Nothing else exits `1`. |
+| `2` | The runs could not be compared: bad usage, a run not found, still running or not succeeded, no run with that label, an API or network error, or an interrupt. |
+
+A gate in CI, on a pull request, after the run of the pull request's commit:
+
+```bash
+layerlens env run exec support-desk --tasks-file ci/tasks.jsonl --agent-name support-agent \
+  --label "$GITHUB_SHA" --junit results.xml -- python ci/agent.py
+RUN_ID=$(layerlens --format json env run list support-desk --label "$GITHUB_SHA" --limit 1 | jq -r '.runs[0].run_id')
+layerlens env run compare support-desk --baseline-label main "$RUN_ID" --markdown "$GITHUB_STEP_SUMMARY"
+```
+
+On `main`, the same job runs `env run exec` with `--label main`: that run is the baseline
+the next pull request is compared with.
 
 ## Retries and reruns
 
@@ -307,4 +384,4 @@ given `--idempotency-key` treats the run it gets back as its own: `run model` ca
 | A request body (inline tasks, mostly) | 5 MiB (5,242,880 bytes) of JSON, and 5.75 MiB (6,029,312 bytes) once the API's gateway escapes it as text, where every quote and backslash counts twice; the CLI refuses a larger one before sending it. Run fewer or shorter inline tasks, or store them in a task set and run it with `--set` |
 | The reply to a start | 5 MiB of prompts, tokens and addresses; the API refuses a start that would answer with more. Start fewer tasks at once with `--tasks` |
 | A run of your own agent | 300 tasks, open for 24 hours |
-| An answer | 64 KiB |
+| An answer, or the reason given with `--error` | 64 KiB (65,536 bytes), measured without the whitespace around it; `submit` refuses a longer one before sending it (exit `2`) |

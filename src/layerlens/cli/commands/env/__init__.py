@@ -7,6 +7,7 @@ import click
 from .runs import run
 from .tasks import tasks
 from ..._command import LayerLensGroup
+from .run_history import compare, list_runs
 from .environments import get, wait, reset, tools, create, delete, revert, status, world_types, list_environments
 
 
@@ -19,6 +20,7 @@ def env() -> None:
 
     \b
     Exit codes: 0 success, 1 error, 2 usage, 10 below --min-pass-rate, 11 the run or build did not finish.
+    `env run compare` alone: 0 no regression, 1 regression, 2 the runs could not be compared.
 
     \b
     Examples:
@@ -26,6 +28,10 @@ def env() -> None:
       layerlens env run exec support-desk --tasks-file ci/tasks.jsonl --agent-name support-agent --min-pass-rate 0.9 -- python ci/agent.py
     """
 
+
+# In their own module, beside the run group rather than in it: runs.py is the exec harness.
+for run_command in (list_runs, compare):
+    run.add_command(run_command)
 
 for command in (world_types, list_environments, get, create, status, wait, tools, reset, revert, delete, tasks, run):
     env.add_command(command)

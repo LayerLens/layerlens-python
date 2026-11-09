@@ -7,6 +7,7 @@ from functools import cached_property
 import httpx
 
 from ._shared import (
+    SEND_LESS_AT_ONCE,
     DEFAULT_POLL_SECONDS,
     DEFAULT_WAIT_SECONDS,
     ENVIRONMENT_PAGE_SIZE,
@@ -90,9 +91,10 @@ class Environments(SyncAPIResource):
         params: Optional[Dict[str, Any]] = None,
         idempotency_key: IdempotencyKey = None,
         max_retries: Optional[int] = None,
+        remedy: str = SEND_LESS_AT_ONCE,
     ) -> httpx.Response:
         if body is not None:
-            check_body_size(body)
+            check_body_size(body, remedy=remedy)
         if idempotency_key is None:
             return as_response(
                 self._client._request_cast(method, path, body=body, params=params, max_retries=max_retries)
@@ -312,9 +314,10 @@ class AsyncEnvironments(AsyncAPIResource):
         params: Optional[Dict[str, Any]] = None,
         idempotency_key: IdempotencyKey = None,
         max_retries: Optional[int] = None,
+        remedy: str = SEND_LESS_AT_ONCE,
     ) -> httpx.Response:
         if body is not None:
-            check_body_size(body)
+            check_body_size(body, remedy=remedy)
         if idempotency_key is None:
             return as_response(
                 await self._client._request_cast(method, path, body=body, params=params, max_retries=max_retries)

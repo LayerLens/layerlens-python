@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from ._utils import safe_serialize
 from ..._context import RunState, _current_run, _current_collector
 from ..._identity import _API_METHOD_RE, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -198,8 +199,7 @@ class HaystackAdapter(FrameworkAdapter):
 
         out = self._payload(latency_ms=elapsed_ms)
         self._set_if_capturing(out, "output", safe_serialize(tags.get("haystack.pipeline.output_data")))
-        if tags.get("error"):
-            out["error"] = str(tags.get("error.message", "unknown"))
+        _stamp_error(out, tags)
         self._emit(
             "agent.output",
             out,
@@ -325,8 +325,7 @@ class HaystackAdapter(FrameworkAdapter):
         result = self._payload(tool_name=name, component_type=comp_type, latency_ms=elapsed_ms)
         self._stamp_component(result, honest_name, comp_type)
         self._set_if_capturing(result, "output", safe_serialize(tags.get("haystack.component.output")))
-        if tags.get("error"):
-            result["error"] = str(tags.get("error.message", "unknown"))
+        _stamp_error(result, tags)
         self._emit(
             "tool.result",
             result,
@@ -617,7 +616,10 @@ class _LayerLensTracer:
         except Exception as exc:
             span.set_tag("error", True)
             span.set_tag("error.message", str(exc))
-            span.set_tag("error.type", type(exc).__name__)
+            category = error_category(exc)
+            span.set_tag("error.type", category["error_type"])
+            if "error_code" in category:
+                span.set_tag("error.code", category["error_code"])
             raise
         finally:
             span._finish()
@@ -809,14 +811,18 @@ def _stamp_agent(payload: Dict[str, Any], name: Optional[str]) -> None:
 
 def _stamp_error(payload: Dict[str, Any], tags: Dict[str, Any]) -> None:
     """The failure the tracer saw leave the span: its message, which is content
-    and is dropped under ``capture_content=False``, and the exception class, the
-    category that survives so the failure stays visible."""
+    and is dropped under ``capture_content=False``, and the exception class and the
+    provider's reason code, the categories that survive so the failure stays visible."""
     if not tags.get("error"):
         return
     payload["error"] = str(tags.get("error.message", "unknown"))
     error_type = tags.get("error.type")
     if error_type:
         payload["error_type"] = str(error_type)
+    # The provider's reason, read off the exception as it left the span (LAY-4454).
+    error_code = tags.get("error.code")
+    if error_code:
+        payload["error_code"] = str(error_code)
 
 
 def _tool_names(tools: Any) -> List[str]:

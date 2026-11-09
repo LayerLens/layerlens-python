@@ -6,6 +6,7 @@ from uuid import UUID
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..._identity import _API_METHOD_RE, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from .._tool_arguments import parse_tool_arguments
 from ..._capture_config import CaptureConfig
@@ -255,7 +256,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
-        payload = self._payload(error=str(error), error_type=type(error).__name__, status="error")
+        payload = self._payload(error=str(error), **error_category(error), status="error")
         agent_name = self._chain_agent_names.pop(str(run_id), None)
         if agent_name is not None:
             payload["agent_name"] = agent_name
@@ -477,7 +478,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
 
         self._emit(
             "agent.error",
-            self._payload(error=str(error), error_type=type(error).__name__, status="error"),
+            self._payload(error=str(error), **error_category(error), status="error"),
             run_id=run_id,
             parent_run_id=pending.get("parent_run_id"),
         )
@@ -524,7 +525,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
     ) -> None:
         self._emit(
             "agent.error",
-            self._payload(error=str(error), error_type=type(error).__name__, status="error"),
+            self._payload(error=str(error), **error_category(error), status="error"),
             run_id=run_id,
             parent_run_id=parent_run_id,
         )
@@ -575,7 +576,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
     ) -> None:
         self._emit(
             "agent.error",
-            self._payload(error=str(error), error_type=type(error).__name__, status="error"),
+            self._payload(error=str(error), **error_category(error), status="error"),
             run_id=run_id,
             parent_run_id=parent_run_id,
         )
