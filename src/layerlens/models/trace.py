@@ -15,6 +15,8 @@ class Trace(BaseModel):
     input: Optional[str] = None
     integration_id: Optional[str] = None
     tags: List[str] = []
+    # The agent the API names for the trace, from what the trace declares; None when it names none.
+    agent: Optional[str] = None
 
 
 class TraceEvaluationSummary(BaseModel):

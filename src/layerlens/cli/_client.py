@@ -88,9 +88,16 @@ def api_error_text(err: APIStatusError) -> str:
 
 
 def build_client(ctx: click.Context, api_key: str, *, use_bearer_auth: bool) -> LayerLens:
-    """Construct the client (which verifies the credential) or exit with the error."""
+    """Construct the client and verify the credential, or exit with the error.
+
+    The library reads the organization on first use, so an instrumented program starts while
+    LayerLens is down (BUG-03); a CLI command reads it here, so a bad key or an unreachable
+    API fails at once in the API's own words.
+    """
     try:
-        return LayerLens(api_key=api_key, base_url=resolve_base_url(ctx), use_bearer_auth=use_bearer_auth)
+        client = LayerLens(api_key=api_key, base_url=resolve_base_url(ctx), use_bearer_auth=use_bearer_auth)
+        client.organization_id  # noqa: B018 - reads the organization, verifying the credential
+        return client
     except APIStatusError as e:
         click.echo(f"Error: {api_error_text(e)}", err=True)
         sys.exit(1)
@@ -111,9 +118,13 @@ def get_client(ctx: click.Context) -> LayerLens:
     if resolved is not None:
         return build_client(ctx, resolved.value, use_bearer_auth=False)
 
-    from ._auth import get_valid_token
+    from ._auth import SessionError, get_valid_token
 
-    token = get_valid_token()
+    try:
+        token = get_valid_token()
+    except SessionError as err:
+        click.echo(f"Error: {err}", err=True)
+        sys.exit(1)
     if token:
         return build_client(ctx, token, use_bearer_auth=True)
 
@@ -137,6 +148,10 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
             sys.exit(1)
         except NotFoundError as e:
             click.echo(f"Error: Resource not found. {e}", err=True)
+            sys.exit(1)
+        except APIStatusError as e:
+            # The API's own sentence, as the env commands print it, not the exception's repr.
+            click.echo(f"Error: {api_error_text(e)}", err=True)
             sys.exit(1)
         except LayerLensError as e:
             click.echo(f"Error: {e}", err=True)

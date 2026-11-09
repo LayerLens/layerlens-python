@@ -225,6 +225,7 @@ print(f"Available sources: {sources}")
 | `input`           | `str \| None`     | Input text or prompt                 |
 | `integration_id`  | `str \| None`     | Integration that created this trace  |
 | `tags`            | `List[str]`       | The trace's tags; empty when it has none. `get_many(tags=...)` filters by them |
+| `agent`           | `str \| None`     | The agent the API names for the trace, from what the trace declares; `None` when it names none |
 
 ### TraceWithEvaluations Object Properties
 

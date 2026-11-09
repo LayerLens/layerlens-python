@@ -42,6 +42,12 @@ def _isolate_channel_registry():
         _upload._channels[:] = before
 
 
+@pytest.fixture(autouse=True)
+def _no_exit_timeout_variable(monkeypatch: Any) -> None:
+    """The exit's budget comes from the code here, not from the shell running the tests."""
+    monkeypatch.delenv("LAYERLENS_EXIT_TIMEOUT", raising=False)
+
+
 def _make_client() -> Mock:
     client = Mock()
     client.traces = Mock()
@@ -428,7 +434,9 @@ class TestTheExitAccountsForWhatItLeaves:
         assert sorted(losses) == [("exit_timeout", t) for t in ("in-flight", "queued-0", "queued-1", "queued-2")]
         assert _upload.get_upload_loss_stats() == {"exit_timeout": 4}
         assert any(
-            "4 trace(s) not sent: the process exited before their upload ended (waited 0s)" in r.getMessage()
+            "4 trace(s) not sent: the process exited before their upload ended (waited 0.2s; "
+            "set LAYERLENS_EXIT_TIMEOUT to wait longer, or call layerlens.instrument.flush() before exiting)"
+            in r.getMessage()
             for r in caplog.records
         )
 
@@ -443,6 +451,210 @@ class TestTheExitAccountsForWhatItLeaves:
         assert client.traces.upload.call_count == 3
         assert losses == [] and _upload.get_upload_loss_stats() == {}
         assert not [r for r in caplog.records if "not sent" in r.getMessage()]
+
+
+def _slow_uploads(client: Mock, seconds: float) -> None:
+    """Each upload takes ``seconds``, then is accepted."""
+
+    def upload(path: str) -> Mock:  # noqa: ARG001
+        time.sleep(seconds)
+        return Mock(trace_ids=["accepted"])
+
+    client.traces.upload.side_effect = upload
+
+
+class TestFlushDeliversAtAKnownPoint:
+    """BUG-01: a short-lived process lost most of its traces at exit, and had no way to wait for
+    them: the exit's 5 s budget against ~1-2 s per upload. ``flush(timeout)`` waits for them."""
+
+    def test_flush_is_public(self) -> None:
+        from layerlens.instrument import flush
+
+        assert flush is _upload.flush
+
+    def test_flush_sends_every_clients_queue_then_returns_true(self, monkeypatch: Any, losses: List[Any]) -> None:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        a, b = _make_client(), _make_client()
+        _slow_uploads(a, 0.02)
+        _slow_uploads(b, 0.02)
+        for i in range(20):
+            assert _upload.enqueue_upload(a, {"trace_id": f"a{i}"}) is True
+        for i in range(5):
+            assert _upload.enqueue_upload(b, {"trace_id": f"b{i}"}) is True
+
+        assert _upload.flush(timeout=10.0) is True
+        assert a.traces.upload.call_count == 20 and b.traces.upload.call_count == 5
+        assert losses == []
+
+    def test_flush_without_a_timeout_waits_until_everything_is_sent(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        _slow_uploads(client, 0.05)
+        for i in range(8):
+            assert _upload.enqueue_upload(client, {"trace_id": f"t{i}"}) is True
+        assert _upload.flush() is True
+        assert client.traces.upload.call_count == 8
+
+    def test_flush_returns_false_at_its_timeout_and_leaves_the_rest_to_send(
+        self, monkeypatch: Any, losses: List[Any]
+    ) -> None:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        release, started = threading.Event(), threading.Event()
+        _held_uploads(client, release, started)
+        try:
+            assert _upload.enqueue_upload(client, {"trace_id": "in-flight"}) is True
+            assert started.wait(5.0)
+            for i in range(3):
+                assert _upload.enqueue_upload(client, {"trace_id": f"queued-{i}"}) is True
+            t0 = time.monotonic()
+            assert _upload.flush(timeout=0.2) is False
+            assert time.monotonic() - t0 < 2.0
+        finally:
+            release.set()
+        # Not lost: the worker goes on, and a later flush sees them sent.
+        assert _upload.flush(timeout=10.0) is True
+        assert client.traces.upload.call_count == 4
+        assert losses == []
+
+    def test_flush_polled_during_a_slow_upload_leaves_the_queue_to_traces(
+        self, monkeypatch: Any, losses: List[Any]
+    ) -> None:
+        # CodeRabbit on #99: every flush() put a wake-up marker on the queue, though only the first
+        # wakes the worker. A program polling flush(timeout=0) while one upload was slow filled the
+        # queue's places with markers, and its next traces were dropped as queue_full.
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        release, started = threading.Event(), threading.Event()
+        _held_uploads(client, release, started)
+        try:
+            assert _upload.enqueue_upload(client, {"trace_id": "slow"}) is True
+            assert started.wait(5.0)
+            for _ in range(_upload._get_channel(client)._queue.maxsize + 6):
+                assert _upload.flush(timeout=0) is False
+            assert _upload.enqueue_upload(client, {"trace_id": "after-polling"}) is True
+        finally:
+            release.set()
+        assert _upload.flush(timeout=10.0) is True
+        assert client.traces.upload.call_count == 2
+        assert losses == []
+
+    def test_a_timeout_past_what_a_thread_can_wait_is_as_long_as_it_takes(self, monkeypatch: Any) -> None:
+        # Thread.join raises OverflowError past threading.TIMEOUT_MAX (CodeRabbit on #99).
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        _slow_uploads(client, 0.05)
+        for i in range(3):
+            assert _upload.enqueue_upload(client, {"trace_id": f"t{i}"}) is True
+        assert _upload.flush(timeout=threading.TIMEOUT_MAX * 10) is True
+        assert client.traces.upload.call_count == 3
+
+    def test_flush_with_nothing_queued_returns_true_at_once(self) -> None:
+        t0 = time.monotonic()
+        assert _upload.flush(timeout=5.0) is True
+        assert time.monotonic() - t0 < 1.0
+
+    def test_flush_starts_a_worker_for_traces_queued_while_none_could_start(self, monkeypatch: Any) -> None:
+        # A worker that failed to start (thread exhaustion) left its traces queued.
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        ch = _get_channel(client)
+        for i in range(3):
+            ch._queue.put_nowait((client, {"trace_id": f"t{i}"}))
+        assert ch._worker is None
+        assert _upload.flush(timeout=10.0) is True
+        assert client.traces.upload.call_count == 3
+
+    def test_tracing_goes_on_after_a_flush(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        assert _upload.enqueue_upload(client, {"trace_id": "before"}) is True
+        assert _upload.flush(timeout=10.0) is True
+        assert _upload.enqueue_upload(client, {"trace_id": "after"}) is True
+        assert _upload.flush(timeout=10.0) is True
+        assert client.traces.upload.call_count == 2
+
+    def test_flush_from_a_loss_callback_on_the_worker_does_not_deadlock(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        client.traces.upload.return_value = Mock(trace_ids=[])  # rejected: the callback runs on the worker
+        results: List[Any] = []
+        _upload.set_upload_loss_callback(lambda reason, payload: results.append(_upload.flush(timeout=0.5)))  # noqa: ARG005
+        try:
+            assert _upload.enqueue_upload(client, {"trace_id": "t"}) is True
+            _wait_until(lambda: bool(results))
+        finally:
+            _upload.set_upload_loss_callback(None)
+            _upload.reset_upload_loss_stats()
+        # It cannot wait for the worker running the callback, whose trace is not done until the
+        # callback returns: it says so (False) instead of blocking or claiming all is sent.
+        assert results == [False]
+
+
+class TestTheExitBudgetIsLayerlensExitTimeout:
+    """BUG-01: the exit hook waited a fixed 5 s, so a CI job lost what it could not send in that
+    time. ``LAYERLENS_EXIT_TIMEOUT`` sets the budget, read when the process exits; the default
+    stays 5 s."""
+
+    def _exit_with_four_unsent(self, monkeypatch: Any, caplog: Any) -> float:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        client = _make_client()
+        ch = _get_channel(client)
+        release, started = threading.Event(), threading.Event()
+        _held_uploads(client, release, started)
+        try:
+            assert ch.enqueue(client, {"trace_id": "in-flight"}) is True
+            assert started.wait(5.0)
+            for i in range(3):
+                assert ch.enqueue(client, {"trace_id": f"queued-{i}"}) is True
+            t0 = time.monotonic()
+            with caplog.at_level(logging.WARNING, logger=_LOGGER):
+                _upload._flush_at_exit()
+            return time.monotonic() - t0
+        finally:
+            release.set()
+
+    def test_the_exit_waits_as_long_as_the_variable_says(
+        self, monkeypatch: Any, caplog: Any, losses: List[Any]
+    ) -> None:
+        monkeypatch.setattr(_upload, "_EXIT_TIMEOUT_S", 30.0)  # the default, were the variable not read
+        monkeypatch.setenv("LAYERLENS_EXIT_TIMEOUT", "0.3")
+        waited = self._exit_with_four_unsent(monkeypatch, caplog)
+        assert 0.25 < waited < 3.0, f"the exit waited {waited:.2f}s with LAYERLENS_EXIT_TIMEOUT=0.3"
+        assert _upload.get_upload_loss_stats() == {"exit_timeout": 4}
+        warned = [r.getMessage() for r in caplog.records if "not sent" in r.getMessage()]
+        assert warned and "(waited 0.3s" in warned[0] and "LAYERLENS_EXIT_TIMEOUT" in warned[0], warned
+
+    def test_a_longer_budget_lets_every_trace_go_up(self, monkeypatch: Any, losses: List[Any]) -> None:
+        monkeypatch.setattr(_upload, "_sync_mode", False)
+        monkeypatch.setattr(_upload, "_EXIT_TIMEOUT_S", 0.1)  # far too short for these uploads
+        monkeypatch.setenv("LAYERLENS_EXIT_TIMEOUT", "10")
+        client = _make_client()
+        _slow_uploads(client, 0.05)
+        for i in range(10):
+            assert _upload.enqueue_upload(client, {"trace_id": f"t{i}"}) is True
+        _upload._flush_at_exit()
+        assert client.traces.upload.call_count == 10
+        assert losses == []
+
+    @pytest.mark.parametrize("value", ["soon", "-1", "nan", "inf", "1e400"])
+    def test_a_value_it_cannot_use_falls_back_to_the_default_with_a_warning(
+        self, value: str, monkeypatch: Any, caplog: Any, losses: List[Any]
+    ) -> None:
+        monkeypatch.setattr(_upload, "_EXIT_TIMEOUT_S", 0.2)
+        monkeypatch.setenv("LAYERLENS_EXIT_TIMEOUT", value)
+        waited = self._exit_with_four_unsent(monkeypatch, caplog)
+        assert waited < 3.0
+        assert any(
+            "LAYERLENS_EXIT_TIMEOUT" in r.getMessage() and repr(value) in r.getMessage() for r in caplog.records
+        ), [r.getMessage() for r in caplog.records]
+
+    def test_zero_means_do_not_wait(self, monkeypatch: Any, caplog: Any, losses: List[Any]) -> None:
+        monkeypatch.setattr(_upload, "_EXIT_TIMEOUT_S", 30.0)
+        monkeypatch.setenv("LAYERLENS_EXIT_TIMEOUT", "0")
+        waited = self._exit_with_four_unsent(monkeypatch, caplog)
+        assert waited < 1.0
+        assert _upload.get_upload_loss_stats() == {"exit_timeout": 4}
 
 
 class TestTheChannelsDocumentedContract:

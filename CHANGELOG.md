@@ -13,6 +13,17 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Added
 
+- **A job can wait for every trace it recorded: `flush(timeout)` and `LAYERLENS_EXIT_TIMEOUT`.**
+  At exit the SDK waited at most 5 seconds for queued uploads, at a second or two each, so a
+  CI job that asked 10 questions stored 6 traces and one that recorded 20 in a burst stored 2.
+  `layerlens.instrument.flush(timeout=None)` waits until every client's queue and the upload in
+  flight are done, or the timeout passes, and returns whether nothing is left to send;
+  `LAYERLENS_EXIT_TIMEOUT` (seconds, read at exit) sets how long the exit waits. The default
+  stays 5 seconds, so an interactive program or a service is not held at exit when LayerLens is
+  slow. `layerlens env run exec` sets the variable for the agent to 30 seconds, or half
+  `--attempt-timeout` when that is shorter, unless the step sets it, so the agent's trace is
+  uploaded, and linked to its attempt, before the agent exits. The warning for traces left
+  unsent says how long the exit waited and how to wait longer
 - **Find environment runs, and compare two (LAY-4432).** `layerlens env run list ENV
   [--label] [--agent-name] [--kind] [--status]` lists an environment's runs newest first, and
   `client.environments.runs.list(...)` / `runs.iter(...)` read them in Python, with an
@@ -118,6 +129,18 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Changed
 
+- **`layerlens evaluate get`, `list` and `run` show dates and a duration with its unit.** A table
+  printed Submitted At and Finished At as Unix seconds (`1794011871`) and Average Duration as
+  nanoseconds (`1486055168`) with no unit. It now shows UTC dates (`-` before an evaluation
+  finishes) and the average time a prompt took as `850 ms`, `1.49 s` or `2 min 5 s`.
+  `--format json` still gives the API's numbers. The API reference said `average_duration` was in
+  milliseconds; it is in nanoseconds
+
+- **`layerlens trace list` and `trace search` show each trace's agent and tags.** After `--tag`,
+  the table gave no hint why a row matched without `--format json`. It now ends with an Agent and
+  a Tags column, after the columns it had. `Trace.agent` holds the agent the API names for a
+  trace, which the model used to drop; it is `None` when the API names none
+
 - **`layerlens ci report` reports what the CI step names, not the project's latest evaluations.**
   It summarised the 10 most recent benchmark evaluations in the project, whoever started them, so
   a job summary showed other people's evaluations, and never a trace evaluation or an environment
@@ -167,6 +190,122 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **`Result.score` is now `Optional[float]`, and `Result` gains `score_error: Optional[str]`.** The API returns `score: null` with a `score_error` reason for a prompt the scorer could not grade (judge unreachable, scorer crash); such prompts are excluded from the evaluation's accuracy. Previously the SDK raised a `ValidationError` on every results page containing one. Treat `None` as "not scored", never as `0`.
 
 ### Fixed
+
+- **`layerlens integration test` reads the API's answer.** The API answers a passing test with
+  `{"ok": true}`, which `integrations.test()` could not read: it returned `None`, and the CLI said
+  "Failed to test integration" for an integration that worked. `TestIntegrationResponse.success`
+  now reads `ok`. Credentials the vendor refuses come back as HTTP 401 with the vendor's reason,
+  which the CLI printed as "Invalid or missing API key"; it now prints that the integration's
+  stored credentials were refused, and why
+
+- **`AsyncLayerLens` reads its organization without blocking the event loop.** Since the
+  organization and project are read on first use, the async client read them with a synchronous
+  HTTP call made while an async resource built its URL, which blocked the event loop and skipped
+  the client's retries. Every async resource call now awaits that read through the client's own
+  requests, once for concurrent first calls, before it builds a URL
+
+- **`env run exec` and `env run submit` say when the agent's trace was not linked.** With
+  layerlens-app#2888 the API links an agent's trace id only when it names a trace (in the
+  organization by its id, or in the project by its SDK or OpenTelemetry trace id); for any other
+  it grades the answer, links nothing, and says so in `trace_id_unlinked`. `SubmitResult` carries
+  that sentence; `exec`'s progress line for the attempt reads `no trace linked: <sentence>`
+  instead of naming the id, and `submit` prints it as a warning on stderr
+
+- **A stream returned by a `@trace` function is recorded in that trace.** The trace was uploaded
+  when the function returned, before its caller read the stream, so the call's `model.invoke` and
+  `cost.record` were recorded nowhere. A trace (from `@trace` or `trace_context`) whose code opens a
+  provider stream and hands it out now stays open until the stream ends, and uploads then with the
+  call; the stream's events go to the trace and span the call was made in, wherever it is read. A
+  stream closed early, dropped unread, or still open at exit lets the trace upload without the call
+  (the exit queues it before it drains). A stream the garbage collector ends is released on a
+  background thread, `layerlens-stream-release`, never inside the collection, and `flush()` and the
+  exit finish such a release before they wait. The function's `agent.output` records the stream's reply,
+  as `model.invoke` records it, once the caller has read it; it recorded the stream object as text
+  (`<generator object …>`), and records no output for a stream that ended without a reply.
+  Covers calls made with `stream=True` through the OpenAI, Azure OpenAI, OpenRouter, Anthropic,
+  LiteLLM, Google Vertex and Ollama adapters, sync and async; not Anthropic's `messages.stream()`
+  helper or Bedrock's streams, which are recorded as before
+
+- **`layerlens --format json env create --wait` prints the build as it ended.** It printed the
+  create reply, whose `job.status` read `pending`, after the build had finished. With `--wait` it
+  now prints the environment and its build job as they are once the wait ends, under the same
+  keys (`environment`, `job`, `reused`, `unused`): the served `environment_version` and
+  `tool_count`, and the job's final `status` and `cost_usd`. Without `--wait` it prints the create
+  reply as before
+
+- **`layerlens evaluations run` marks `--dataset-file` required, as the docs do.** `--help` listed
+  it as optional, and a run without it stopped with "remote dataset lookup is not yet
+  implemented". Click now reports `Missing option '--dataset-file'` (exit `2`, as before)
+
+- **An OpenAI Responses API stream records its token usage and cost.** `responses.create(...,
+  stream=True)` was aggregated as a Chat Completions stream, reading usage, model and deltas that
+  a Responses stream's events do not carry: its `model.invoke` held only the request's model,
+  with no token counts, no response id and, with content capture, no reply, and there was no
+  `cost.record`. It is now read from the stream's last event (`response.completed`,
+  `.incomplete` or `.failed`), which holds the whole response, as a call without `stream` is
+  read; a stream cut before that event keeps its deltas' text and records no usage (sync and
+  async)
+
+- **`benchmarks.add()` and `remove()` work in a project that holds a custom benchmark, and say
+  when they did.** They read the project's benchmarks of both kinds and sent every id as the
+  project's `datasets`, which lists public benchmarks only: the API answered 500 for the custom
+  one. They now read and send public ids only (sync and async). They also read the API's answer
+  as the models' PATCH does, so a PATCH that succeeded no longer returns `False`
+
+- **Ctrl-C makes `layerlens env run exec` cancel the run once, and say so once.** Leaving the
+  `external_run` block on the interrupt cancelled the run, then exec cancelled it again: two
+  `POST …/cancel` per interrupt. When the answers in flight had been graded meanwhile, the run
+  had finished, and stderr showed the SDK's raw `could not cancel run … Error code: 409 …`
+  before exec's own line. A run that has finished is no longer a failed cancel: leaving the
+  block says so in `finished_before_cancel` and logs nothing, and keeps the cancelled run in
+  `cancelled_run`. exec reports that one cancel, and cancels again only when a second Ctrl-C
+  cut it short
+
+- **`layerlens replay run --trace-id` replays that trace, and a failed replay exits `1`.** Without
+  `--trace-file`, the command never read the trace: it replayed an empty one and printed
+  `"status": "completed"`, also for an id that named no trace, and a replay whose function raised
+  printed `"status": "failed"` and exited `0`. It now reads the stored trace from LayerLens; an
+  id that names none exits `2` saying so; a replay that does not complete prints its result,
+  says why, and exits `1`. `--replay-fn` is vetted before anything is read. `replay` is now in
+  [docs/cli/commands.md](docs/cli/commands.md#replay)
+
+- **`layerlens scorer create` prints the scorer it created.** The API answers a create with the new
+  scorer's id; `scorers.create()` read that as a whole scorer, failed for want of a name, and
+  returned `None`, so the command printed `Failed to create scorer.` and exited `1` for a scorer
+  that existed. `create()` (sync and async) now reads the scorer back by its id and returns it,
+  and raises instead of returning `None` when the answer holds no new scorer. A request the API
+  refuses now prints the API's sentence with its status, `Error: … (HTTP 400)`, as the `env`
+  commands do, in every command, instead of the exception's text (`Error code: 400 - {...}`)
+
+- **A `layerlens login` session renews itself instead of expiring after an hour.** The CLI
+  refreshed its token straight with Cognito, with the client id alone; the app client has a
+  secret, so Cognito answered `invalid_client_secret` every time and every command said
+  `Session expired` an hour after login. It now renews through the LayerLens API's
+  `POST /dgklmnr/refresh`, as the web app does, and stores the new token with its own expiry
+  (24 hours, not the access token's hour). When LayerLens ends the session, commands say so and
+  ask for `layerlens login`, instead of `no credentials found`; a renewal that fails for
+  another reason says why
+
+- **An instrumented program starts while LayerLens is down or its key is wrong.** `LayerLens()`
+  read the organization over HTTP in its constructor, so a program written as the
+  instrumentation docs show (`client = LayerLens()` at module scope, then `@trace(client)`)
+  crashed at import with `APIConnectionError` when LayerLens was unreachable, or
+  `AuthenticationError` for a wrong or rotated key. The client now reads the organization and
+  project the first time a call needs them: a traced function runs, and the trace it cannot
+  upload is counted as lost (`upload_error`); a call that needs the organization raises what
+  the API said, as before, and a failed read is tried again next time. To check the key at
+  start, read `client.organization_id`. `AsyncLayerLens` now raises the SDK's errors for that
+  read (`APIConnectionError`, `AuthenticationError`, ...), as `LayerLens` does, instead of
+  httpx's. The CLI still checks the key before every command
+
+- **A trace continued in another process keeps both processes' events.** `get_trace_context()`
+  handed to another process and continued there with `trace_context(client,
+  from_context=...)` uploaded under the same `trace_id` with nothing telling the two uploads
+  apart, and LayerLens kept the one uploaded last: the other process's events and tags were
+  gone, and the survivor still read `verified`. Each collector now sends its own `segment_id`
+  (the same for every upload of it), and a continued one sends `continued_from` with the span it
+  continues. Needs the API that keeps one trace per `trace_id` and `segment_id`; an older API
+  ignores the fields
 
 - **A program no longer waits 5 seconds at exit for nothing.** At exit the SDK told each upload
   thread to stop with a marker on its queue, and dropped the marker when the queue was full (64

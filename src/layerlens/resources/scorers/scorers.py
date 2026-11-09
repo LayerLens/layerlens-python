@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import httpx
+from pydantic import ValidationError
 
 from ...models import Scorer, ScorersResponse
 from ..._resource import SyncAPIResource, AsyncAPIResource
 from ..._constants import DEFAULT_TIMEOUT
+from ..._exceptions import LayerLensError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
@@ -35,6 +37,30 @@ def _normalize_keys(d: Dict[str, Any]) -> Dict[str, Any]:
     if first_key and first_key[0].isupper():
         return {_pascal_to_snake(k): v for k, v in d.items()}
     return d
+
+
+def _created(resp: Any) -> "Scorer | str":
+    """What the API answered a create with: the whole scorer, or the new scorer's id.
+
+    The API answers ``{"data": {"id": ...}}`` (BUG-05: ``Scorer(**data)`` on that failed for want of
+    a name, and the scorer that had been created was reported as a failure). A whole scorer that
+    does not validate raises, as does an answer with neither.
+    """
+    data = _unwrap(resp)
+    if isinstance(data, dict):
+        data = _normalize_keys(data)
+        new_id = data.get("id")
+        if "name" in data:
+            try:
+                return Scorer(**data)
+            except ValidationError:
+                # The scorer exists: read it back by its id rather than lose it to the reply's shape.
+                if isinstance(new_id, str) and new_id:
+                    return new_id
+                raise
+        if isinstance(new_id, str) and new_id:
+            return new_id
+    raise LayerLensError(f"the API answered the scorer create without the new scorer: {data!r}")
 
 
 class Scorers(SyncAPIResource):
@@ -87,7 +113,13 @@ class Scorers(SyncAPIResource):
         model_id: str,
         prompt: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
-    ) -> Optional[Scorer]:
+    ) -> Scorer:
+        """Create a scorer and return it, as stored.
+
+        The API answers with the new scorer's id; the scorer is read back by it. If that read
+        fails, the scorer still exists, so it is returned as sent, with its id. Raises
+        ``LayerLensError`` when the answer holds no new scorer, never returns ``None``.
+        """
         body: Dict[str, Any] = {
             "name": name,
             "description": description,
@@ -95,14 +127,14 @@ class Scorers(SyncAPIResource):
             "prompt": prompt,
         }
         resp = self._post(self._base_url(), body=body, timeout=timeout, cast_to=dict)
-        data = _unwrap(resp)
-        if isinstance(data, dict):
-            data = _normalize_keys(data)
-            try:
-                return Scorer(**data)
-            except Exception:
-                return None
-        return None
+        data = _created(resp)
+        if isinstance(data, Scorer):
+            return data
+        try:
+            stored = self.get(data, timeout=timeout)
+        except LayerLensError:
+            stored = None
+        return stored or Scorer(id=data, **body)
 
     def update(
         self,
@@ -185,7 +217,13 @@ class AsyncScorers(AsyncAPIResource):
         model_id: str,
         prompt: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
-    ) -> Optional[Scorer]:
+    ) -> Scorer:
+        """Create a scorer and return it, as stored.
+
+        The API answers with the new scorer's id; the scorer is read back by it. If that read
+        fails, the scorer still exists, so it is returned as sent, with its id. Raises
+        ``LayerLensError`` when the answer holds no new scorer, never returns ``None``.
+        """
         body: Dict[str, Any] = {
             "name": name,
             "description": description,
@@ -193,14 +231,14 @@ class AsyncScorers(AsyncAPIResource):
             "prompt": prompt,
         }
         resp = await self._post(self._base_url(), body=body, timeout=timeout, cast_to=dict)
-        data = _unwrap(resp)
-        if isinstance(data, dict):
-            data = _normalize_keys(data)
-            try:
-                return Scorer(**data)
-            except Exception:
-                return None
-        return None
+        data = _created(resp)
+        if isinstance(data, Scorer):
+            return data
+        try:
+            stored = await self.get(data, timeout=timeout)
+        except LayerLensError:
+            stored = None
+        return stored or Scorer(id=data, **body)
 
     async def update(
         self,

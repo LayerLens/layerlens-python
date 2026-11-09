@@ -56,16 +56,16 @@ def recorder() -> _Recorder:
 
 @pytest.fixture
 def client(recorder: _Recorder) -> LayerLens:
-    with patch.object(LayerLens, "_get_organization", return_value=_ORGANIZATION):
-        client = LayerLens(api_key="test-key", base_url="https://api.test/api/v1")
+    client = LayerLens(api_key="test-key", base_url="https://api.test/api/v1")
+    client.organization_id, client.project_id = _ORGANIZATION.id, _ORGANIZATION.projects[0].id
     client._transport = httpx.MockTransport(recorder.handle)
     return client
 
 
 @pytest.fixture
 def async_client(recorder: _Recorder) -> Iterator[AsyncLayerLens]:
-    with patch.object(AsyncLayerLens, "_get_organization", return_value=_ORGANIZATION):
-        client = AsyncLayerLens(api_key="test-key", base_url="https://api.test/api/v1")
+    client = AsyncLayerLens(api_key="test-key", base_url="https://api.test/api/v1")
+    client.organization_id, client.project_id = _ORGANIZATION.id, _ORGANIZATION.projects[0].id
     client._transport = httpx.MockTransport(recorder.handle)
     yield client
 

@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Union, Callable, Iterator, Optional
 from email.utils import formatdate
-from unittest.mock import patch
 
 import httpx
 import pytest
@@ -170,8 +169,9 @@ _ORGANIZATION = Organization(id=ORG, name="Org", projects=[Project(id=PROJECT, n
 @pytest.fixture(params=["sync", "async"])
 def client(request: pytest.FixtureRequest, api: FakeAPI) -> Iterator[Union[LayerLens, AsyncLayerLens]]:
     cls = LayerLens if request.param == "sync" else AsyncLayerLens
-    with patch.object(cls, "_get_organization", return_value=_ORGANIZATION):
-        made = cls(api_key="test-key", base_url="https://api.test/api/v1")
+    made = cls(api_key="test-key", base_url="https://api.test/api/v1")
+    made.organization_id = _ORGANIZATION.id
+    made.project_id = _ORGANIZATION.projects[0].id
     made._transport = httpx.MockTransport(api.handle)  # type: ignore[assignment]
     yield made
 

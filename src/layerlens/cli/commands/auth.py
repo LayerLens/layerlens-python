@@ -61,6 +61,7 @@ def logout() -> None:
 def whoami(ctx: click.Context) -> None:
     """Display the currently authenticated user or API key."""
     from .._auth import (
+        SessionError,
         get_user_info,
         get_valid_token,
         load_credentials,
@@ -87,9 +88,13 @@ def whoami(ctx: click.Context) -> None:
         click.echo("Not logged in. Run `layerlens login` to authenticate.", err=True)
         sys.exit(1)
 
-    token = get_valid_token()
+    try:
+        token = get_valid_token()
+    except SessionError as err:
+        click.echo(str(err), err=True)
+        sys.exit(1)
     if token is None:
-        click.echo("Session expired. Run `layerlens login` to re-authenticate.", err=True)
+        click.echo("Not logged in. Run `layerlens login` to authenticate.", err=True)
         sys.exit(1)
 
     info = get_user_info(token)

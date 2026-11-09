@@ -432,15 +432,15 @@ The `create`, `get_by_id` and `get_many` method returns an `Evaluation` objects 
 | `id`                 | `str`                         | Unique evaluation identifier                              |
 | `status`             | `EvaluationStatus`            | Current evaluation status (enum)                          |
 | `status_description` | `str`                         | Human-readable status description (default: `""`)         |
-| `submitted_at`       | `int`                         | Unix timestamp when evaluation was submitted              |
-| `finished_at`        | `int`                         | Unix timestamp when evaluation finished                   |
+| `submitted_at`       | `int`                         | When the evaluation was submitted, in Unix seconds        |
+| `finished_at`        | `int`                         | When the evaluation finished, in Unix seconds; `0` until it has |
 | `model_id`           | `str`                         | ID of the model used in the evaluation                    |
 | `model_name`         | `str`                         | Name of the model (default: `""`)                         |
 | `model_key`          | `str`                         | Key identifier of the model (default: `""`)               |
 | `model_company`      | `str`                         | Company/provider of the model (default: `""`)             |
 | `benchmark_id`       | `str`                         | ID of the benchmark used (aliased as "dataset_id" in API) |
 | `benchmark_name`     | `str`                         | Name of the benchmark (aliased as "dataset_name" in API, default: `""`) |
-| `average_duration`   | `int`                         | Average response time in milliseconds                     |
+| `average_duration`   | `int`                         | The average time the model took on a prompt, in nanoseconds; `0` until results are in |
 | `accuracy`           | `float`                       | Overall accuracy, as a percentage (0 to 100). Until the evaluation succeeds, it covers only the prompts graded so far |
 | `readability_score`  | `float \| None`               | Readability score, or `None` if the metric was not computed for this evaluation |
 | `toxicity_score`     | `float \| None`               | Toxicity score, or `None` if the metric was not computed for this evaluation |

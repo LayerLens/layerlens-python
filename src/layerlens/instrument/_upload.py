@@ -7,17 +7,23 @@ the host app. The loss modes are deliberate and bounded:
 * circuit breaker (10 consecutive failures → open 60 s): traces discarded,
   including items already dequeued by the worker, until the half-open retry;
 * process exit: ``atexit`` drains via :func:`shutdown_uploads`, which waits at
-  most its timeout (5 s) in all, however many clients, and returns as soon as
-  every queue is sent. A trace still unsent when that time is up dies with the
-  process: it is counted (``exit_timeout``) and a WARNING says how many, rather
-  than vanishing silently. Abrupt kills can lose queued traces unreported (no
-  public flush API yet — D1 decision).
+  most ``LAYERLENS_EXIT_TIMEOUT`` seconds (default 5) in all, however many
+  clients, and returns as soon as every queue is sent. A trace still unsent when
+  that time is up dies with the process: it is counted (``exit_timeout``) and a
+  WARNING says how many, rather than vanishing silently. Abrupt kills can lose
+  queued traces unreported.
+
+A program that needs every trace delivered at a known point calls :func:`flush`;
+a job that needs them all delivered before it exits sets ``LAYERLENS_EXIT_TIMEOUT``
+(BUG-01, decision D-1). The default stays short, so a library never holds an
+interactive program or a service at exit when LayerLens is slow.
 """
 
 from __future__ import annotations
 
 import os
 import json
+import math
 import time
 import queue
 import atexit
@@ -25,8 +31,9 @@ import logging
 import weakref
 import tempfile
 import threading
-from typing import Any, Dict, Tuple, Callable, Optional
+from typing import Any, Dict, List, Tuple, Callable, Optional
 
+from .._exit_timeout import EXIT_TIMEOUT_ENV, parse_exit_timeout
 from .._trace_id_file import offer_trace_id
 
 log: logging.Logger = logging.getLogger(__name__)
@@ -316,13 +323,17 @@ class UploadChannel:
             worker = self._worker
             if worker is None or not worker.is_alive():
                 return None
+            first_stop = not self._stop_when_empty
             self._stop_when_empty = True
-        try:
-            # Wakes a worker waiting on an empty queue. A full queue needs no wake-up: its
-            # worker is busy, and sees the flag before it waits again.
-            self._queue.put_nowait(None)
-        except queue.Full:
-            pass
+        if first_stop:
+            # Wakes a worker waiting on an empty queue. Only the first stop needs it: from then on
+            # the worker sees the flag before each wait. Each marker takes a place in the queue, so
+            # one per call (flush() polled during a slow upload) filled it and dropped traces. A full
+            # queue needs no wake-up: its worker is busy, and sees the flag before it waits again.
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                pass
         return worker
 
     def shutdown(self, timeout: float = 5.0) -> None:
@@ -333,6 +344,17 @@ class UploadChannel:
         worker = self._stop_when_drained()
         if worker is not None:
             worker.join(timeout)
+
+    def _start_for_queued(self) -> None:
+        """Start a worker for traces queued while none could start (see ``_ensure_worker``)."""
+        if not self._queue.empty():
+            self._ensure_worker()
+
+    def _unsent(self) -> int:
+        """The traces still queued here, and the one being uploaded."""
+        with self._queue.mutex:
+            queued = sum(1 for item in self._queue.queue if item is not None)
+        return queued + (1 if self._sending is not None else 0)
 
     def _left_unsent_at_exit(self) -> int:
         """Count each trace this channel could not send before the process ends as lost
@@ -443,26 +465,104 @@ def shutdown_uploads(timeout: float = 5.0) -> None:
         worker.join(max(0.0, deadline - time.monotonic()))
 
 
-# How long the process's exit waits, in all, for the traces still queued.
+def flush(timeout: Optional[float] = None) -> bool:
+    """Wait until every trace recorded so far is uploaded, or ``timeout`` seconds pass.
+
+    Covers every client's queue and the upload each one has in flight. Returns ``True`` when
+    nothing is left to send, ``False`` when the time ran out first: what is left goes on
+    uploading in the background, and a later ``flush`` can wait for it again. ``None`` waits as
+    long as it takes. A trace is queued when its ``trace``/``trace_context`` block ends, so a
+    block still open is not waited for, nor a trace waiting for a stream it handed out to be read
+    (it is queued when the stream ends, or at exit). A trace that could not be sent (refused, or
+    dropped by the circuit breaker) counts as done here; :func:`get_upload_loss_stats` counts it.
+
+    Tracing goes on after a flush. Called from a loss callback, on the upload worker running it,
+    it cannot wait for that worker, whose trace is not done until the callback returns: it
+    returns ``False``. Raises ``ValueError`` for a negative or NaN ``timeout``.
+    """
+    if timeout is not None and (math.isnan(timeout) or timeout < 0):
+        raise ValueError(f"timeout must be a number of seconds from 0 up, or None; got {timeout!r}")
+    deadline = None if timeout is None or math.isinf(timeout) else time.monotonic() + timeout
+    for step in list(_before_flush):
+        try:
+            step()
+        except Exception:  # one failed step must not cost the queued traces their wait
+            log.warning("layerlens: a step before the flush failed", exc_info=True)
+    with _registry_lock:
+        channels = list(_channels)
+    for ch in channels:
+        ch._start_for_queued()
+    workers = [worker for worker in (ch._stop_when_drained() for ch in channels) if worker is not None]
+    me = threading.current_thread()
+    for worker in workers:
+        if worker is me:  # flush() called from a loss callback, on this worker: it cannot wait for itself
+            continue
+        # Thread.join raises OverflowError past threading.TIMEOUT_MAX.
+        worker.join(None if deadline is None else min(threading.TIMEOUT_MAX, max(0.0, deadline - time.monotonic())))
+    still_working = any(worker.is_alive() for worker in workers)
+    return not still_working and not any(ch._unsent() for ch in channels)
+
+
+# How long the process's exit waits, in all, for the traces still queued, unless
+# LAYERLENS_EXIT_TIMEOUT says otherwise.
 _EXIT_TIMEOUT_S = 5.0
 
 
-def _flush_at_exit() -> None:
-    """The exit hook: send what is queued within ``_EXIT_TIMEOUT_S``, then account for what is not.
+def _exit_timeout() -> float:
+    """The exit's budget: ``LAYERLENS_EXIT_TIMEOUT``, read now, or ``_EXIT_TIMEOUT_S``."""
+    value = os.environ.get(EXIT_TIMEOUT_ENV, "")
+    if not value.strip():
+        return _EXIT_TIMEOUT_S
+    try:
+        return parse_exit_timeout(value)
+    except ValueError as err:
+        log.warning("layerlens: %s; the exit waits the default %gs for traces to upload", err, _EXIT_TIMEOUT_S)
+        return _EXIT_TIMEOUT_S
 
-    A trace still unsent then dies with the process. It used to vanish without a word; each
-    one is now counted as lost (``exit_timeout``, also through the loss callback) and one
-    WARNING says how many (LAY-4454).
+
+# Run by the exit hook before the drain, so what they queue is sent within the exit's budget:
+# the collector queues the traces still waiting for a stream (S2).
+_before_exit_drain: List[Callable[[], None]] = []
+
+
+def _run_before_exit_drain(step: Callable[[], None]) -> None:
+    _before_exit_drain.append(step)
+
+
+# Run by flush() before it waits, so what they queue is waited for: the collector ends the streams
+# a garbage collection ended, whose releases it handed to another thread (S2).
+_before_flush: List[Callable[[], None]] = []
+
+
+def _run_before_flush(step: Callable[[], None]) -> None:
+    _before_flush.append(step)
+
+
+def _flush_at_exit() -> None:
+    """The exit hook: send what is queued within the exit's budget, then account for what is not.
+
+    The budget is ``LAYERLENS_EXIT_TIMEOUT`` (default ``_EXIT_TIMEOUT_S``), read at exit so a
+    program can set it as it runs (BUG-01). A trace still unsent then dies with the process. It
+    used to vanish without a word; each one is now counted as lost (``exit_timeout``, also
+    through the loss callback) and one WARNING says how many and how to wait longer (LAY-4454).
     """
-    shutdown_uploads(_EXIT_TIMEOUT_S)
+    for step in list(_before_exit_drain):
+        try:
+            step()
+        except Exception:  # one failed step must not cost the queued traces their upload
+            log.warning("layerlens: a step before the exit's upload failed", exc_info=True)
+    budget = _exit_timeout()
+    shutdown_uploads(budget)
     with _registry_lock:
         channels = list(_channels)
     unsent = sum(ch._left_unsent_at_exit() for ch in channels)
     if unsent:
         log.warning(
-            "layerlens: %d trace(s) not sent: the process exited before their upload ended (waited %.0fs)",
+            "layerlens: %d trace(s) not sent: the process exited before their upload ended (waited %gs; "
+            "set %s to wait longer, or call layerlens.instrument.flush() before exiting)",
             unsent,
-            _EXIT_TIMEOUT_S,
+            budget,
+            EXIT_TIMEOUT_ENV,
         )
 
 

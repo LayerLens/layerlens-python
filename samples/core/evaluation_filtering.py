@@ -84,7 +84,8 @@ def main() -> None:
     if response:
         print(f"\nFastest {len(response.evaluations)} evaluations:")
         for e in response.evaluations:
-            print(f"  - {e.id}: avg_duration={e.average_duration}ms")
+            # average_duration is in nanoseconds.
+            print(f"  - {e.id}: avg_duration={e.average_duration / 1e9:.2f}s")
 
     # ── Filter by status (only successful) ────────────────────────────
     response = client.evaluations.get_many(

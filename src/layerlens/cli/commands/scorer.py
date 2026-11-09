@@ -112,10 +112,6 @@ def create_scorer(
 
     client = get_client(ctx)
     s = client.scorers.create(name=name, description=description, model_id=model_id, prompt=prompt)
-    if s is None:
-        click.echo("Failed to create scorer.", err=True)
-        sys.exit(1)
-
     echo_status(ctx, f"Scorer created: {s.id}")
     output = format_output(s, ctx.obj["output_format"])
     click.echo(output)

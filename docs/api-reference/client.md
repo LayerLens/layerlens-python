@@ -44,6 +44,20 @@ client = AsyncLayerLens(api_key="your_api_key")
 
 \*Required unless set via environment variables
 
+Constructing a client makes no request. The organization and project the key belongs to
+(`client.organization_id`, `client.project_id`) are read from the API the first time a call
+needs them, and that call raises what the API said: `APIConnectionError` when LayerLens is
+unreachable, `AuthenticationError` for a wrong or revoked key. So a program that builds its
+client at import, and traces with it, starts and runs while LayerLens is down; the traces it
+cannot upload are counted as lost (see [Uploading](instrumentation.md#uploading)). A failed
+read is tried again on the next call. To check the key when your program starts, read
+`client.organization_id` there. Without any key, `LayerLens()` raises `LayerLensError` at once.
+
+On `AsyncLayerLens`, the resource calls (`await client.traces.get_many()`, ...) read them
+without blocking the event loop, through the client's own requests and retries, once for
+concurrent first calls. Reading `client.organization_id` or `client.project_id` yourself before
+any such call makes a blocking request; after one, the properties return what was read.
+
 ## Environment Variable Configuration
 
 The client automatically loads configuration from these environment variables:

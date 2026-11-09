@@ -59,10 +59,12 @@ jobs:
       # `exec` hands the shell over to layerlens, so a cancelled job's signal reaches it and
       # it cancels the run; the shell would not pass the signal on. `--label` tags the run's
       # traces, and the agent's own when it is traced with the LayerLens SDK, so
-      # `layerlens trace list --tag <sha>` lists both.
+      # `layerlens trace list --tag <sha>` lists both. LAYERLENS_EXIT_TIMEOUT is how long the
+      # agent's SDK waits at exit for its traces to upload (exec sets 30 s when it is unset).
       - name: Run agent
         env:
           LAYERLENS_API_KEY: ${{ secrets.LAYERLENS_AUTOMATION_KEY }}
+          LAYERLENS_EXIT_TIMEOUT: "120"
         run: |
           exec layerlens env run exec support-desk --tasks-file ci/tasks.jsonl \
             --agent-name support-agent \

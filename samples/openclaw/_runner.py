@@ -115,7 +115,9 @@ class DemoRunner(ABC):
             return
         try:
             self.client = LayerLens()
-            self.logger.info("LayerLens SDK client initialized.")
+            # The client reads its organization on first use; reading it here checks the key
+            # and that LayerLens answers, so a demo that cannot reach it runs offline instead.
+            self.logger.info("LayerLens SDK client initialized (organization %s).", self.client.organization_id)
         except Exception as exc:
             self.logger.warning(
                 "Could not initialize LayerLens SDK (%s). Running in offline mode.",

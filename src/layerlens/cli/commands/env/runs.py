@@ -15,6 +15,7 @@ from ._exec import (
     run_attempt,
     outcome_line,
     with_run_label,
+    with_exit_budget,
     agent_environment,
 )
 from ._common import (
@@ -50,7 +51,7 @@ from ..._command import LayerLensGroup, LayerLensCommand
 from ..._formatter import format_table
 from ...._exceptions import ConflictError, APIStatusError, LayerLensError
 from ....models.environment import RUN_TERMINAL_STATUSES, RunResult
-from ....resources.environments import Environments, ExternalAttempt
+from ....resources.environments import ExternalRun, Environments, ExternalAttempt
 from ....resources.environments._shared import new_idempotency_key
 
 MAX_PARALLEL = 25
@@ -119,7 +120,9 @@ def exec_command(
     it leaves in LAYERLENS_TRACE_ID_FILE, however it ends, links its own trace to the
     attempt; the LayerLens SDK's tracing writes it there. With --label, the label goes first in
     LAYERLENS_TRACE_TAGS, so the SDK tags every trace the agent records with it, as LayerLens
-    tags each attempt's own trace.
+    tags each attempt's own trace. Unless the step sets LAYERLENS_EXIT_TIMEOUT, it is set to
+    30 seconds (half --attempt-timeout when that is shorter), so the SDK uploads the agent's
+    traces before it exits.
 
     The API key cannot be given with --api-key here, since every user on the machine can
     read a command line: use LAYERLENS_API_KEY or --api-key-file.
@@ -160,6 +163,7 @@ def exec_command(
     )
     # The label first: a label that holds the key is then dropped with every other variable that does.
     agent_env = agent_environment(with_run_label(dict(os.environ), label), api_key=client.api_key)
+    agent_env = with_exit_budget(agent_env, attempt_timeout)
     live = LiveProcesses()
     outcomes: List[Tuple[ExternalAttempt, AttemptOutcome]] = []
     with sigterm_as_interrupt():
@@ -171,8 +175,10 @@ def exec_command(
             if not external.started:
                 fail("interrupted while starting the run; if it started, it closes on its own within 24 hours",
                      EXIT_NOT_FINISHED)  # fmt: skip
-            fail(_cancel(envs, external.environment_id, external.run_id, "interrupted")[0], EXIT_NOT_FINISHED)
+            fail(_cancelled_on_leaving(envs, external, "interrupted"), EXIT_NOT_FINISHED)
         except (LaunchError, _NotSubmitted) as err:
+            if external.finished_before_cancel:
+                fail(f"{err}; the run had already finished, so there was nothing to cancel")
             if external.cancel_error is None:
                 fail(f"{err}; the run was cancelled")
             fail(f"{err}; the run could not be cancelled ({external.cancel_error}), and closes on its own within "
@@ -394,17 +400,44 @@ def _endpoint(
 
 def _cancel(envs: Environments, environment_id: str, run_id: str, why: str) -> Tuple[str, bool]:
     """Cancel a run, and say why and what became of it; and whether it had finished before the cancel."""
-    run = "it" if run_id in why else f"run {run_id}"
     with interrupts_held_off():
         try:
             status = envs.runs.cancel(environment_id, run_id).status
         except ConflictError:
-            return f"{why}, and {run} had finished by then; read it with `layerlens env run results`", True
+            return _finished_by_then(run_id, why), True
         except LayerLensError as err:
-            return f"{why}, and {run} could not be cancelled: {err}", False
+            return f"{why}, and {_the_run(run_id, why)} could not be cancelled: {err}", False
+    return _cancelled_as(run_id, why, status), False
+
+
+def _cancelled_on_leaving(envs: Environments, external: ExternalRun, why: str) -> str:
+    """What became of the run that leaving ``with external`` on an interrupt cancelled.
+
+    That cancel is the run's one cancel (BUG-09: exec used to send a second, and a run that had
+    finished meanwhile printed the SDK's raw 409 before exec's own line). exec cancels again only
+    when that cancel did not happen at all: a second Ctrl-C cut it short.
+    """
+    if external.finished_before_cancel:
+        return _finished_by_then(external.run_id, why)
+    if external.cancelled_run is not None:
+        return _cancelled_as(external.run_id, why, external.cancelled_run.status)
+    if external.cancel_error is not None:
+        return f"{why}, and {_the_run(external.run_id, why)} could not be cancelled: {external.cancel_error}"
+    return _cancel(envs, external.environment_id, external.run_id, why)[0]
+
+
+def _the_run(run_id: str, why: str) -> str:
+    return "it" if run_id in why else f"run {run_id}"
+
+
+def _finished_by_then(run_id: str, why: str) -> str:
+    return f"{why}, and {_the_run(run_id, why)} had finished by then; read it with `layerlens env run results`"
+
+
+def _cancelled_as(run_id: str, why: str, status: str) -> str:
     if status in RUN_TERMINAL_STATUSES:
-        return f"{why}, so {run} was {status}", False
-    return f"{why}, so {run} is cancelling, and stops once the tasks in flight finish", False
+        return f"{why}, so {_the_run(run_id, why)} was {status}"
+    return f"{why}, so {_the_run(run_id, why)} is cancelling, and stops once the tasks in flight finish"
 
 
 def _finished_meanwhile(envs: Environments, environment_id: str, run_id: str) -> Optional[RunResult]:
@@ -567,6 +600,8 @@ def submit(
     result = env_client(ctx).environments.runs.submit(
         environment, run_id, attempt_id, answer, outcome=outcome, error=error, trace_id=trace_id
     )
+    if result.trace_id_unlinked:  # graded, but the id names no trace the API could link (N3)
+        progress(f"Warning: {result.trace_id_unlinked}")
     if json_output(ctx):
         emit_json(result)
     else:

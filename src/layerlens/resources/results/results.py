@@ -206,6 +206,9 @@ class Results(SyncAPIResource):
 
 
 class AsyncResults(AsyncAPIResource):
+    # Results are read by evaluation id: no URL here holds the organization or project.
+    _reads_organization = False
+
     async def get(
         self,
         *,

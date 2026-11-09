@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Union, Mapping, Optional
+from typing import TYPE_CHECKING, Any, List, Tuple, Union, Mapping, Optional
 from functools import cached_property
 from typing_extensions import Self, override
 
@@ -14,7 +16,7 @@ from ._utils import is_mapping
 from .models import Organization, OrganizationResponse, OrganizationsListResponse
 from ._constants import DEFAULT_TIMEOUT, DEFAULT_BASE_URL, DIRTY_ROUTER_PREFIX
 from ._exceptions import APIStatusError, LayerLensError
-from ._base_client import BaseClient, BaseAsyncClient
+from ._base_client import BaseClient, BaseAsyncClient, _request_for_error
 from ._deprecation import module_getattr
 
 if TYPE_CHECKING:
@@ -38,10 +40,108 @@ if TYPE_CHECKING:
 __all__ = ["LayerLens", "AsyncLayerLens", "Client", "AsyncClient"]
 
 
-class LayerLens(BaseClient):
+class _OrganizationScope:
+    """The organization and project the credential belongs to, read from the API on first use.
+
+    The constructor used to read them, so a program that builds its client at import, as the
+    instrumentation docs show, did not start when LayerLens was unreachable
+    (``APIConnectionError``) or its key was wrong or rotated (``AuthenticationError``) (BUG-03).
+    Now the first call that needs them reads them and raises what the API said; the trace
+    upload path counts that as a lost trace, so tracing never stops the program. A failed read
+    is not remembered: the next call tries again. Ids set on the client are used as they are.
+    """
+
+    _organization_id: Optional[str]
+    _project_id: Optional[str]
+    # Held across the synchronous read's HTTP call, so concurrent sync reads make one request.
+    _scope_lock: threading.Lock
+    # Never held across I/O: guards the ids as they are set, and the async read's bookkeeping, so
+    # a coroutine never waits on the event loop for another thread's synchronous read.
+    _scope_state_lock: threading.Lock
+
+    def _init_organization_scope(self) -> None:
+        self._organization_id = None
+        self._project_id = None
+        self._scope_lock = threading.Lock()
+        self._scope_state_lock = threading.Lock()
+
+    def _get_organization(self) -> Optional[Organization]:
+        raise NotImplementedError
+
+    def _organization_scope(self) -> Tuple[str, str]:
+        organization_id, project_id = self._organization_id, self._project_id
+        if organization_id is not None and project_id is not None:
+            return organization_id, project_id
+        with self._scope_lock:
+            if self._organization_id is None or self._project_id is None:
+                organization = self._get_organization()
+                with self._scope_state_lock:
+                    if self._organization_id is None or self._project_id is None:
+                        self._adopt_organization(organization)
+            assert self._organization_id is not None and self._project_id is not None
+            return self._organization_id, self._project_id
+
+    def _adopt_organization(self, organization: Optional[Organization]) -> None:
+        """Fill the ids not set on the client from ``organization``. Caller holds ``_scope_state_lock``."""
+        if organization is None:
+            raise LayerLensError("Organization could not be fetched. Please contact LayerLens support.")
+        if not organization.projects:
+            raise LayerLensError(
+                f"Organization {organization.id} is missing project. Please contact LayerLens support."
+            )
+        if self._organization_id is not None and self._organization_id != organization.id:
+            # Its first project belongs to another organization: the pair would not exist.
+            raise LayerLensError(
+                f"organization_id {self._organization_id} is not the organization this credential "
+                f"reads ({organization.id}): set project_id as well, or leave both unset"
+            )
+        if self._organization_id is None:
+            self._organization_id = organization.id
+        if self._project_id is None:
+            self._project_id = organization.projects[0].id
+
+    @property
+    def organization_id(self) -> str:
+        """The credential's organization; read from the API the first time it is needed."""
+        return self._organization_scope()[0]
+
+    @organization_id.setter
+    def organization_id(self, value: Optional[str]) -> None:
+        self._organization_id = value
+
+    @property
+    def project_id(self) -> str:
+        """The organization's first project; read from the API the first time it is needed."""
+        return self._organization_scope()[1]
+
+    @project_id.setter
+    def project_id(self, value: Optional[str]) -> None:
+        self._project_id = value
+
+
+def _session_organization(organizations: List[Organization]) -> Optional[Organization]:
+    """The organization a ``layerlens login`` session works in, among those its token reads.
+
+    The logged-in user's own organization with projects first, then any with projects.
+    """
+    if not organizations:
+        return None
+    from .cli._auth import load_credentials
+
+    creds = load_credentials()
+    email = (creds or {}).get("user", {}).get("email") if creds else None
+    if email:
+        for org in organizations:
+            if org.owner_id == email and org.projects:
+                return org
+    for org in organizations:
+        if org.projects:
+            return org
+    return organizations[0]
+
+
+class LayerLens(_OrganizationScope, BaseClient):
     api_key: str
-    organization_id: str | None
-    project_id: str | None
     _use_bearer_auth: bool
 
     def __init__(
@@ -90,16 +190,8 @@ class LayerLens(BaseClient):
             max_retries=max_retries,
         )
 
-        organization = self._get_organization()
-        if organization is None:
-            raise LayerLensError("Organization could not be fetched. Please contact LayerLens support.")
-        self.organization_id = organization.id
-
-        if organization.projects is None or len(organization.projects) == 0:
-            raise LayerLensError(
-                f"Organization {self.organization_id} is missing project. Please contact LayerLens support."
-            )
-        self.project_id = organization.projects[0].id
+        # The organization and project are read on first use, not here (BUG-03).
+        self._init_organization_scope()
 
     @cached_property
     def benchmarks(self) -> Benchmarks:
@@ -248,22 +340,7 @@ class LayerLens(BaseClient):
                 timeout=30,
                 cast_to=OrganizationsListResponse,
             )
-            if isinstance(resp, OrganizationsListResponse) and resp.data:
-                # Try to find an org owned by the logged-in user that has projects
-                from .cli._auth import load_credentials
-
-                creds = load_credentials()
-                email = (creds or {}).get("user", {}).get("email") if creds else None
-                if email:
-                    for org in resp.data:
-                        if org.owner_id == email and org.projects:
-                            return org
-                # Fall back to first org with projects
-                for org in resp.data:
-                    if org.projects:
-                        return org
-                return resp.data[0]
-            return None
+            return _session_organization(resp.data) if isinstance(resp, OrganizationsListResponse) else None
 
         organization = super().get_cast(
             "/organizations",
@@ -273,10 +350,8 @@ class LayerLens(BaseClient):
         return organization.data if isinstance(organization, OrganizationResponse) else None
 
 
-class AsyncLayerLens(BaseAsyncClient):
+class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
     api_key: str
-    organization_id: str | None
-    project_id: str | None
     _use_bearer_auth: bool
 
     def __init__(
@@ -321,16 +396,8 @@ class AsyncLayerLens(BaseAsyncClient):
 
         super().__init__(base_url=base_url, timeout=timeout, max_retries=max_retries)
 
-        organization = self._get_organization()
-        if organization is None:
-            raise LayerLensError("Organization could not be fetched. Please contact LayerLens support.")
-        self.organization_id = organization.id
-
-        if organization.projects is None or len(organization.projects) == 0:
-            raise LayerLensError(
-                f"Organization {self.organization_id} is missing project. Please contact LayerLens support."
-            )
-        self.project_id = organization.projects[0].id
+        # The organization and project are read on first use, not here (BUG-03).
+        self._init_organization_scope()
 
     @cached_property
     def benchmarks(self) -> AsyncBenchmarks:
@@ -463,30 +530,60 @@ class AsyncLayerLens(BaseAsyncClient):
     def _get_organization(self) -> Optional[Organization]:
         url = f"{self.base_url}organizations"
 
-        with httpx.Client(timeout=30) as http:
-            response = http.get(url, headers=self.default_headers)
-            response.raise_for_status()
+        # Raised as the sync client raises them, so a call that needs the organization fails the
+        # same way on either client: an SDK error, not httpx's.
+        try:
+            with httpx.Client(timeout=30) as http:
+                response = http.get(url, headers=self.default_headers)
+        except httpx.TimeoutException as err:
+            raise _exceptions.APITimeoutError(request=_request_for_error(err, "GET", url)) from err
+        except httpx.RequestError as err:
+            raise _exceptions.APIConnectionError(request=_request_for_error(err, "GET", url)) from err
+        if response.status_code >= 400:
+            raise self._make_status_error_from_response(response)
 
         data = response.json()
 
         if self._use_bearer_auth:
-            resp = OrganizationsListResponse(**data)
-            if resp.data:
-                from .cli._auth import load_credentials
-
-                creds = load_credentials()
-                email = (creds or {}).get("user", {}).get("email") if creds else None
-                if email:
-                    for org in resp.data:
-                        if org.owner_id == email and org.projects:
-                            return org
-                for org in resp.data:
-                    if org.projects:
-                        return org
-                return resp.data[0]
-            return None
+            return _session_organization(OrganizationsListResponse(**data).data)
 
         organization = OrganizationResponse(**data)
+        return organization.data if isinstance(organization, OrganizationResponse) else None
+
+    async def _organization_scope_async(self) -> Tuple[str, str]:
+        """The ids, read without blocking the event loop the first time they are needed.
+
+        Every coroutine of an async resource awaits this before it builds a URL (see
+        :class:`~layerlens._resource.AsyncAPIResource`), so the synchronous properties then read
+        ids already known. The read goes through this client, with its retries and errors, once
+        for concurrent first calls; a failed read is not remembered.
+        """
+        organization_id, project_id = self._organization_id, self._project_id
+        if organization_id is not None and project_id is not None:
+            return organization_id, project_id
+        async with self._scope_async_lock():
+            if self._organization_id is None or self._project_id is None:
+                organization = await self._get_organization_async()
+                with self._scope_state_lock:
+                    if self._organization_id is None or self._project_id is None:
+                        self._adopt_organization(organization)
+            assert self._organization_id is not None and self._project_id is not None
+            return self._organization_id, self._project_id
+
+    def _scope_async_lock(self) -> asyncio.Lock:
+        """This event loop's lock: an asyncio.Lock serves only the loop it was first used on."""
+        loop = asyncio.get_running_loop()
+        with self._scope_state_lock:
+            if getattr(self, "_scope_async_loop", None) is not loop:
+                self._scope_async_loop = loop
+                self._scope_async = asyncio.Lock()
+            return self._scope_async
+
+    async def _get_organization_async(self) -> Optional[Organization]:
+        if self._use_bearer_auth:
+            resp = await self.get_cast("/organizations", timeout=30, cast_to=OrganizationsListResponse)
+            return _session_organization(resp.data) if isinstance(resp, OrganizationsListResponse) else None
+        organization = await self.get_cast("/organizations", timeout=30, cast_to=OrganizationResponse)
         return organization.data if isinstance(organization, OrganizationResponse) else None
 
 

@@ -54,10 +54,29 @@ Each call records:
 - **`tool.call`** for each tool the model asks to call: its name, and its arguments with content capture
 - **`cost.record`**: the token counts and the call's `cost_usd`, when the response reports token usage
   (a Chat Completions stream does only with `stream_options={"include_usage": True}`; a Responses
-  API stream's usage is not read yet)
+  API stream does in its last event, `response.completed`)
 
-A streamed call (`stream=True`) records these once its stream has been read to the end, so read it
-inside the trace: a `@trace` function that returns the stream ends its trace first.
+A streamed call (`stream=True`) records these once its stream has been read to the end, in the
+trace and span the call was made in, wherever the stream is read. A `@trace` function that returns
+the stream keeps its trace open until the caller has read it, and uploads it then:
+
+```python
+@trace(client)
+def answer(question):
+    return openai_client.chat.completions.create(model="gpt-4o-mini", messages=[...], stream=True,
+                                                 stream_options={"include_usage": True})
+
+for chunk in answer("..."):  # the trace uploads, with model.invoke and cost.record, after the last chunk
+    ...
+```
+
+The function's `agent.output` is the stream's reply, as `model.invoke` records it, written once
+the caller has read the stream. A stream closed before its end, dropped unread, or still open when
+the process exits lets its trace upload without that call, and with no output; one closed before
+its first chunk was read does so when it is collected, or at exit. `layerlens.instrument.flush()` does not wait for a trace still
+waiting for its stream: the exit queues it. A stream the garbage collector ends is released on the SDK's
+`layerlens-stream-release` thread, never inside the collection, which can run while the SDK holds that
+trace's lock; `flush()` and the exit finish such a release themselves before they wait.
 
 ### Disconnect
 

@@ -15,11 +15,13 @@ call, each tool call, any error), each in a span, sealed with a hash chain.
 4. **Provider adapters** (OpenAI, Anthropic, LiteLLM, and others) wrap SDK methods, so every model
    call made in a trace records `model.invoke`, `cost.record` when the response reports token usage,
    and `agent.error` when it fails. A call made with `stream=True` records them once its stream has
-   been read to the end, so read it inside the trace: a `@trace` function that returns the stream
-   ends its trace before the caller reads it, and that trace has no `model.invoke` for the call.
+   been read to the end, in the trace the call was made in. A `@trace` function (or `trace_context`
+   block) that returns its stream keeps its trace open until the caller has read the stream, and
+   uploads it then. A stream closed early, dropped unread or still open at exit lets the trace
+   upload without that call.
    An OpenAI Chat Completions stream reports token usage only with
-   `stream_options={"include_usage": True}`. An OpenAI Responses API stream's usage is not read
-   yet: its `model.invoke` has no token counts, and it has no `cost.record`.
+   `stream_options={"include_usage": True}`; an OpenAI Responses API stream reports it in its
+   last event, so one cut short before that event records its reply but no token counts or cost.
 5. **Framework adapters** (LangChain, LangGraph, and others) plug into a framework's callbacks or
    hooks and record its runs as traces of their own.
 

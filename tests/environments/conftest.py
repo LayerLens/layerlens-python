@@ -99,8 +99,8 @@ def _no_sleep() -> Iterator[None]:
 
 
 def make_client(api: FakeAPI, **kw: Any) -> LayerLens:
-    with patch.object(LayerLens, "_get_organization", return_value=_ORGANIZATION):
-        client = LayerLens(api_key="test-key", base_url="https://api.test/api/v1", **kw)
+    client = LayerLens(api_key="test-key", base_url="https://api.test/api/v1", **kw)
+    client.organization_id, client.project_id = ORG, PROJECT
     client._transport = httpx.MockTransport(api.handle)
     return client
 
@@ -115,8 +115,8 @@ def async_client(api: FakeAPI) -> Iterator[AsyncLayerLens]:
     async def no_sleep(_: float) -> None:
         return None
 
-    with patch.object(AsyncLayerLens, "_get_organization", return_value=_ORGANIZATION):
-        client = AsyncLayerLens(api_key="test-key", base_url="https://api.test/api/v1")
+    client = AsyncLayerLens(api_key="test-key", base_url="https://api.test/api/v1")
+    client.organization_id, client.project_id = ORG, PROJECT
     client._transport = httpx.MockTransport(api.handle)
     with patch("asyncio.sleep", no_sleep):
         yield client

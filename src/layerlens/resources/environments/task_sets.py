@@ -13,6 +13,7 @@ from ._shared import (
     envelope_data,
     new_idempotency_key,
 )
+from ..._resource import AsyncOrganizationScoped
 from ..._exceptions import APIResponseValidationError
 from ...models.environment import Job, Task, TaskSet, TaskSetSummary
 
@@ -75,11 +76,14 @@ class TaskSets:
         )  # fmt: skip
 
 
-class AsyncTaskSets:
+class AsyncTaskSets(AsyncOrganizationScoped):
     """``client.environments.task_sets`` on :class:`AsyncLayerLens`. See :class:`TaskSets`."""
 
     def __init__(self, environments: AsyncEnvironments) -> None:
         self._environments = environments
+
+    def _organization_client(self) -> Any:
+        return self._environments._client
 
     async def list(self, environment: str) -> List[TaskSetSummary]:
         envs = self._environments

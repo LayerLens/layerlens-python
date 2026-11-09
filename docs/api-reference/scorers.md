@@ -25,8 +25,7 @@ scorer = client.scorers.create(
     prompt="Rate the helpfulness of the following response on a scale of 0 to 1.",
 )
 
-if scorer:
-    print(f"Created scorer: {scorer.name} (id={scorer.id})")
+print(f"Created scorer: {scorer.name} (id={scorer.id})")
 
 # List all scorers
 response = client.scorers.get_many()
@@ -51,8 +50,7 @@ async def main():
         prompt="Rate the helpfulness of the following response on a scale of 0 to 1.",
     )
 
-    if scorer:
-        print(f"Created scorer: {scorer.name}")
+    print(f"Created scorer: {scorer.name}")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -78,7 +76,9 @@ Creates a new custom scorer.
 
 #### Returns
 
-Returns a `Scorer` object if successful, `None` if the scorer could not be created.
+Returns the `Scorer` as stored: the API answers with the new scorer's id, and the scorer is read
+back by it (if that read fails, the scorer is returned as sent, with its id). A create the API
+refuses raises the API's error, such as `BadRequestError` for a name already taken.
 
 ### `get(id, timeout=None)`
 

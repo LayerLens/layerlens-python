@@ -36,6 +36,8 @@ layerlens [global-options]
 │   └── eval          Run evaluations in bulk
 ├── ci
 │   └── report        Summarise the evaluations and runs a CI step names
+├── replay
+│   └── run           Replay a stored or exported trace with overrides
 ├── env               Environments: create, run your agent or a model, gate a build (see env.md)
 │   ├── world-types, list, get, create, status, wait, tools, reset, revert, delete
 │   ├── tasks         list, generate, delete
@@ -67,6 +69,16 @@ give an option in both places, the one at the end wins.
 holds only the JSON (`[]` for an empty list) and messages go to stderr, except for
 `login` (interactive) and `completion` (prints shell code).
 
+### Signing in
+
+A command uses the API key from `--api-key`, `--api-key-file` or `LAYERLENS_API_KEY` when
+there is one, and otherwise the session `layerlens login` stored in `~/.layerlens/credentials`.
+A session renews itself through the LayerLens API when its token expires, so it lasts until
+its refresh token does. Once LayerLens ends it, commands say
+``Your `layerlens login` session has ended. Run `layerlens login` to sign in again.``
+A renewal that fails for another reason (LayerLens unreachable, or busy) says why, and the next
+command tries again.
+
 ---
 
 ## trace
@@ -90,6 +102,9 @@ layerlens trace list [OPTIONS]
 | `--tag` | text | Only traces with this tag. Repeat it for traces with every one; an empty tag is a usage error |
 | `--sort-by` | text | Sort field |
 | `--sort-order` | asc/desc | Sort order |
+
+The table shows each trace's ID, creation time, file name, evaluation count, agent and tags;
+`-` when the API names no agent or the trace has no tags. `--format json` gives every field.
 
 ```bash
 # The traces of the environment runs labelled with this commit
@@ -222,6 +237,11 @@ layerlens evaluate list [OPTIONS]
 layerlens evaluate get <ID>
 ```
 
+A table shows Submitted At and Finished At as UTC dates (`-` before the evaluation finishes) and
+Average Duration, the average time the model took on a prompt, with its unit (`1.49 s`), as
+`evaluate list` and `evaluate run` do. `--format json` gives the API's numbers: Unix seconds, and
+nanoseconds for `average_duration`.
+
 ### `evaluate run`
 
 Run a new evaluation. Accepts model/benchmark by ID, key, or name.
@@ -312,11 +332,16 @@ layerlens integration list [OPTIONS]
 
 ### `integration test`
 
-Test an integration by ID.
+Test an integration by ID: the API tries the integration's stored credentials against its vendor
+(a Langfuse import source today).
 
 ```bash
 layerlens integration test <ID>
 ```
+
+Prints `Integration <ID>: OK` and exits `0` when they work. When the vendor refuses them, it exits
+`1` with `Error: the stored credentials of integration <ID> were refused:` and the vendor's reason.
+Your LayerLens key is not the problem then: it was checked first.
 
 ---
 
@@ -483,6 +508,37 @@ A benchmark evaluation has the fields `evaluate get --format json` prints. A tra
 has its `id`, `trace_id`, `judge_id` and `status`, and its `result`, the object `judge result`
 prints once it has succeeded (`null` until then). An environment run has the fields
 `env run results --format json` prints, and the `environment` as it was given.
+
+---
+
+## replay
+
+Replay traces locally, with overrides.
+
+### `replay run`
+
+Replays one trace through your own function and prints the result: the replayed trace's id, its
+`status` (`completed`, `failed` or `timeout`), the difference from the original, and the
+overrides applied.
+
+```bash
+layerlens replay run --trace-id 6aee8ab0f515e69a5d2cc4e9 --replay-fn my_agent.replay:replay --model-override gpt-4o-mini
+layerlens trace export 6aee8ab0f515e69a5d2cc4e9 -o trace.json
+layerlens replay run --trace-id 6aee8ab0f515e69a5d2cc4e9 --trace-file trace.json --replay-fn my_agent.replay:replay
+```
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--trace-id` | yes | The trace to replay. Without `--trace-file`, the stored trace with this id is read from LayerLens |
+| `--trace-file` | no | A trace as `trace export` writes it, replayed without reading LayerLens. The result names the file's trace; a file of another trace than `--trace-id` prints a warning naming both |
+| `--replay-fn` | no | `module:function` called with the trace and the request (overrides applied), returning the replayed trace. Without it, the trace is returned unchanged |
+| `--model-override` | no | The model to replay with |
+| `--input-override`, `--prompt-override` | no | `KEY=VALUE`, repeatable |
+
+`--replay-fn` is loaded from your own code: a function from the standard library or another
+module the CLI refuses (`os:system`, `subprocess:run`, ...) is not loaded. An id that names no
+stored trace exits `2`; a replay that does not complete (the function raised, or ran out of time)
+prints its result, says why, and exits `1`.
 
 ---
 

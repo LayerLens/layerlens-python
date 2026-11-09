@@ -4,6 +4,7 @@ callback scope, and upload circuit breaker.
 
 from __future__ import annotations
 
+import re
 import json
 from typing import Any, Dict, List, Optional
 from unittest.mock import Mock
@@ -365,6 +366,68 @@ class TestTraceContextFromContext:
 
         assert ctx_inside["span_id"] != original_ctx["span_id"]
         assert ctx_inside["trace_id"] == original_ctx["trace_id"]
+
+    # BUG-02: a trace continued in another process went up under the caller's trace_id with
+    # nothing telling the two processes' uploads apart, so the API kept the half uploaded last.
+    # Each collector now sends its own segment_id (D-2), and a continued one names the span it
+    # continues; the API keys its upload idempotency on trace_id + segment_id.
+
+    def test_each_side_of_a_continued_trace_sends_its_own_segment(self, mock_client, capture_trace):
+        with trace_context(mock_client):
+            original_ctx = get_trace_context()
+            emit("tool.call", {"name": "origin", "input": "x"})
+        with trace_context(mock_client, from_context=original_ctx):
+            emit("tool.call", {"name": "remote", "input": "y"})
+
+        caller, receiver = capture_trace
+        assert caller["trace_id"] == receiver["trace_id"] == original_ctx["trace_id"]
+        assert re.fullmatch(r"[0-9a-f]{32}", caller["segment_id"]), caller["segment_id"]
+        assert re.fullmatch(r"[0-9a-f]{32}", receiver["segment_id"]), receiver["segment_id"]
+        assert caller["segment_id"] != receiver["segment_id"]
+
+    def test_a_continued_trace_names_the_span_it_continues(self, mock_client, capture_trace):
+        with trace_context(mock_client):
+            original_ctx = get_trace_context()
+            emit("tool.call", {"name": "origin", "input": "x"})
+        with trace_context(mock_client, from_context=original_ctx):
+            emit("tool.call", {"name": "remote", "input": "y"})
+
+        caller, receiver = capture_trace
+        assert "continued_from" not in caller
+        assert receiver["continued_from"] == {"span_id": original_ctx["span_id"]}
+
+    def test_a_collector_keeps_its_segment_across_re_sends(self, mock_client, capture_trace):
+        collector = TraceCollector(mock_client, CaptureConfig.standard())
+        collector.emit("tool.call", {"name": "a", "input": "x"}, span_id="s1")
+        first = collector.to_replay_dict()["segment_id"]
+        collector.emit("tool.call", {"name": "b", "input": "y"}, span_id="s1")
+        assert collector.to_replay_dict()["segment_id"] == first == collector.segment_id
+        collector.flush()
+        assert capture_trace[0]["segment_id"] == first
+
+    def test_two_collectors_on_one_trace_id_get_different_segments(self, mock_client):
+        a = TraceCollector(mock_client, CaptureConfig.standard())
+        b = TraceCollector(mock_client, CaptureConfig.standard())
+        b._trace_id = a.trace_id  # noqa: SLF001 - what trace_context(from_context=...) does
+        assert a.to_replay_dict()["trace_id"] == b.to_replay_dict()["trace_id"]
+        assert a.to_replay_dict()["segment_id"] != b.to_replay_dict()["segment_id"]
+
+    @pytest.mark.parametrize(
+        "span_id",
+        [None, 12345, "", "x" * 300, "has spaces", "ABCDEF0123456789", "0123456789abcde", "0123456789abcdef0"],
+        ids=["none", "int", "empty", "300-chars", "spaces", "uppercase", "15-hex", "17-hex"],
+    )
+    def test_a_span_id_the_api_would_refuse_is_not_sent(self, span_id, mock_client, capture_trace):
+        # The context comes from another process (a header, a queue message). The API takes a
+        # span id of 16 lowercase hex characters, as the SDK makes them, and drops any other;
+        # the SDK leaves such a value out, and the segment still goes up.
+        ctx = {"trace_id": "0123456789abcdef", "span_id": span_id, "parent_span_id": None, "version": 1}
+        with trace_context(mock_client, from_context=ctx):
+            emit("tool.call", {"name": "remote", "input": "y"})
+        (payload,) = capture_trace
+        assert payload["trace_id"] == "0123456789abcdef"
+        assert "continued_from" not in payload
+        assert re.fullmatch(r"[0-9a-f]{32}", payload["segment_id"])
 
 
 # ===================================================================

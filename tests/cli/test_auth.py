@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+import json
 import time
+import base64
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from layerlens.cli._app import cli
@@ -194,45 +197,110 @@ class TestTokenExpiry:
 # ---------------------------------------------------------------------------
 
 
+def _jwt(**claims: object) -> str:
+    """An unsigned JWT holding ``claims``: the CLI only reads its own token's claims."""
+
+    def part(obj: object) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    return f"{part({'alg': 'RS256', 'typ': 'JWT'})}.{part(claims)}.c2ln"
+
+
+API = "https://api.test.com/api/v1"
+SUB = "0e7c2b1a-1111-4222-8333-944455556666"
+
+
+class _RefreshRoute:
+    """A stub of the API's POST /dgklmnr/refresh: records each call, answers as told."""
+
+    def __init__(self, status: int = 200, body: object = None, error: Exception | None = None) -> None:
+        self.status, self.body, self.error = status, body, error
+        self.calls: list = []
+
+    def __call__(self, url: str, **kw: object) -> httpx.Response:
+        self.calls.append((url, kw.get("json"), kw.get("data")))
+        if self.error is not None:
+            raise self.error
+        return httpx.Response(self.status, json=self.body, request=httpx.Request("POST", url))
+
+
+@pytest.fixture
+def expired_session(creds_dir, sample_creds):
+    """A `layerlens login` session whose id token has expired, as stored a day after login."""
+    creds = {
+        **sample_creds,
+        "id_token": _jwt(sub=SUB, exp=int(time.time()) - 60, token_use="id"),
+        "expires_at": time.time() - 60,
+        "base_url": API,
+        "user": {"email": "test@example.com", "given_name": "Test", "sub": SUB},
+    }
+    save_credentials(creds)
+    return creds
+
+
 class TestTokenRefresh:
-    def test_refresh_success(self, creds_dir, sample_creds):
+    """BUG-04 (decision D-4): the CLI refreshed straight with Cognito, with the client id alone,
+    and Cognito answered invalid_client_secret every time: a session never outlived its first
+    hour. It now refreshes through the API's POST /dgklmnr/refresh, which holds the secret."""
+
+    def test_an_expired_session_is_refreshed_through_the_api(self, expired_session):
         from layerlens.cli._auth import refresh_access_token
 
-        save_credentials(sample_creds)
-        sample_creds["expires_at"] = time.time() - 10
+        exp = int(time.time()) + 86400
+        new_id_token = _jwt(sub=SUB, exp=exp, token_use="id")
+        route = _RefreshRoute(200, {"status": "success", "token": new_id_token, "expires_in": 3600})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            refreshed = refresh_access_token(dict(expired_session))
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "access_token": "new-access-token",
-            "id_token": "new-id-token",
-            "expires_in": 3600,
-        }
-        mock_resp.raise_for_status = MagicMock()
+        assert route.calls == [(f"{API}/dgklmnr/refresh", {"refresh_token": "refresh-tok", "sub": SUB}, None)]
+        assert refreshed["id_token"] == new_id_token
+        # The token's own expiry, not the access token's hour.
+        assert refreshed["expires_at"] == exp
+        stored = load_credentials()
+        assert stored["id_token"] == new_id_token and stored["expires_at"] == exp
+        assert stored["refresh_token"] == "refresh-tok"
 
-        with patch("layerlens.cli._auth.httpx.post", return_value=mock_resp):
-            result = refresh_access_token(sample_creds)
-
-        assert result is not None
-        assert result["access_token"] == "new-access-token"
-        loaded = load_credentials()
-        assert loaded["access_token"] == "new-access-token"
-
-    def test_refresh_no_refresh_token(self, creds_dir):
+    def test_the_sub_comes_from_the_id_token_when_the_stored_user_lacks_it(self, expired_session):
         from layerlens.cli._auth import refresh_access_token
 
-        result = refresh_access_token({"access_token": "tok"})
-        assert result is None
+        creds = {**expired_session, "user": {"email": "test@example.com"}}
+        route = _RefreshRoute(200, {"status": "success", "token": _jwt(sub=SUB, exp=int(time.time()) + 600)})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            refresh_access_token(creds)
+        assert route.calls[0][1] == {"refresh_token": "refresh-tok", "sub": SUB}
 
-    def test_refresh_http_error(self, creds_dir, sample_creds):
-        import httpx as _httpx
+    def test_a_401_says_the_session_ended_and_to_log_in(self, expired_session):
+        from layerlens.cli._auth import SessionError, refresh_access_token
 
-        from layerlens.cli._auth import refresh_access_token
+        route = _RefreshRoute(401, {"status": "error", "error": "Your session has expired. Please sign in again."})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            with pytest.raises(SessionError, match=r"session has ended.*layerlens login"):
+                refresh_access_token(dict(expired_session))
+        assert load_credentials() == expired_session
 
-        with patch("layerlens.cli._auth.httpx.post", side_effect=_httpx.HTTPError("fail")):
-            result = refresh_access_token(sample_creds)
+    def test_a_refresh_the_api_could_not_do_says_why_and_to_try_again(self, expired_session):
+        from layerlens.cli._auth import SessionError, refresh_access_token
 
-        assert result is None
+        route = _RefreshRoute(503, {"status": "error", "error": "Could not refresh your session. Please try again."})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            with pytest.raises(SessionError, match=r"Could not refresh.*Please try again\. \(HTTP 503\)") as err:
+                refresh_access_token(dict(expired_session))
+        assert "layerlens login" not in str(err.value)
+        assert load_credentials() == expired_session
+
+    def test_an_unreachable_api_says_so(self, expired_session):
+        from layerlens.cli._auth import SessionError, refresh_access_token
+
+        route = _RefreshRoute(error=httpx.ConnectError("connection refused"))
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            with pytest.raises(SessionError, match=r"Could not refresh.*connection refused"):
+                refresh_access_token(dict(expired_session))
+
+    def test_a_session_without_a_refresh_token_has_ended(self, creds_dir):
+        from layerlens.cli._auth import SessionError, refresh_access_token
+
+        with pytest.raises(SessionError, match=r"layerlens login"):
+            refresh_access_token({"access_token": "tok", "user": {"sub": SUB}})
 
 
 # ---------------------------------------------------------------------------
@@ -263,27 +331,47 @@ class TestGetValidToken:
         monkeypatch.delenv("LAYERLENS_API_KEY", raising=False)
         assert get_valid_token() is None
 
-    def test_refreshes_expired_token(self, creds_dir, sample_creds, monkeypatch):
+    def test_refreshes_expired_token(self, expired_session, monkeypatch):
         from layerlens.cli._auth import get_valid_token
 
         monkeypatch.delenv("LAYERLENS_API_KEY", raising=False)
-        sample_creds["expires_at"] = time.time() - 10
-        save_credentials(sample_creds)
+        new_id_token = _jwt(sub=SUB, exp=int(time.time()) + 86400)
+        route = _RefreshRoute(200, {"status": "success", "token": new_id_token, "expires_in": 3600})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            assert get_valid_token() == new_id_token
+            assert get_valid_token() == new_id_token  # valid now: no second refresh
+        assert len(route.calls) == 1
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "access_token": "refreshed-token",
-            "id_token": "refreshed-id-token",
-            "expires_in": 3600,
-        }
-        mock_resp.raise_for_status = MagicMock()
 
-        with patch("layerlens.cli._auth.httpx.post", return_value=mock_resp):
-            token = get_valid_token()
+class TestCommandsWithAnExpiredSession:
+    """What a user sees, through the CLI."""
 
-        # get_valid_token prefers id_token
-        assert token == "refreshed-id-token"
+    def test_whoami_refreshes_and_answers(self, runner, expired_session, monkeypatch):
+        monkeypatch.delenv("LAYERLENS_API_KEY", raising=False)
+        route = _RefreshRoute(200, {"status": "success", "token": _jwt(sub=SUB, exp=int(time.time()) + 86400)})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            result = runner.invoke(cli, ["whoami"])
+        assert result.exit_code == 0, _combined(result)
+        assert "test@example.com" in _combined(result)
+
+    def test_whoami_says_the_session_ended(self, runner, expired_session, monkeypatch):
+        monkeypatch.delenv("LAYERLENS_API_KEY", raising=False)
+        route = _RefreshRoute(401, {"status": "error", "error": "Your session has expired. Please sign in again."})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            result = runner.invoke(cli, ["whoami"])
+        assert result.exit_code == 1
+        assert "session has ended" in _combined(result) and "layerlens login" in _combined(result)
+
+    def test_a_command_says_the_session_ended_not_that_there_are_no_credentials(
+        self, runner, expired_session, monkeypatch
+    ):
+        monkeypatch.delenv("LAYERLENS_API_KEY", raising=False)
+        route = _RefreshRoute(401, {"status": "error", "error": "Your session has expired. Please sign in again."})
+        with patch("layerlens.cli._auth.httpx.post", side_effect=route):
+            result = runner.invoke(cli, ["trace", "list"])
+        assert result.exit_code == 1
+        out = _combined(result)
+        assert "session has ended" in out and "no credentials found" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +380,31 @@ class TestGetValidToken:
 
 
 class TestCLILogin:
+    def test_a_session_lasts_as_long_as_the_id_token_it_sends(self, creds_dir):
+        # The CLI authenticates with the id token (24 h), not the access token (1 h): the
+        # session was marked expired after an hour and refreshed for nothing (BUG-04).
+        from layerlens.cli._auth import cli_login
+
+        exp = int(time.time()) + 86400
+        login_resp = MagicMock()
+        login_resp.status_code = 200
+        login_resp.json.return_value = {
+            "access_token": "access-tok",
+            "id_token": _jwt(sub=SUB, exp=exp, token_use="id"),
+            "refresh_token": "refresh-tok",
+            "expires_in": 3600,
+            "user": {"email": "user@example.com", "sub": SUB},
+        }
+        login_resp.raise_for_status = MagicMock()
+        config_resp = MagicMock()
+        config_resp.json.return_value = SAMPLE_AUTH_CONFIG
+        config_resp.raise_for_status = MagicMock()
+        with patch("layerlens.cli._auth.httpx.post", return_value=login_resp):
+            with patch("layerlens.cli._auth.httpx.get", return_value=config_resp):
+                result = cli_login("user@example.com", "pass123", base_url=API)
+        assert result["expires_at"] == exp
+        assert load_credentials()["expires_at"] == exp
+
     def test_login_success(self, creds_dir):
         from layerlens.cli._auth import cli_login
 

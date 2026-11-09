@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import sys
+from typing import Any, List, Tuple, Optional
+from datetime import datetime, timezone
 
 import click
 
 from .._client import get_client, handle_errors, resolve_model, resolve_benchmark
 from .._output import echo_empty, echo_status, exit_unreadable
 from .._command import LayerLensGroup
-from .._formatter import format_value, format_output
+from .._formatter import to_dict, format_value, format_output
 from ..._exceptions import APIStatusError
 from .._completions import complete_model, complete_benchmark, complete_evaluation
 
@@ -19,6 +21,56 @@ EVALUATION_COLUMNS = [
     ("accuracy", "Accuracy"),
     ("submitted_at", "Submitted"),
 ]
+
+
+def _when(seconds: Any) -> Any:
+    """Unix seconds as a UTC date; None (shown ``-``) for 0, which the API sends until a time is set."""
+    if not isinstance(seconds, int) or isinstance(seconds, bool):
+        return seconds
+    if seconds == 0:
+        return None
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (OverflowError, OSError, ValueError):
+        return seconds
+
+
+def _duration(nanoseconds: Any) -> Any:
+    """Nanoseconds, as the API times a prompt, in the unit that reads best; None for 0."""
+    if not isinstance(nanoseconds, int) or isinstance(nanoseconds, bool):
+        return nanoseconds
+    if nanoseconds == 0:
+        return None
+    seconds = nanoseconds / 1e9
+    if seconds < 1:
+        return f"{nanoseconds / 1e6:.0f} ms"
+    if seconds < 60:
+        return f"{seconds:.2f} s"
+    minutes, rest = divmod(round(seconds), 60)
+    return f"{minutes} min {rest} s"
+
+
+def _readable(evaluation: Any) -> Any:
+    """An evaluation for a table: dates, and a duration with its unit, where the API sends numbers."""
+    row = to_dict(evaluation)
+    if not isinstance(row, dict):
+        return evaluation
+    row = dict(row)
+    for key in ("submitted_at", "finished_at"):
+        if key in row:
+            row[key] = _when(row[key])
+    if "average_duration" in row:
+        row["average_duration"] = _duration(row["average_duration"])
+    return row
+
+
+def _shown(data: Any, output_format: str, columns: Optional[List[Tuple[str, str]]] = None) -> str:
+    """``data`` as ``output_format`` shows it. JSON keeps the API's numbers, which scripts read."""
+    if output_format == "json":
+        return format_output(data, output_format)
+    if isinstance(data, list):
+        return format_output([_readable(e) for e in data], output_format, columns)
+    return format_output(_readable(data), output_format)
 
 
 @click.group(cls=LayerLensGroup)
@@ -100,8 +152,7 @@ def list_evaluations(
             err=True,
         )
 
-    output = format_output(result.evaluations, ctx.obj["output_format"], EVALUATION_COLUMNS)
-    click.echo(output)
+    click.echo(_shown(result.evaluations, ctx.obj["output_format"], EVALUATION_COLUMNS))
 
 
 @evaluate.command("get")
@@ -136,8 +187,7 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
         click.echo(f"Evaluation {id} not found.", err=True)
         sys.exit(1)
 
-    output = format_output(evaluation, ctx.obj["output_format"])
-    click.echo(output)
+    click.echo(_shown(evaluation, ctx.obj["output_format"]))
 
 
 @evaluate.command("run")
@@ -208,5 +258,4 @@ def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: b
             sys.exit(1)
         echo_status(ctx, f"Evaluation finished: {format_value(evaluation.status)}")
 
-    output = format_output(evaluation, ctx.obj["output_format"])
-    click.echo(output)
+    click.echo(_shown(evaluation, ctx.obj["output_format"]))

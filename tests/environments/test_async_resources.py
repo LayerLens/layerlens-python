@@ -66,6 +66,51 @@ def test_an_exception_in_async_with_cancels_the_run(async_client, api: FakeAPI) 
     assert api.requests[-1].url.path.endswith("/cancel")
 
 
+def test_leaving_async_with_after_the_run_finished_cancels_nothing_and_says_nothing(
+    async_client, api: FakeAPI, caplog: pytest.LogCaptureFixture
+) -> None:
+    # BUG-09, on AsyncLayerLens.
+    api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
+    api.on(
+        "POST",
+        f"/{ENV_ID}/runs/{RUN_ID}/cancel",
+        err(409, f"run {RUN_ID} has already finished, so there is nothing to cancel"),
+    )
+    run = async_client.environments.external_run(ENV_ID, agent_name="a", set_name="ci")
+
+    async def main() -> None:
+        async with run:
+            raise RuntimeError("harness broke")
+
+    with pytest.raises(RuntimeError), caplog.at_level("DEBUG", logger="layerlens"):
+        asyncio.run(main())
+    assert len(api.calls("POST", f"/{ENV_ID}/runs/{RUN_ID}/cancel")) == 1
+    assert run.finished_before_cancel and run.cancel_error is None and run.cancelled_run is None
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_each_async_exit_reports_its_own_cancel(async_client, api: FakeAPI) -> None:
+    api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
+    api.on(
+        "POST",
+        f"/{ENV_ID}/runs/{RUN_ID}/cancel",
+        err(409, f"run {RUN_ID} has already finished, so there is nothing to cancel"),
+        ok(run_view(row(ATTEMPT_1, "error"), status="cancelled")),
+    )
+    run = async_client.environments.external_run(ENV_ID, agent_name="a", set_name="ci")
+
+    async def leave_on_an_error() -> None:
+        async with run:
+            raise RuntimeError("harness broke")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(leave_on_an_error())
+    assert run.finished_before_cancel
+    with pytest.raises(RuntimeError):
+        asyncio.run(leave_on_an_error())
+    assert not run.finished_before_cancel and run.cancelled_run is not None
+
+
 def test_a_concurrent_second_submit_of_one_attempt_is_refused(async_client, api: FakeAPI) -> None:
     api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
     api.on("POST", SUBMIT_1, ok(submitted(ATTEMPT_1)))

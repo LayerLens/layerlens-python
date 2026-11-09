@@ -131,17 +131,19 @@ Every payload passes through the trace's `CaptureConfig` (content such as `input
 and `error` is stripped when `capture_content=False`, the default) and a secret scrub (values shaped
 like API keys and tokens are replaced) before it is recorded.
 
-### `trace_context(client, *, capture_config=None, from_context=None)`
+### `trace_context(client, *, capture_config=None, from_context=None, tags=None)`
 
 Context manager that opens one trace for everything inside it: several adapters, or your own
 `emit` calls, record into the same trace instead of one trace each. Yields the `TraceCollector`,
-and flushes it when the block exits.
+and uploads the trace when the block exits, or, when a provider stream opened in the block is
+still open, once that stream ends (see [LLM provider instrumentation](../instrumentation/providers.md)).
 
 | Parameter        | Type                    | Required | Description                                                  |
 | ---------------- | ----------------------- | -------- | ------------------------------------------------------------ |
 | `client`         | `LayerLens \| AsyncLayerLens` | Yes | SDK client used to upload the trace                          |
 | `capture_config` | `CaptureConfig \| None` | No       | What the trace records (defaults to `CaptureConfig.standard()`) |
 | `from_context`   | `dict \| None`          | No       | What `get_trace_context()` returned on the other side of a boundary: the trace continues under its `trace_id` |
+| `tags`           | `list[str] \| None`     | No       | Tags for this trace, and for the traces started inside the block. See [Trace tags](#trace-tags) |
 
 ```python
 from layerlens.instrument import trace_context
@@ -162,6 +164,13 @@ it across a process or service boundary and continue it there with
 `trace_context(client, from_context=...)`. `None` outside a trace. `inject_headers()` and
 `extract_headers()` carry it as a W3C `traceparent` header instead.
 
+Each process uploads its own part of a continued trace: every `TraceCollector` sends a
+`segment_id` of its own beside the shared `trace_id`, and the one that continues a trace also
+sends `continued_from` with the span it continues (a span id as `get_trace_context()` gives it;
+any other value is left out). LayerLens keeps one trace per process's part, so neither side
+replaces the other, however they are uploaded, and each part's attestation verifies on its own.
+They share the `trace_id`; until the trace views group them, they list as separate traces.
+
 ### `TraceCollector`
 
 Collects one trace's events. `@trace` makes one per call; `trace_context` yields its own.
@@ -169,6 +178,7 @@ Collects one trace's events. `@trace` makes one per call; `trace_context` yields
 | Member                                                                 | Description                                                         |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `trace_id`                                                             | The trace's id                                                      |
+| `segment_id`                                                           | This collector's part of the trace, the same for every upload of it |
 | `emit(event_type, payload, span_id, parent_span_id=None, span_name=None)` | Records an event in a span you name, rather than the current one |
 | `flush()`                                                              | Seals the trace and queues it for upload; later `emit` calls do nothing |
 | `sealed`                                                               | `True` once flushed                                                 |
@@ -208,10 +218,32 @@ network:
 - The queue holds 64 traces. A trace that arrives when it is full is dropped, with a warning.
 - After 10 failed uploads in a row, uploads stop for 60 seconds (a circuit breaker), and the
   traces that come meanwhile are dropped.
-- When the process exits, the SDK sends what is still queued, waiting at most 5 seconds in all,
-  however many clients it has, and no longer than it takes. A trace still unsent then is lost
-  with the process: it is counted (`exit_timeout`) and a warning says how many. A process that
-  is killed loses what is queued without a word.
+- When the process exits, the SDK sends what is still queued, waiting at most
+  `LAYERLENS_EXIT_TIMEOUT` seconds in all (default 5), however many clients it has, and no
+  longer than it takes. A trace still unsent then is lost with the process: it is counted
+  (`exit_timeout`) and a warning says how many. A process that is killed loses what is queued
+  without a word.
+
+An upload takes a second or two, so a job that records many traces and then exits loses those
+the default 5 seconds cannot send. A job that needs every trace sets `LAYERLENS_EXIT_TIMEOUT`
+(for example `120`; read when the process exits, `0` waits for nothing), or calls `flush()`
+where it needs them sent:
+
+```python
+from layerlens.instrument import flush
+
+if not flush(timeout=60):
+    print("some traces were still uploading after 60 s")
+```
+
+`flush(timeout=None)` waits until every client's queue and the upload in flight are done, or
+`timeout` seconds pass (`None` waits as long as it takes), and returns whether nothing is left
+to send. What is left when it returns `False` goes on uploading. A trace is queued when its
+`trace` or `trace_context` block ends, so a block still open is not waited for. A block that
+handed out a provider stream it opened is queued once that stream ends (read, closed or dropped),
+or at exit. The default
+stays short on purpose: an interactive program or a service is not held at exit when
+LayerLens is slow or down.
 
 `get_upload_loss_stats()` returns the number of traces dropped, by reason (`queue_full`,
 `circuit_open`, `serialize_error`, `rejected`, `upload_error`, `exit_timeout`), and

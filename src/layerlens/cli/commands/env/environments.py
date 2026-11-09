@@ -197,6 +197,12 @@ def create(
     if wait:
         ready = envs.wait_until_ready(created.id, timeout_seconds=timeout)
         progress(f"{ready.name} is ready: version {ready.environment_version}, {ready.tool_count} tools")
+        if json_output(ctx):
+            # The create reply's build still reads "pending": print the environment and the build
+            # as the wait left them, under the reply's own keys.
+            job = envs.jobs.get(ready.id, created.job.id) if created.job is not None else None
+            emit_json({"environment": ready, "job": job, "reused": created.reused, "unused": created.unused})
+            return
     if json_output(ctx):
         emit_json(created)
     else:

@@ -97,9 +97,29 @@ class TestSyntheticCommands:
 # ---------------------------------------------------------------------------
 
 
+def _exported_trace(tmp_path) -> str:
+    """A trace as `layerlens trace export` writes it: `replay run` reads it without the API."""
+    path = tmp_path / "t1.json"
+    path.write_text(
+        json.dumps(
+            {
+                "id": "t1",
+                "organization_id": "o",
+                "project_id": "p",
+                "created_at": "x",
+                "filename": "t1.json",
+                "data": {},
+            }
+        )
+    )
+    return str(path)
+
+
 class TestReplayCommands:
-    def test_run_fallback_prints_json(self, runner):
-        result = runner.invoke(cli, ["--quiet", "replay", "run", "--trace-id", "t1"])
+    def test_run_fallback_prints_json(self, runner, tmp_path):
+        result = runner.invoke(
+            cli, ["--quiet", "replay", "run", "--trace-id", "t1", "--trace-file", _exported_trace(tmp_path)]
+        )
         assert result.exit_code == 0
         payload = json.loads(
             result.output.split("\n{", 1)[-1] if not result.output.lstrip().startswith("{") else result.output
@@ -107,7 +127,7 @@ class TestReplayCommands:
         assert payload["original_trace_id"] == "t1"
         assert payload["status"] == "completed"
 
-    def test_run_propagates_model_override_into_metadata(self, runner):
+    def test_run_propagates_model_override_into_metadata(self, runner, tmp_path):
         result = runner.invoke(
             cli,
             [
@@ -116,6 +136,8 @@ class TestReplayCommands:
                 "run",
                 "--trace-id",
                 "t1",
+                "--trace-file",
+                _exported_trace(tmp_path),
                 "--model-override",
                 "gpt-4o-mini",
             ],
@@ -139,6 +161,7 @@ class TestReplayCommands:
             ],
         )
         assert result.exit_code != 0
+        assert "expected 'module:attr'" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +365,8 @@ def target_module(tmp_path, monkeypatch):
 
 class TestEvaluationsCommands:
     def test_run_requires_dataset_file(self, runner, target_module):
+        # F9: docs/cli/commands.md marks --dataset-file required; the CLI marked it optional,
+        # listed it so in --help, then refused to run without it. It is a required option now.
         result = runner.invoke(
             cli,
             [
@@ -354,8 +379,10 @@ class TestEvaluationsCommands:
                 f"{target_module}:identity",
             ],
         )
-        assert result.exit_code != 0
-        assert "dataset-file" in result.output
+        assert result.exit_code == 2
+        assert "Missing option '--dataset-file'" in result.output
+        shown = runner.invoke(cli, ["evaluations", "run", "--help"]).output
+        assert "[required]" in shown.split("--dataset-file", 1)[1].split("--target", 1)[0]
 
     def test_run_reads_dataset_file_and_emits_run(self, runner, tmp_path, target_module):
         ds_path = tmp_path / "ds.json"

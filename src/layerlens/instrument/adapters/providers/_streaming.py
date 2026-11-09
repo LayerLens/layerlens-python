@@ -21,17 +21,73 @@ The flow:
 4. Step 2 never raises into the caller: it runs when the caller's loop asks for
    the chunk after the last one, over a stream that succeeded
    (:func:`emit_streamed_events`).
+
+5. The events go to the trace the stream was opened in, under the span it was
+   opened in, however late it is read, and that trace waits for the stream: a
+   ``@trace`` function that returns its stream is recorded with the call once the
+   caller has read it (S2). See :meth:`TraceCollector._finish`.
 """
 
 from __future__ import annotations
 
 import time
 import logging
-from typing import Any, Dict, Callable, Iterator, Optional, AsyncIterator
+from typing import Any, Dict, List, Callable, Iterator, Optional, Generator, NamedTuple, AsyncIterator
+from contextlib import contextmanager
 
+from ..._context import _parent_span_id, _current_span_id, _current_collector, _current_span_name
+from ..._collector import TraceCollector, _StreamHold
 from ._emit_helpers import emit_llm_error, emit_llm_events
 
 log: logging.Logger = logging.getLogger(__name__)
+
+
+class _Origin(NamedTuple):
+    """Where a stream was opened: its trace and span, which its events go to however late."""
+
+    collector: TraceCollector
+    span_id: Optional[str]
+    parent_span_id: Optional[str]
+    span_name: Optional[str]
+
+
+def _origin() -> Optional[_Origin]:
+    collector = _current_collector.get()
+    if collector is None:
+        return None
+    return _Origin(collector, _current_span_id.get(), _parent_span_id.get(), _current_span_name.get())
+
+
+@contextmanager
+def _emitting_into(origin: Optional[_Origin]) -> Generator[None, None, None]:
+    """Emit into the stream's own trace and span when the stream is read outside them.
+
+    The span counts too: a stream opened in one span and read in another of the same trace is
+    recorded under the span the call was made in, as a call without ``stream`` is.
+    """
+    if origin is None or (_current_collector.get() is origin.collector and _current_span_id.get() == origin.span_id):
+        yield
+        return
+    collector = _current_collector.set(origin.collector)
+    span_id = _current_span_id.set(origin.span_id)
+    parent = _parent_span_id.set(origin.parent_span_id)
+    name = _current_span_name.set(origin.span_name)
+    try:
+        yield
+    finally:
+        _current_span_name.reset(name)
+        _parent_span_id.reset(parent)
+        _current_span_id.reset(span_id)
+        _current_collector.reset(collector)
+
+
+def _hold_trace(origin: Optional[_Origin], stream: Any, holds: List[_StreamHold]) -> Any:
+    """Keep ``origin``'s trace open until ``stream`` ends; the stream releases ``holds`` then."""
+    if origin is not None:
+        hold = origin.collector._hold_open(stream)  # noqa: SLF001
+        if hold is not None:
+            holds.append(hold)
+    return stream
 
 
 class StreamingResponseWrapper:
@@ -118,8 +174,11 @@ def emit_streamed_events(
     extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
     provider_cost_only: bool = False,
     tool_arguments_json: bool = False,
-) -> None:
-    """Emit the events of a stream the caller has read to the end. Never raises.
+) -> Any:
+    """Emit the events of a stream the caller has read to the end; return its reply. Never raises.
+
+    The reply is what ``model.invoke`` records as ``output_message``; None when the chunks
+    hold none or the events could not be recorded.
 
     It runs when the caller's loop asks for the chunk after the last one, so an
     exception here would surface in the caller's own code over a stream that
@@ -152,10 +211,10 @@ def emit_streamed_events(
                 provider=provider,
                 framework=framework,
             )
-            return
+            return None
         if response is None:
-            return
-        emit_llm_events(
+            return None
+        return emit_llm_events(
             event_name,
             kwargs,
             response,
@@ -176,6 +235,7 @@ def emit_streamed_events(
         )
     except Exception:  # noqa: BLE001 — must not reach the caller's loop
         log.warning("layerlens: could not record the %s stream", event_name, exc_info=True)
+        return None
 
 
 def stream_chunks_sync(
@@ -203,43 +263,53 @@ def stream_chunks_sync(
     iterate normally and see identical chunks.
     """
     wrapper = StreamingResponseWrapper(event_name, kwargs, start)
+    origin = _origin()
+    holds: List[_StreamHold] = []
 
     def generator() -> Iterator[Any]:
+        reply: Any = None
         try:
-            for chunk in stream:
-                wrapper.record_chunk(chunk)
-                yield chunk
-        except Exception as exc:
-            partial_meta = _safe_partial_meta(aggregate, extract_meta, wrapper.chunks)
-            emit_llm_error(
-                event_name,
-                exc,
-                wrapper.total_duration_ms(),
-                partial_meta=partial_meta,
-                partial_chunks=len(wrapper.chunks),
-            )
-            raise
-        emit_streamed_events(
-            event_name=event_name,
-            kwargs=kwargs,
-            chunks=wrapper.chunks,
-            aggregate=aggregate,
-            extract_output=extract_output,
-            extract_meta=extract_meta,
-            extract_tool_calls=extract_tool_calls,
-            capture_params=capture_params,
-            pricing_table=pricing_table,
-            extra_params=extra_params,
-            latency_ms=wrapper.total_duration_ms(),
-            ttft_ms=wrapper.ttft_ms,
-            provider=provider,
-            framework=framework,
-            extract_provider_cost=extract_provider_cost,
-            provider_cost_only=provider_cost_only,
-            tool_arguments_json=tool_arguments_json,
-        )
+            try:
+                for chunk in stream:
+                    wrapper.record_chunk(chunk)
+                    yield chunk
+            except Exception as exc:
+                partial_meta = _safe_partial_meta(aggregate, extract_meta, wrapper.chunks)
+                with _emitting_into(origin):
+                    emit_llm_error(
+                        event_name,
+                        exc,
+                        wrapper.total_duration_ms(),
+                        partial_meta=partial_meta,
+                        partial_chunks=len(wrapper.chunks),
+                    )
+                raise
+            with _emitting_into(origin):
+                reply = emit_streamed_events(
+                    event_name=event_name,
+                    kwargs=kwargs,
+                    chunks=wrapper.chunks,
+                    aggregate=aggregate,
+                    extract_output=extract_output,
+                    extract_meta=extract_meta,
+                    extract_tool_calls=extract_tool_calls,
+                    capture_params=capture_params,
+                    pricing_table=pricing_table,
+                    extra_params=extra_params,
+                    latency_ms=wrapper.total_duration_ms(),
+                    ttft_ms=wrapper.ttft_ms,
+                    provider=provider,
+                    framework=framework,
+                    extract_provider_cost=extract_provider_cost,
+                    provider_cost_only=provider_cost_only,
+                    tool_arguments_json=tool_arguments_json,
+                )
+        finally:
+            for hold in holds:
+                hold.reply = reply  # the function that returned this stream records it as its output
+                hold.release()
 
-    return generator()
+    return _hold_trace(origin, generator(), holds)
 
 
 def stream_chunks_async(
@@ -263,40 +333,50 @@ def stream_chunks_async(
 ) -> AsyncIterator[Any]:
     """Async sibling of :func:`stream_chunks_sync`."""
     wrapper = StreamingResponseWrapper(event_name, kwargs, start)
+    origin = _origin()
+    holds: List[_StreamHold] = []
 
     async def generator() -> AsyncIterator[Any]:
+        reply: Any = None
         try:
-            async for chunk in stream:
-                wrapper.record_chunk(chunk)
-                yield chunk
-        except Exception as exc:
-            partial_meta = _safe_partial_meta(aggregate, extract_meta, wrapper.chunks)
-            emit_llm_error(
-                event_name,
-                exc,
-                wrapper.total_duration_ms(),
-                partial_meta=partial_meta,
-                partial_chunks=len(wrapper.chunks),
-            )
-            raise
-        emit_streamed_events(
-            event_name=event_name,
-            kwargs=kwargs,
-            chunks=wrapper.chunks,
-            aggregate=aggregate,
-            extract_output=extract_output,
-            extract_meta=extract_meta,
-            extract_tool_calls=extract_tool_calls,
-            capture_params=capture_params,
-            pricing_table=pricing_table,
-            extra_params=extra_params,
-            latency_ms=wrapper.total_duration_ms(),
-            ttft_ms=wrapper.ttft_ms,
-            provider=provider,
-            framework=framework,
-            extract_provider_cost=extract_provider_cost,
-            provider_cost_only=provider_cost_only,
-            tool_arguments_json=tool_arguments_json,
-        )
+            try:
+                async for chunk in stream:
+                    wrapper.record_chunk(chunk)
+                    yield chunk
+            except Exception as exc:
+                partial_meta = _safe_partial_meta(aggregate, extract_meta, wrapper.chunks)
+                with _emitting_into(origin):
+                    emit_llm_error(
+                        event_name,
+                        exc,
+                        wrapper.total_duration_ms(),
+                        partial_meta=partial_meta,
+                        partial_chunks=len(wrapper.chunks),
+                    )
+                raise
+            with _emitting_into(origin):
+                reply = emit_streamed_events(
+                    event_name=event_name,
+                    kwargs=kwargs,
+                    chunks=wrapper.chunks,
+                    aggregate=aggregate,
+                    extract_output=extract_output,
+                    extract_meta=extract_meta,
+                    extract_tool_calls=extract_tool_calls,
+                    capture_params=capture_params,
+                    pricing_table=pricing_table,
+                    extra_params=extra_params,
+                    latency_ms=wrapper.total_duration_ms(),
+                    ttft_ms=wrapper.ttft_ms,
+                    provider=provider,
+                    framework=framework,
+                    extract_provider_cost=extract_provider_cost,
+                    provider_cost_only=provider_cost_only,
+                    tool_arguments_json=tool_arguments_json,
+                )
+        finally:
+            for hold in holds:
+                hold.reply = reply  # the function that returned this stream records it as its output
+                hold.release()
 
-    return generator()
+    return _hold_trace(origin, generator(), holds)

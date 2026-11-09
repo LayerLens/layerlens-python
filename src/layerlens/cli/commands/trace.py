@@ -12,12 +12,27 @@ from .._command import LayerLensGroup
 from .._formatter import to_dict, format_output
 from .._completions import complete_trace
 
+# Agent and Tags come last, so a script that cuts the first columns keeps working.
 TRACE_COLUMNS = [
     ("id", "ID"),
     ("created_at", "Created"),
     ("filename", "Filename"),
     ("evaluations_count", "Evaluations"),
+    ("agent", "Agent"),
+    ("tags", "Tags"),
 ]
+
+
+def _listed(ctx: click.Context, traces: List[Any]) -> str:
+    """The traces as the chosen format shows them; in a table, tags read as ``a, b``, not JSON."""
+    if ctx.obj["output_format"] == "json":
+        return format_output(traces, "json")
+    rows = []
+    for t in traces:
+        row = to_dict(t)
+        row["tags"] = ", ".join(row.get("tags") or []) or None
+        rows.append(row)
+    return format_output(rows, "table", TRACE_COLUMNS)
 
 
 def _tags(ctx: click.Context, param: click.Parameter, value: Tuple[str, ...]) -> List[str]:
@@ -100,8 +115,7 @@ def list_traces(
     if ctx.obj["verbose"]:
         click.echo(f"Showing {result.count} of {result.total_count} traces", err=True)
 
-    output = format_output(result.traces, ctx.obj["output_format"], TRACE_COLUMNS)
-    click.echo(output)
+    click.echo(_listed(ctx, result.traces))
 
 
 @trace.command("get")
@@ -176,8 +190,7 @@ def search_traces(
     if ctx.obj["verbose"]:
         click.echo(f"Found {result.count} of {result.total_count} traces", err=True)
 
-    output = format_output(result.traces, ctx.obj["output_format"], TRACE_COLUMNS)
-    click.echo(output)
+    click.echo(_listed(ctx, result.traces))
 
 
 @trace.command("export")

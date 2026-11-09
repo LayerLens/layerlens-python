@@ -38,6 +38,16 @@ def _get_content_type(filename: str) -> str:
     }.get(ext, "application/octet-stream")
 
 
+def _patched(resp: Any) -> bool:
+    """Whether the project PATCH succeeded: the API answers ``{"status": "success", "data": {"id": ...}}``.
+
+    Read as the models' PATCH reads it. Looking for ``id`` at the top level made a PATCH that
+    succeeded read as a failure (BUG-11).
+    """
+    data = resp.get("data", resp) if isinstance(resp, dict) else None
+    return isinstance(data, dict) and "id" in data
+
+
 class Benchmarks(SyncAPIResource):
     def get(
         self,
@@ -152,8 +162,12 @@ class Benchmarks(SyncAPIResource):
         *benchmark_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Add benchmarks to the project by their IDs."""
-        current = self.get(timeout=timeout) or []
+        """Add public benchmarks to the project by their IDs.
+
+        The project's ``datasets`` lists its public benchmarks only: a custom benchmark belongs
+        to the project already, and its id there made the API answer 500 (BUG-11).
+        """
+        current = self.get(type="public", timeout=timeout) or []
         current_ids = [b.id for b in current]
         new_ids = list(dict.fromkeys(current_ids + list(benchmark_ids)))
         return self._patch_project_benchmarks(new_ids, timeout)
@@ -163,8 +177,8 @@ class Benchmarks(SyncAPIResource):
         *benchmark_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Remove benchmarks from the project by their IDs."""
-        current = self.get(timeout=timeout) or []
+        """Remove public benchmarks from the project by their IDs (see :meth:`add`)."""
+        current = self.get(type="public", timeout=timeout) or []
         remove_set = set(benchmark_ids)
         new_ids = [b.id for b in current if b.id not in remove_set]
         return self._patch_project_benchmarks(new_ids, timeout)
@@ -274,7 +288,7 @@ class Benchmarks(SyncAPIResource):
             timeout=timeout,
             cast_to=dict,
         )
-        return isinstance(resp, dict) and "id" in resp
+        return _patched(resp)
 
     def _upload_file(
         self,
@@ -546,8 +560,8 @@ class AsyncBenchmarks(AsyncAPIResource):
         *benchmark_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Add benchmarks to the project by their IDs."""
-        current = await self.get(timeout=timeout) or []
+        """Add public benchmarks to the project by their IDs (see :meth:`Benchmarks.add`)."""
+        current = await self.get(type="public", timeout=timeout) or []
         current_ids = [b.id for b in current]
         new_ids = list(dict.fromkeys(current_ids + list(benchmark_ids)))
         return await self._patch_project_benchmarks(new_ids, timeout)
@@ -557,8 +571,8 @@ class AsyncBenchmarks(AsyncAPIResource):
         *benchmark_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Remove benchmarks from the project by their IDs."""
-        current = await self.get(timeout=timeout) or []
+        """Remove public benchmarks from the project by their IDs (see :meth:`Benchmarks.add`)."""
+        current = await self.get(type="public", timeout=timeout) or []
         remove_set = set(benchmark_ids)
         new_ids = [b.id for b in current if b.id not in remove_set]
         return await self._patch_project_benchmarks(new_ids, timeout)
@@ -651,7 +665,7 @@ class AsyncBenchmarks(AsyncAPIResource):
             timeout=timeout,
             cast_to=dict,
         )
-        return isinstance(resp, dict) and "id" in resp
+        return _patched(resp)
 
     async def _upload_file(
         self,

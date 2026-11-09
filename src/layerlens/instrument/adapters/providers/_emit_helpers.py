@@ -50,8 +50,10 @@ def emit_llm_events(
     extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
     provider_cost_only: bool = False,
     tool_arguments_json: bool = False,
-) -> None:
+) -> Any:
     """Emit ``model.invoke`` + optional ``tool.call`` + ``cost.record`` events.
+
+    Returns the reply it recorded as ``output_message`` (None outside a trace).
 
     Builds the full payload; the collector handles CaptureConfig gating
     (L3 suppresses model.invoke entirely; capture_content strips messages).
@@ -80,7 +82,7 @@ def emit_llm_events(
     """
     collector = _current_collector.get()
     if collector is None:
-        return
+        return None
     decode = _tool_call_decoder() if tool_arguments_json and collector.config.capture_content else None
 
     parent_span_id = _current_span_id.get()
@@ -178,6 +180,7 @@ def emit_llm_events(
             provider_cost_usd=provider_cost,
             provider_cost_only=provider_cost_only,
         )
+    return output_message
 
 
 _ToolCallDecoder = Callable[..., Dict[str, Any]]

@@ -5,8 +5,10 @@ environment, manage its task sets, and run graded evaluations of your own agent 
 model, for example from CI. The [`layerlens env`](../cli/env.md) commands are built on it.
 
 It needs an API key with **Automation** access (Organization Settings → API Keys). A key
-with Standard access gets `PermissionDeniedError` (403) on these routes, and a `layerlens login`
-session cannot reach them.
+with Standard access reaches only what an agent uses: `list()`, `get()`, `tools()` and
+`reset_state()`. It gets `PermissionDeniedError` (403) from every other method, including
+`build_status()`, `world_types()`, `task_sets` and `runs`. A `layerlens login` session cannot
+reach these routes.
 
 ```python
 from layerlens import LayerLens
@@ -157,14 +159,20 @@ print(f"{result.passed}/{result.total} passed")
 - **Submitting:** `attempt.submit(answer, *, trace_id=None)` returns once the answer is
   graded. `attempt.submit_error(error=None, *, timeout=False, trace_id=None)` records an agent
   that gave no answer, as verdict `error` or `timeout`. Each attempt is submitted once.
-  `trace_id` links the agent's own trace, which the results carry as `agent_trace_id`; one
-  over 256 bytes raises `ValueError` before anything is sent. So does an answer, or an
+  `trace_id` links the agent's own trace, which the results carry as `agent_trace_id`: the
+  id of a trace in the organization, or the SDK or OpenTelemetry trace id of one in the
+  project. Any other is not linked; the answer is still graded, and the returned
+  `SubmitResult.trace_id_unlinked` says why (`None` when linked). One over 256 bytes raises
+  `ValueError` before anything is sent. So does an answer, or an
   `error`, over 64 KiB (65,536 bytes), the API's limit; each is measured without the
   whitespace around it, as the API measures it.
 - **Finishing:** the run finishes on its own when its last attempt is graded. Leaving the
   `with` block finishes it, grading unsubmitted attempts `error`; a run in which no attempt
   was submitted at all ends `failure`. Leaving the block on an exception cancels the run
-  instead. `run.finish()`, `run.cancel()` and `run.wait()` are there for a run
+  instead, and says what came of it: `run.cancelled_run` is the run the cancel left,
+  `run.finished_before_cancel` is `True` when every attempt had been graded already (nothing to
+  cancel, so nothing is logged), and `run.cancel_error` is why a cancel failed (logged as a
+  warning). `run.finish()`, `run.cancel()` and `run.wait()` are there for a run
   started with `run.start()` instead of `with`.
 - **Limits:** 20 runs an hour per key on one environment, and 100 per environment
   (`RateLimitError`, 429). `agent_name` takes up to 64 bytes and `label` up to 128. A run
@@ -224,7 +232,7 @@ stops when it is spent. Inline tasks (`tasks=` or `tasks_file=`) take up to 25 p
 | `total`, `passed`, `failed`, `errored`, `timed_out`, `pending` | One row per task |
 | `counted`, `pass_rate` | `pass_rate` is `passed / counted`. `counted` is the graded rows whose verdict counts, leaving out plays a cancel cut short and tasks a cancel or the budget stopped before they ran. `pass_rate` is `None` until one is graded |
 | `cost_usd` | `None` when the cost is not known (an endpoint, `own:` or `custom:` model) |
-| `attempts` | Each with `task_name`, `task_version`, `verdict` (`pass`, `fail`, `error`, `timeout`; `None` while ungraded), `grader`, `evidence`, `error_source`, `agent_answer`, `trace_id` and `agent_trace_id` |
+| `attempts` | Each with `task_name`, `task_version`, `verdict` (`pass`, `fail`, `error`, `timeout`; `None` while ungraded), `grader`, `evidence`, `error_source`, `agent_answer`, `agent_answer_truncated`, `trace_id` and `agent_trace_id`. `agent_answer` is the first 4096 bytes of the agent's answer, cut between characters, and `agent_answer_truncated` is `True` when it was cut; the whole answer (up to 64 KiB) is what was graded |
 | `uncounted` | Rows whose verdict says nothing about the agent: `off_script` (a conversation task's persona broke its script) or `not_graded`. They are neither passes nor failures: `failures()` leaves them out, and JUnit reports them as skipped |
 
 A task your agent never submitted is a row with verdict `error` and `error_source`

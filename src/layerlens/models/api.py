@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import Field, BaseModel, ConfigDict
+from pydantic import Field, BaseModel, ConfigDict, AliasChoices
 
 from .judge import Judge
 from .model import Model
@@ -167,7 +167,14 @@ class IntegrationsResponse(BaseModel):
 
 
 class TestIntegrationResponse(BaseModel):
-    success: bool
+    """``POST …/integrations/{id}/test``: whether the integration's stored credentials work.
+
+    The API answers ``{"source_type": …, "ok": true}``; ``success`` reads ``ok``. Credentials the
+    vendor refuses come back as an error (HTTP 401) carrying the vendor's reason, not as
+    ``ok: false``.
+    """
+
+    success: bool = Field(validation_alias=AliasChoices("success", "ok"))
     message: Optional[str] = None
 
 

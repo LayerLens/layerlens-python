@@ -144,6 +144,8 @@ class OpenAIProvider(MonkeyPatchProvider):
     def aggregate_stream(chunks: list[Any]) -> Any:
         if not chunks:
             return None
+        if _is_responses_stream(chunks):
+            return _aggregate_responses_stream(chunks)
         return _StreamedChatResponse.from_chunks(chunks)
 
     def connect(self, target: Any = None, **kwargs: Any) -> Any:  # noqa: ARG002
@@ -306,6 +308,63 @@ def _extract_responses_output(response: Any) -> Any:
     if tool_calls:
         out["tool_calls"] = tool_calls
     return out
+
+
+# The events that end a Responses stream, each carrying the whole ``Response``.
+_RESPONSES_FINAL_EVENTS = frozenset({"response.completed", "response.incomplete", "response.failed"})
+
+
+def _is_responses_stream(chunks: list[Any]) -> bool:
+    """True for the events of a Responses API stream (``type`` ``response.*``), not chat chunks."""
+    for chunk in chunks:
+        kind = getattr(chunk, "type", None)
+        if isinstance(kind, str) and kind.startswith("response."):
+            return True
+    return False
+
+
+def _aggregate_responses_stream(chunks: list[Any]) -> Any:
+    """The response of a Responses API stream, read as the non-stream call's response is.
+
+    Its events carry no ``usage``, ``model`` or ``choices`` of their own: the last one
+    (``response.completed``, ``.incomplete`` or ``.failed``) holds the whole ``Response``, with
+    its usage, model, id and output, which the extractors already read (BUG-12: the stream was
+    aggregated as chat chunks, so its usage and cost were never recorded). A stream that ends
+    without that event keeps what came: the text of its deltas, and the model and id of
+    ``response.created``. Its usage is unknown, so none is recorded and nothing is priced.
+    """
+    final: Any = None
+    started: Any = None
+    text: list[str] = []
+    for event in chunks:
+        kind = getattr(event, "type", None)
+        response = getattr(event, "response", None)
+        if kind in _RESPONSES_FINAL_EVENTS and response is not None:
+            final = response
+        elif response is not None:
+            started = response
+        elif kind == "response.output_text.delta":
+            delta = getattr(event, "delta", None)
+            if isinstance(delta, str):
+                text.append(delta)
+    if final is not None:
+        return final
+    return _StreamedResponsesResponse(
+        model=getattr(started, "model", None), response_id=getattr(started, "id", None), output_text="".join(text)
+    )
+
+
+class _StreamedResponsesResponse:
+    """What a Responses stream cut before its last event gave: Responses-shaped, without usage."""
+
+    __slots__ = ("model", "id", "output_text", "output", "usage")
+
+    def __init__(self, *, model: Any, response_id: Any, output_text: str) -> None:
+        self.model = model
+        self.id = response_id
+        self.output_text = output_text
+        self.output: list[Any] = []
+        self.usage = None
 
 
 class _StreamedChatResponse:

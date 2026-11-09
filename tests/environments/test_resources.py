@@ -603,6 +603,54 @@ class TestExternalRun:
         assert api.requests[-1].url.path.endswith("/cancel")
         assert api.calls("POST", f"/{ENV_ID}/external-runs/{RUN_ID}/finish") == []
 
+    def test_leaving_on_an_error_after_the_run_finished_cancels_nothing_and_says_nothing(
+        self, client, api: FakeAPI, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # BUG-09: a run that had finished answered the cancel 409, which was logged as a failure
+        # to cancel ("could not cancel run ... Error code: 409 ..."), then cancelled again by exec.
+        api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
+        api.on(
+            "POST",
+            f"/{ENV_ID}/runs/{RUN_ID}/cancel",
+            err(409, f"run {RUN_ID} has already finished, so there is nothing to cancel"),
+        )
+        run = client.environments.external_run(ENV_ID, agent_name="a", set_name="ci")
+        with pytest.raises(KeyboardInterrupt), caplog.at_level("DEBUG", logger="layerlens"):
+            with run:
+                raise KeyboardInterrupt
+        assert len(api.calls("POST", f"/{ENV_ID}/runs/{RUN_ID}/cancel")) == 1
+        assert run.finished_before_cancel and run.cancel_error is None and run.cancelled_run is None
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_leaving_on_an_error_keeps_the_run_the_cancel_left(self, client, api: FakeAPI) -> None:
+        api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
+        api.on("POST", f"/{ENV_ID}/runs/{RUN_ID}/cancel", ok(run_view(row(ATTEMPT_1, "error"), status="cancelled")))
+        run = client.environments.external_run(ENV_ID, agent_name="a", set_name="ci")
+        with pytest.raises(RuntimeError):
+            with run:
+                raise RuntimeError("harness broke")
+        assert run.cancelled_run is not None and run.cancelled_run.status == "cancelled"
+        assert not run.finished_before_cancel and run.cancel_error is None
+
+    def test_each_exit_reports_its_own_cancel(self, client, api: FakeAPI) -> None:
+        # A run left twice on an exception: the second exit's outcome, not the first's (CodeRabbit on #99).
+        api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
+        api.on(
+            "POST",
+            f"/{ENV_ID}/runs/{RUN_ID}/cancel",
+            err(409, f"run {RUN_ID} has already finished, so there is nothing to cancel"),
+            ok(run_view(row(ATTEMPT_1, "error"), status="cancelled")),
+        )
+        run = client.environments.external_run(ENV_ID, agent_name="a", set_name="ci")
+        with pytest.raises(RuntimeError):
+            with run:
+                raise RuntimeError("first")
+        assert run.finished_before_cancel
+        with pytest.raises(RuntimeError):
+            with run:
+                raise RuntimeError("second")
+        assert not run.finished_before_cancel and run.cancelled_run is not None and run.cancel_error is None
+
     def test_a_cancel_that_fails_does_not_hide_the_original_error(self, client, api: FakeAPI) -> None:
         api.on("POST", f"/{ENV_ID}/external-runs", ok(start_body(ATTEMPT_1), 201))
         api.on("POST", f"/{ENV_ID}/runs/{RUN_ID}/cancel", err(409, "already finished"))

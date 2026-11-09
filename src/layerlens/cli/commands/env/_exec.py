@@ -18,6 +18,7 @@ import click
 
 from ...._env import API_KEY_ENV, LEGACY_API_KEY_ENVS
 from ...._trace_tags import TRACE_TAGS_ENV, join_tags, split_tags
+from ...._exit_timeout import EXIT_TIMEOUT_ENV
 from ...._trace_id_file import TRACE_ID_FILE_ENV
 from ....resources.environments import ExternalAttempt
 from ....resources.environments._shared import MAX_ANSWER_BYTES, MAX_TRACE_ID_BYTES, trace_id_problem
@@ -34,6 +35,10 @@ STDERR_TAIL_BYTES = 2048
 
 # The most of LAYERLENS_TRACE_ID_FILE that is read: far more than an id, far less than stray output.
 TRACE_ID_FILE_READ_BYTES = 64 << 10
+
+# How long an agent's exit waits for its traces to upload, when the step does not say: the SDK's
+# own 5 s lost traces at ~1-2 s an upload, and with them the trace id that links the attempt.
+AGENT_EXIT_TIMEOUT_SECONDS = 30.0
 
 
 class LaunchError(Exception):
@@ -86,6 +91,20 @@ def with_run_label(environment: Dict[str, str], label: Optional[str]) -> Dict[st
         tags = []
     tags = [label, *(tag for tag in tags if tag and tag != label)]
     return {**environment, TRACE_TAGS_ENV: join_tags(tags)}
+
+
+def with_exit_budget(environment: Dict[str, str], attempt_timeout: float) -> Dict[str, str]:
+    """``environment`` with ``LAYERLENS_EXIT_TIMEOUT`` for the agent's SDK, unless it sets one already.
+
+    An agent is a batch process: its traces matter more than a quick exit, and its trace is
+    linked to the attempt only once its upload ends (the SDK then writes the id to
+    LAYERLENS_TRACE_ID_FILE). So the agent gets ``AGENT_EXIT_TIMEOUT_SECONDS``, or half the
+    attempt's time when that is shorter, leaving the attempt time to end on its own.
+    """
+    if environment.get(EXIT_TIMEOUT_ENV, "").strip():
+        return environment
+    budget = min(AGENT_EXIT_TIMEOUT_SECONDS, attempt_timeout / 2)
+    return {**environment, EXIT_TIMEOUT_ENV: f"{budget:g}"}
 
 
 def attempt_variables(attempt: ExternalAttempt, answer_file: Path, trace_id_file: Path) -> Dict[str, str]:
@@ -390,6 +409,9 @@ def outcome_line(index: int, total: int, attempt: ExternalAttempt, outcome: Atte
         "error": f"error: {outcome.error}",
     }.get(outcome.outcome, outcome.outcome)
     line = f"[{index}/{total}] {attempt.task_name}: {what} ({outcome.seconds:.1f}s)"
+    unlinked = attempt.result.trace_id_unlinked if attempt.result is not None else None
+    if unlinked:  # the API graded the answer but found no trace by the agent's id (N3)
+        return f"{line}; no trace linked: {unlinked}"
     if outcome.trace_id is not None:
         return f"{line}, trace {outcome.trace_id}"
     if outcome.trace_problem is not None:

@@ -170,6 +170,31 @@ class TestCreate:
         )
         assert json.loads(result.stdout)["environment"]["id"] == ENV_ID
 
+    def test_json_with_wait_prints_the_environment_and_its_build_as_the_wait_left_them(
+        self, runner: CliRunner, api: FakeAPI
+    ) -> None:
+        # G1: it printed the create reply, whose build read "pending", after the build had finished.
+        job_id = "6aef0dd3415f6c3a7acc330b"
+        created = {"environment": {"id": ENV_ID, "name": "d", "type": "bank", "current_version": 1},
+                   "job": {"id": job_id, "status": "pending"}, "reused": False, "unused": None}  # fmt: skip
+        finished = {"id": job_id, "kind": "mint_world", "status": "success", "stop_reason": "finished",
+                    "created_at": "2026-11-07T11:38:59.603Z", "finished_at": "2026-11-07T11:39:26.081Z",
+                    "cost_usd": 0.001042125, "result": {"version": 1, "tools": 34}}  # fmt: skip
+        api.on("POST", "/worlds", ok(created, 201))
+        api.on("GET", f"/{ENV_ID}/build", ok({"status": "ready", "version": 1, "steps": []}))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(name="d", type="bank", tool_count=34)}))
+        api.on("GET", f"/{ENV_ID}/jobs/{job_id}", ok(finished))
+        args = ["env", "create", "--type", "bank", "--name", "d", "--description", "A bank", "--wait"]
+        result = invoke(runner, "--format", "json", *args)
+        assert result.exit_code == 0, result.stderr
+        printed = json.loads(result.stdout)
+        assert printed["job"]["status"] == "success" and printed["job"]["id"] == job_id
+        assert (printed["environment"]["id"], printed["environment"]["environment_version"]) == (ENV_ID, 1)
+        assert printed["environment"]["tool_count"] == 34
+        assert (printed["reused"], printed["unused"]) == (False, None)
+        # Without --format json it still prints the id alone.
+        assert invoke(runner, *args).stdout.strip() == ENV_ID
+
     def test_different_inputs_exit_1_naming_them(self, runner: CliRunner, api: FakeAPI) -> None:
         body = {
             "status": "error",
@@ -227,6 +252,9 @@ else:
 
 TRACE_IDS = {f"task-{i}": "6a91c0f2a7b8c9d0e1f2a3b" + str(i) for i in range(1, 4)}
 TRACE_IDS["task-4"] = "x" * 300
+# A well-formed trace id that names no trace, and the API's answer to it (N3).
+FAKE_TRACE = "6aee0000000000000000feed"
+UNLINKED = f'the trace id "{FAKE_TRACE}" names no trace in this organization, so the attempt is not linked to it'
 
 TRACING_AGENT = r"""
 import os, sys, time, json
@@ -261,6 +289,15 @@ class Client:
 
 with trace_context(Client(), tags=["support-agent"]):
     emit("tool.call", {"tool_name": "lookup"})
+print("the answer")
+"""
+
+
+# Each attempt writes the exit budget it was given (LAYERLENS_EXIT_TIMEOUT) to SEEN_DIR/<task>.exit.
+EXIT_BUDGET_AGENT = r"""
+import os
+with open(os.path.join(os.environ["SEEN_DIR"], os.environ["LAYERLENS_TASK_NAME"] + ".exit"), "w") as f:
+    f.write(os.environ.get("LAYERLENS_EXIT_TIMEOUT", "<unset>"))
 print("the answer")
 """
 
@@ -365,6 +402,27 @@ class TestExec:
         assert "task-4: answered (" in result.stderr
         assert "no trace linked: LAYERLENS_TRACE_ID_FILE: trace_id is 300 bytes; the limit is 256" in result.stderr
 
+    def test_an_agent_trace_the_api_did_not_link_is_reported_with_its_attempt(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        # N3: the API grades the answer but links no trace when the id names none in the organization.
+        _exec_api(api, self.FINAL)
+        reply = {**submitted(A[0], total=4), "trace_id_unlinked": UNLINKED}
+        api.routes[("POST", f"/{ENV_ID}/external-runs/{RUN_ID}/attempts/{A[0]}/submit")] = [ok(reply)]
+        agent = tmp_path / "agent.py"
+        agent.write_text(TRACING_AGENT)
+        trace_ids = {**TRACE_IDS, "task-1": FAKE_TRACE}
+        result = invoke(
+            runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "support-agent", "--parallel", "4",
+            "--attempt-timeout", "2s", "--", sys.executable, str(agent),
+            env={**KEY_ENV, "TRACE_IDS": json.dumps(trace_ids)},
+        )  # fmt: skip
+        assert result.exit_code == 0, result.stderr
+        assert _submits(api)[A[0]]["trace_id"] == FAKE_TRACE
+        task_1 = next(ln for ln in result.stderr.splitlines() if "task-1: answered (" in ln)
+        assert task_1.endswith(f"; no trace linked: {UNLINKED}"), task_1
+        assert f"trace {TRACE_IDS['task-2']}" in result.stderr
+
     def test_the_agents_traces_carry_the_runs_label_before_the_tags_it_was_given(
         self, runner: CliRunner, api: FakeAPI, tmp_path: Path
     ) -> None:
@@ -400,6 +458,29 @@ class TestExec:
         assert result.exit_code == 0, result.stderr
         seen = json.loads((tmp_path / "task-1.json").read_text())
         assert seen["copies"] == []
+
+    def test_the_agent_gets_an_exit_budget_unless_the_step_sets_one(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        # BUG-01: an agent's SDK waited 5 s at exit, so its trace could be lost before the attempt
+        # ended. exec gives it 30 s, or half the attempt's time when that is shorter, unless the
+        # step sets LAYERLENS_EXIT_TIMEOUT itself.
+        monkeypatch.delenv("LAYERLENS_EXIT_TIMEOUT", raising=False)
+        _exec_api(api, self.FINAL)
+        agent = tmp_path / "agent.py"
+        agent.write_text(EXIT_BUDGET_AGENT)
+        seen = {}
+        for attempt_timeout, step_sets in (("10m", None), ("30s", None), ("5s", None), ("30s", "120")):
+            env = {**KEY_ENV, "SEEN_DIR": str(tmp_path)}
+            if step_sets is not None:
+                env["LAYERLENS_EXIT_TIMEOUT"] = step_sets
+            result = invoke(
+                runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "a", "--tasks", "task-1",
+                "--attempt-timeout", attempt_timeout, "--", sys.executable, str(agent), env=env,
+            )  # fmt: skip
+            assert result.exit_code == 0, result.stderr
+            seen[(attempt_timeout, step_sets)] = (tmp_path / "task-1.exit").read_text()
+        assert seen == {("10m", None): "30", ("30s", None): "15", ("5s", None): "2.5", ("30s", "120"): "120"}
 
     def test_a_command_that_cannot_start_cancels_the_run_and_exits_1(
         self, runner: CliRunner, api: FakeAPI, tmp_path: Path
@@ -491,6 +572,18 @@ class TestSubmitCommand:
         result = invoke(runner, "env", "run", "submit", ENV_ID, RUN_ID, "--attempt", A[0], "--timed-out")
         assert result.exit_code == 0
         assert body_of(api.requests[0]) == {"outcome": "timeout"}
+
+    def test_a_trace_id_the_api_did_not_link_is_said_so(self, runner: CliRunner, api: FakeAPI) -> None:
+        # N3: the API graded the answer but linked no trace, as the id names none; submit says so.
+        reply = {**submitted(A[0]), "trace_id_unlinked": UNLINKED}
+        api.on("POST", f"/{ENV_ID}/external-runs/{RUN_ID}/attempts/{A[0]}/submit", ok(reply))
+        args = ["env", "run", "submit", ENV_ID, RUN_ID, "--attempt", A[0], "--answer", "x", "--trace-id", FAKE_TRACE]
+        result = invoke(runner, *args)
+        assert result.exit_code == 0
+        assert result.stdout.startswith(f"Graded attempt {A[0]}") and f"Warning: {UNLINKED}" in result.stderr
+        as_json = invoke(runner, "--format", "json", *args)
+        assert json.loads(as_json.stdout)["trace_id_unlinked"] == UNLINKED
+        assert f"Warning: {UNLINKED}" in as_json.stderr
 
 
 def test_every_env_command_has_a_help_page(runner: CliRunner) -> None:
@@ -749,9 +842,9 @@ class TestTimeoutsAndInterrupts:
     def test_ctrl_c_while_exec_runs_its_attempts_says_the_run_was_cancelled(
         self, runner: CliRunner, api: FakeAPI, cut_short: bool
     ) -> None:
-        # Leaving `with external` cancels the run, then exec cancels it again: when a second
-        # Ctrl-C cut the first cancel short, the second is the one that lands. The API answers a
-        # cancel of a cancelled run with the run, not a 409, so it reads as cancelled either way.
+        # Leaving `with external` cancels the run, and exec reports what that cancel did. Only
+        # when a second Ctrl-C cut that cancel short does exec cancel again, and its cancel is
+        # the one that lands (BUG-09: it used to cancel twice on every interrupt).
         cancelled = ok({**TestExec.FINAL, "status": "cancelled"})
 
         def interrupting(reply: Any) -> Any:
@@ -772,7 +865,7 @@ class TestTimeoutsAndInterrupts:
         )  # fmt: skip
         assert result.exit_code == 11, result.stderr
         assert f"interrupted, so run {RUN_ID} was cancelled" in result.stderr
-        assert len(api.calls("POST", self.CANCEL)) == 2
+        assert len(api.calls("POST", self.CANCEL)) == (2 if cut_short else 1)
 
     @posix_only
     def test_ctrl_c_lets_an_answer_already_sent_be_graded_before_the_run_is_cancelled(
@@ -802,11 +895,34 @@ class TestTimeoutsAndInterrupts:
                   sys.executable, "-c", "print('x')"], env=KEY_ENV,
         )  # fmt: skip
         assert result.exit_code == 11, result.stderr
-        assert seen == ["graded", "cancel", "cancel"]
+        assert seen == ["graded", "cancel"]
         assert "1 answer is being submitted; waiting up to 5s before cancelling the run" in result.stderr
         assert f"interrupted, so run {RUN_ID} was cancelled" in result.stderr
         # The interrupt came while task-1 was submitting: no later attempt submitted anything.
         assert [r.url.path.split("/")[-2] for r in api.requests if r.url.path.endswith("/submit")] == [A[0]]
+
+    @posix_only
+    def test_ctrl_c_after_the_run_finished_cancels_once_and_says_so_once(self, runner: CliRunner, api: FakeAPI) -> None:
+        # BUG-09: the answers in flight were graded, so the run had finished when it was
+        # cancelled. Two cancels went out, and stderr showed the SDK's raw 409 before exec's line.
+        def graded_after_the_interrupt(request: httpx.Request) -> Any:  # noqa: ARG001
+            signal.pthread_kill(threading.main_thread().ident or 0, signal.SIGINT)
+            threading.Event().wait(0.5)
+            return ok(submitted(A[0], total=4))
+
+        _exec_api(api, TestExec.FINAL)
+        api.routes[("POST", f"/{ENV_ID}/external-runs/{RUN_ID}/attempts/{A[0]}/submit")] = [graded_after_the_interrupt]
+        api.routes[("POST", self.CANCEL)] = [
+            err(409, f"run {RUN_ID} has already finished, so there is nothing to cancel")
+        ]
+        result = runner.invoke(
+            cli, ["-q", "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "a", "--",
+                  sys.executable, "-c", "print('x')"], env=KEY_ENV,
+        )  # fmt: skip
+        assert result.exit_code == 11, result.stderr
+        assert len(api.calls("POST", self.CANCEL)) == 1
+        assert f"interrupted, and run {RUN_ID} had finished by then" in result.stderr
+        assert "could not cancel run" not in result.stderr and "Error code:" not in result.stderr
 
     @pytest.mark.parametrize("rate", ["nan", "inf", "-0.1", "1.5"])
     def test_a_pass_rate_that_is_not_one_is_a_usage_error(self, runner: CliRunner, api: FakeAPI, rate: str) -> None:
@@ -958,6 +1074,21 @@ class TestRound2:
         )  # fmt: skip
         assert result.exit_code == 1
         assert "the run could not be cancelled" in result.stderr and "the run was cancelled" not in result.stderr
+
+    def test_a_command_that_cannot_start_after_the_run_finished_does_not_say_it_was_cancelled(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        # Leaving the block found the run finished (409): there was nothing to cancel (CodeRabbit on #99).
+        _exec_api(api, TestExec.FINAL)
+        api.routes[("POST", self.CANCEL)] = [
+            err(409, f"run {RUN_ID} has already finished, so there is nothing to cancel")
+        ]
+        result = invoke(
+            runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "a", "--",
+            str(tmp_path / "no-such-agent"),
+        )  # fmt: skip
+        assert result.exit_code == 1
+        assert "the run had already finished" in result.stderr and "the run was cancelled" not in result.stderr
 
     def test_a_name_that_cannot_be_looked_up_is_not_a_lost_start(self, runner: CliRunner, api: FakeAPI) -> None:
         api.on("GET", "", _timed_out)

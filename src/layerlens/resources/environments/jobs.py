@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from ._shared import DEFAULT_POLL_SECONDS, DEFAULT_WAIT_SECONDS, still, wait_policy
 from ..._polling import POLL_RETRIES
+from ..._resource import AsyncOrganizationScoped
 from ..._exceptions import LayerLensError
 from ...models.environment import Job
 
@@ -52,11 +53,14 @@ class Jobs:
             self._environments._sleep(delay)
 
 
-class AsyncJobs:
+class AsyncJobs(AsyncOrganizationScoped):
     """``client.environments.jobs`` on :class:`AsyncLayerLens`. See :class:`Jobs`."""
 
     def __init__(self, environments: AsyncEnvironments) -> None:
         self._environments = environments
+
+    def _organization_client(self) -> Any:
+        return self._environments._client
 
     async def get(self, environment: str, job_id: str) -> Job:
         return await self._read(await self._environments.resolve(environment), job_id)

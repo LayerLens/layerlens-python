@@ -38,9 +38,15 @@ CI:
 
 ```bash
 export LAYERLENS_TRACE_TAGS="ci-$GITHUB_RUN_ID,$GITHUB_SHA"
+export LAYERLENS_EXIT_TIMEOUT=120   # wait up to 2 minutes at exit for every trace to upload
 python agent.py
 layerlens trace list --tag "ci-$GITHUB_RUN_ID"
 ```
+
+A job exits as soon as its work is done, and by default the SDK waits only 5 seconds for the
+traces still uploading: at a second or two each, a job that records more than a few loses the
+rest. `LAYERLENS_EXIT_TIMEOUT` lets it wait until they are sent (see
+[Uploading](../api-reference/instrumentation.md#uploading)).
 
 The value is a comma-separated list, or a JSON array of strings for a tag that holds a comma:
 `["ci", "release 1.2, hotfix"]`. A value that starts with `[` must be a JSON array of strings;

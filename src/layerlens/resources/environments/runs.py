@@ -21,6 +21,7 @@ from ._shared import (
     new_idempotency_key,
 )
 from ..._polling import POLL_RETRIES, is_transient
+from ..._resource import AsyncOrganizationScoped
 from ..._exceptions import LayerLensError
 from ...models.environment import RunPage, RunResult, RunSummary, SubmitResult, ExternalRunStart
 
@@ -237,11 +238,14 @@ class Runs:
         return envs._call("POST", envs._path(envs.resolve(environment), "external-runs", run_id, "finish"), RunResult)
 
 
-class AsyncRuns:
+class AsyncRuns(AsyncOrganizationScoped):
     """``client.environments.runs`` on :class:`AsyncLayerLens`. See :class:`Runs`."""
 
     def __init__(self, environments: AsyncEnvironments) -> None:
         self._environments = environments
+
+    def _organization_client(self) -> Any:
+        return self._environments._client
 
     async def run_model(
         self,

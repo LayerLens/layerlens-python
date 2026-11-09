@@ -25,8 +25,10 @@ def evaluations() -> None:
 
 @evaluations.command("run")
 @click.option("--dataset-id", required=True)
+# Required: the run is local and reads its dataset from this file; there is no remote lookup.
 @click.option(
     "--dataset-file",
+    required=True,
     type=click.Path(exists=True, dir_okay=False),
     help="Load a dataset from a JSON file (list of {input, expected_output}).",
 )
@@ -45,20 +47,17 @@ def evaluations() -> None:
 )
 def run(
     dataset_id: str,
-    dataset_file: str | None,
+    dataset_file: str,
     target: str,
     scorers: tuple,
     out: str | None,
 ) -> None:
     """Execute an evaluation run and print the aggregated results."""
     store = InMemoryDatasetStore()
-    if dataset_file:
-        with open(dataset_file, "r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-        ds = store.create(Dataset(id=dataset_id, name=dataset_id, visibility=DatasetVisibility.PRIVATE))
-        store.import_items(ds.id, raw)
-    else:
-        raise click.UsageError("remote dataset lookup is not yet implemented — pass --dataset-file")
+    with open(dataset_file, "r", encoding="utf-8") as fh:
+        raw = json.load(fh)
+    ds = store.create(Dataset(id=dataset_id, name=dataset_id, visibility=DatasetVisibility.PRIVATE))
+    store.import_items(ds.id, raw)
 
     target_fn = _load_callable(target)
     scorer_map: Dict[str, ScorerFn] = {}

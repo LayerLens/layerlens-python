@@ -56,13 +56,13 @@ def trace(
 
                     result = await fn(*args, **kwargs)
 
-                    collector.emit(
-                        "agent.output",
-                        {"name": span_name, "output": result, "status": "ok"},
-                        span_id=root_span_id,
-                        span_name=span_name,
-                    )
-                    collector.flush()
+                    output = _output_recorder(collector, span_name, root_span_id)
+                    # A stream the function opened and returns: its output is what it replies, once
+                    # the caller has read it (S2). Anything else is recorded as returned.
+                    if not collector._when_stream_ends(result, output):  # noqa: SLF001
+                        output(result)
+                    # Uploaded now, or once a stream the function opened and returned is read (S2).
+                    collector._finish()  # noqa: SLF001
                     return result
                 except Exception as exc:
                     collector.emit(
@@ -104,13 +104,13 @@ def trace(
 
                     result = fn(*args, **kwargs)
 
-                    collector.emit(
-                        "agent.output",
-                        {"name": span_name, "output": result, "status": "ok"},
-                        span_id=root_span_id,
-                        span_name=span_name,
-                    )
-                    collector.flush()
+                    output = _output_recorder(collector, span_name, root_span_id)
+                    # A stream the function opened and returns: its output is what it replies, once
+                    # the caller has read it (S2). Anything else is recorded as returned.
+                    if not collector._when_stream_ends(result, output):  # noqa: SLF001
+                        output(result)
+                    # Uploaded now, or once a stream the function opened and returned is read (S2).
+                    collector._finish()  # noqa: SLF001
                     return result
                 except Exception as exc:
                     collector.emit(
@@ -129,6 +129,20 @@ def trace(
             return sync_wrapper
 
     return decorator
+
+
+def _output_recorder(collector: TraceCollector, span_name: str, root_span_id: str) -> Callable[[Any], None]:
+    """Records the function's ``agent.output`` with the output it is given."""
+
+    def record(output: Any) -> None:
+        collector.emit(
+            "agent.output",
+            {"name": span_name, "output": output, "status": "ok"},
+            span_id=root_span_id,
+            span_name=span_name,
+        )
+
+    return record
 
 
 def _capture_input(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Any:

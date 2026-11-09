@@ -252,3 +252,22 @@ def test_a_documented_heading_names_what_exists_with_its_parameters(name: str, p
         if p.default is p.empty and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
     ]
     assert [p.name for p in required if p.name not in kinds] == [], f"{name}{params} leaves out a required parameter"
+
+
+CORE_API = ("trace", "span", "emit", "trace_context", "get_trace_context")
+
+
+@pytest.mark.parametrize(
+    "name, params, module",
+    [entry for entry in DOCUMENTED if entry[0] in CORE_API],
+    ids=[name for name, _, _ in DOCUMENTED if name in CORE_API],
+)
+def test_a_core_api_heading_lists_every_parameter(name: str, params: str, module: str) -> None:
+    # CodeRabbit on #99: trace_context's heading and table left out `tags`, and the check above
+    # did not see it, since it checks only the parameters a heading lists, and the required ones.
+    _, obj = _resolve(module, name)
+    written = ast.parse(f"def _{params}: pass").body[0].args  # type: ignore[attr-defined]
+    listed = {a.arg for a in [*written.args, *written.kwonlyargs]}
+    real = inspect.signature(obj).parameters.values()
+    named = [p.name for p in real if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
+    assert [p for p in named if p not in listed] == [], f"{REFERENCE}: {name}{params} leaves out a parameter"

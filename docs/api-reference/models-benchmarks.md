@@ -320,7 +320,9 @@ Returns an `Optional[Benchmark]` - a single `Benchmark` object if found, or `Non
 
 ### `add(*benchmark_ids, timeout=None)`
 
-Adds benchmarks to the project by their IDs.
+Adds public benchmarks to the project by their IDs. A custom benchmark belongs to its project
+from the start, so it is never added or removed here; a project that holds custom benchmarks
+adds and removes public ones as any other.
 
 #### Parameters
 
@@ -342,7 +344,7 @@ success = client.benchmarks.add("benchmark-id-1", "benchmark-id-2")
 
 ### `remove(*benchmark_ids, timeout=None)`
 
-Removes benchmarks from the project by their IDs.
+Removes public benchmarks from the project by their IDs.
 
 #### Parameters
 

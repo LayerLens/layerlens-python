@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import sys
 import json
 from typing import Callable, cast
 
 import click
 
-from ...replay import ReplayRequest, ReplayController
+from ...replay import ReplayStatus, ReplayRequest, ReplayController
+from .._client import get_client, handle_errors, api_error_text
 from .._command import LayerLensGroup
+from ..._exceptions import NotFoundError, LayerLensError, BadRequestError
 from .._safe_loader import load_callable
 from ...models.trace import Trace
 
@@ -35,7 +38,10 @@ def replay() -> None:
 @click.option("--model-override", default=None)
 @click.option("--input-override", multiple=True, help="KEY=VALUE (repeatable).")
 @click.option("--prompt-override", multiple=True, help="KEY=VALUE (repeatable).")
+@click.pass_context
+@handle_errors
 def run(
+    ctx: click.Context,
     trace_id: str,
     trace_file: str | None,
     replay_fn: str | None,
@@ -43,20 +49,26 @@ def run(
     input_override: tuple,
     prompt_override: tuple,
 ) -> None:
-    """Run a single-trace replay and print the resulting diff."""
+    """Replay one trace with overrides and print the result.
+
+    The trace is --trace-file (as `layerlens trace export` writes it) or, without it, the
+    stored trace --trace-id names, read from LayerLens. Exits 1 when the replay does not
+    complete, 2 when --trace-id names no stored trace.
+    """
+    # Before the trace is read: a --replay-fn the loader refuses never costs a request.
+    fn = _load_callable(replay_fn) if replay_fn else _echo_replay
     if trace_file:
         with open(trace_file, "r", encoding="utf-8") as fh:
             trace_payload = json.load(fh)
         original = Trace(**trace_payload)
+        if original.id != trace_id:
+            # The replay is of the file's trace, and its result's original_trace_id is that trace's.
+            click.echo(
+                f"Warning: --trace-file holds trace {original.id}, not {trace_id}; the result names {original.id}.",
+                err=True,
+            )
     else:
-        original = Trace(
-            id=trace_id,
-            organization_id="local",
-            project_id="local",
-            created_at="local",
-            filename=f"{trace_id}.json",
-            data={},
-        )
+        original = _stored_trace(ctx, trace_id)
 
     request = ReplayRequest(
         trace_id=trace_id,
@@ -65,10 +77,27 @@ def run(
         prompt_overrides=dict(_kv(prompt_override)),
     )
 
-    fn = _load_callable(replay_fn) if replay_fn else _echo_replay
     controller = ReplayController(fn)
     result = controller.run(original, request)
     click.echo(result.model_dump_json(indent=2))
+    if result.status != ReplayStatus.COMPLETED:
+        click.echo(f"Error: the replay {result.status.value}: {result.error or 'no reason given'}", err=True)
+        sys.exit(1)
+
+
+def _stored_trace(ctx: click.Context, trace_id: str) -> Trace:
+    """The trace ``trace_id`` names, read from LayerLens (BUG-07: it used to be an empty one)."""
+    client = get_client(ctx)
+    try:
+        trace = client.traces.get(trace_id, strict=True)
+    except (NotFoundError, BadRequestError) as err:
+        raise click.UsageError(
+            f"--trace-id {trace_id!r} names no stored trace: {api_error_text(err)}. Pass the id of a trace "
+            "in this project (`layerlens trace list`), or --trace-file with one `layerlens trace export` wrote."
+        ) from None
+    if trace is None:  # strict=True raises instead; kept for the type
+        raise LayerLensError(f"trace {trace_id} could not be read")
+    return trace
 
 
 def _kv(pairs: tuple) -> list[tuple[str, str]]:

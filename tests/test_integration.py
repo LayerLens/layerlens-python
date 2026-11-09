@@ -104,8 +104,9 @@ class TestCompleteEvaluationWorkflow:
         mock_org.id = "org-123"
         mock_org.projects = [Mock(id="proj-456")]
 
-        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
-            return LayerLens(api_key="workflow-test-key")
+        client = LayerLens(api_key="workflow-test-key")
+        client.organization_id, client.project_id = mock_org.id, mock_org.projects[0].id
+        return client
 
     def test_complete_evaluation_workflow(self, layerlens_client):
         """Test complete workflow: get models/benchmarks -> create evaluation -> get results."""
@@ -288,8 +289,9 @@ class TestResourceInteraction:
         mock_org.id = "org-123"
         mock_org.projects = [Mock(id="proj-456")]
 
-        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
-            return LayerLens(api_key="interaction-test-key")
+        client = LayerLens(api_key="interaction-test-key")
+        client.organization_id, client.project_id = mock_org.id, mock_org.projects[0].id
+        return client
 
     def test_evaluation_creation_with_model_and_benchmark_objects(self, layerlens_client):
         """Test creating evaluation using model and benchmark objects."""
@@ -630,8 +632,8 @@ class TestErrorPropagation:
         model = Model(**model_data)
         benchmark = Benchmark(**benchmark_data)
 
-        with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
-            client = LayerLens(api_key="error-test-key")
+        client = LayerLens(api_key="error-test-key")
+        client.organization_id, client.project_id = mock_org.id, mock_org.projects[0].id
 
         mock_response = Mock()
         mock_response.status_code = 500

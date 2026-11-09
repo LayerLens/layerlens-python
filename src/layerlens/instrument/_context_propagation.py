@@ -34,7 +34,8 @@ def trace_context(
     the new collector reuses the original ``trace_id`` so events on both
     sides of a boundary belong to the same trace.
 
-    The collector is flushed automatically when the context exits.
+    The collector is flushed automatically when the context exits, or, when a provider
+    stream opened in the block is still being read, once that stream ends.
 
     Args:
         client: A :class:`~layerlens.LayerLens` (or compatible) client used
@@ -43,7 +44,10 @@ def trace_context(
             :meth:`CaptureConfig.standard` if not provided.
         from_context: Optional dict produced by :func:`get_trace_context`.
             When supplied the collector inherits the original trace_id, but
-            not the original trace's tags: those stay with the caller.
+            not the original trace's tags: those stay with the caller. It is
+            uploaded as its own segment of that trace (``segment_id``), with
+            ``continued_from`` naming the caller's span, so neither process's
+            upload replaces the other's.
         tags: Labels for this trace, and for every trace started inside the
             block, such as one an adapter opens of its own. Every trace also
             carries ``LAYERLENS_TRACE_TAGS``. ``TypeError`` when not a list of
@@ -57,20 +61,26 @@ def trace_context(
     collector = TraceCollector(client, config, tags=own_tags)
 
     if from_context is not None:
-        collector._trace_id = from_context["trace_id"]  # noqa: SLF001
+        collector._continue_trace(from_context["trace_id"], from_context.get("span_id"))  # noqa: SLF001
 
     root_span_id = uuid.uuid4().hex[:16]
 
     col_token = _current_collector.set(collector)
     span_snapshot = _push_span(root_span_id, "trace_context")
     tag_token = _push_scope(own_tags)
+    failed = True
     try:
         yield collector
+        failed = False
     finally:
         _pop_scope(tag_token)
         _pop_span(span_snapshot)
         _current_collector.reset(col_token)
-        collector.flush()
+        if failed:
+            collector.flush()
+        else:
+            # Uploaded now, or once a stream opened in the block is read (S2).
+            collector._finish()  # noqa: SLF001
 
 
 def get_trace_context() -> Optional[Dict[str, Any]]:

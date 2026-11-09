@@ -7,6 +7,11 @@ build when the pass rate drops. It calls the Automation API, like
 **Automation** access, in `LAYERLENS_API_KEY`, `--api-key-file PATH` (`-` reads it from
 standard input) or `--api-key` (which `env run exec` refuses: see below).
 
+A key with **Standard** access reaches only what an agent uses: `env list`, `env tools` and
+`env reset`. Every other `env` command exits `1` with `this key has Standard access; this
+route needs an Automation key (Organization Settings → API Keys) (HTTP 403)`, `env get`
+included, as it also lists the environment's task sets.
+
 ```bash
 export LAYERLENS_API_KEY=...   # an Automation key
 layerlens env create --type zendesk --name support-desk \
@@ -59,6 +64,11 @@ does.
 | `--seed N` | Default `1` |
 | `--if-not-exists` | Reuse an environment of this name created from the same type, description, config and seed; fail, naming the differences, if it differs |
 | `--wait`, `--timeout DURATION` | Block until the build finishes (default `30m`) |
+
+With `--format json`, `env create` prints `environment`, `job`, `reused` and `unused`. Without
+`--wait` that is the create reply, with the build `pending`. With `--wait` it is the environment
+and its build job as they are once the wait ends: the served `environment_version` and
+`tool_count`, and the job's final `status` and `cost_usd`.
 
 Step names in `env status` are informational and can change; scripts should read `status`
 from `layerlens --format json env status ENV`.
@@ -114,6 +124,7 @@ For each task, the command after `--` runs with:
 | `LAYERLENS_TASK_ID`, `LAYERLENS_TASK_NAME`, `LAYERLENS_ATTEMPT_ID` | Which attempt this is |
 | `LAYERLENS_ANSWER_FILE` | Where to write the final answer. If it is empty, standard output is the answer |
 | `LAYERLENS_TRACE_ID_FILE` | Where to write the id of the agent's own trace, to link it to the attempt. Optional |
+| `LAYERLENS_EXIT_TIMEOUT` | How long the LayerLens SDK waits at exit for the agent's traces to upload: 30 seconds, or half `--attempt-timeout` when that is shorter. Set only when the step does not set it |
 
 Standard input, standard output and the answer file are UTF-8. A Python command gets
 `PYTHONIOENCODING=utf-8` unless you set it; write the answer file with `encoding="utf-8"`.
@@ -141,16 +152,19 @@ When the command writes the id of the trace it sent to `LAYERLENS_TRACE_ID_FILE`
 links that trace to the attempt, whether the attempt answered, failed or timed out. The
 run's results carry it as `agent_trace_id`, beside `trace_id`, LayerLens's own trace of the
 attempt, and each attempt's progress line names it: `[1/4] refund-request: answered (4.2s),
-trace 6a91c0f2a7b8c9d0e1f2a3b4`.
+trace 6a91c0f2a7b8c9d0e1f2a3b4`. An id that names no trace in the organization is not linked:
+the answer is still graded, and the line says why: `…; no trace linked: the trace id "…" names
+no trace in this organization, so the attempt is not linked to it`.
 
 An agent traced with the LayerLens SDK needs no code for this: the SDK writes there the id
 the API gives the first trace it uploads, unless the file already holds an id, so an id the
 agent writes itself is the one linked. `exec` keeps `LAYERLENS_API_KEY` from the agent, so
 give it a key of its own with Standard access, under another name, and build its client
 with that key: `LayerLens(api_key=os.environ["AGENT_LAYERLENS_KEY"])`. The SDK uploads in
-the background, and waits up to 5 seconds for queued uploads as the process exits: a trace
-not uploaded by then, such as the one an agent killed at `--attempt-timeout` was recording,
-is not linked.
+the background, and as the process exits waits for queued uploads as long as
+`LAYERLENS_EXIT_TIMEOUT` says: `exec` sets it to 30 seconds (half `--attempt-timeout` when
+that is shorter) unless the step sets it. A trace not uploaded by then, such as the one an
+agent killed at `--attempt-timeout` was recording, is not linked.
 
 The file holds one id. A file with more than one, or an id over 256 bytes, is not linked:
 the attempt is graded all the same, and its progress line says why.
@@ -267,7 +281,8 @@ layerlens env run wait support-desk "$RUN_ID" --min-pass-rate 0.9
 
 `start` also takes `--idempotency-key`. `submit` takes `--answer` or `--answer-file`, or
 `--error TEXT` / `--timed-out` for an agent that gave no answer, and `--trace-id` to link the
-agent's own trace. Each answer is graded before `submit` returns. A run finishes on its own
+agent's own trace; an id that names no trace in the organization is not linked, and `submit`
+warns on stderr. Each answer is graded before `submit` returns. A run finishes on its own
 when its last attempt is graded; `finish` closes it early, and attempts never submitted count
 as errors. Attempts expire 24 hours after `start`.
 
@@ -287,7 +302,9 @@ finds it ended, is read once more and gated as it ended; Ctrl-C exits `11` and l
 it.
 
 `layerlens --format json env run results support-desk RUN_ID` prints the run with every
-attempt's verdict, evidence, answer, trace id and the agent's own trace id. `status` is `pending`, `in_progress`,
+attempt's verdict, evidence, answer, trace id and the agent's own trace id. The answer shown is
+its first 4096 bytes, with `agent_answer_truncated: true` when it is longer; the whole answer is
+what was graded. `status` is `pending`, `in_progress`,
 `success`, `failure` or `cancelled`; `verdict` is `pass`, `fail`, `error` or `timeout`, or
 `off_script` when a conversation task's persona broke its script, which counts neither way.
 
@@ -385,3 +402,4 @@ given `--idempotency-key` treats the run it gets back as its own: `run model` ca
 | The reply to a start | 5 MiB of prompts, tokens and addresses; the API refuses a start that would answer with more. Start fewer tasks at once with `--tasks` |
 | A run of your own agent | 300 tasks, open for 24 hours |
 | An answer, or the reason given with `--error` | 64 KiB (65,536 bytes), measured without the whitespace around it; `submit` refuses a longer one before sending it (exit `2`) |
+| An answer as a run's results show it | Its first 4096 bytes, cut between characters, with `agent_answer_truncated: true`; the whole answer is graded |

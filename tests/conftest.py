@@ -19,6 +19,20 @@ def _upload_sync_mode():
 
 
 @pytest.fixture(autouse=True)
+def _no_login_session_from_the_home_directory(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the developer's `layerlens login` session (~/.layerlens/credentials) out of the tests.
+
+    A CLI command without an API key falls back to that session: a test would refresh it
+    against a real API and send its token wherever the test points the CLI.
+    """
+    home = tmp_path_factory.mktemp("layerlens-home") / ".layerlens"
+    monkeypatch.setattr("layerlens.cli._auth.CREDENTIALS_DIR", home)
+    monkeypatch.setattr("layerlens.cli._auth.CREDENTIALS_FILE", home / "credentials")
+
+
+@pytest.fixture(autouse=True)
 def _no_ambient_trace_tags(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the LAYERLENS_TRACE_TAGS of the shell or CI job running the tests off their traces."""
     monkeypatch.delenv("LAYERLENS_TRACE_TAGS", raising=False)
