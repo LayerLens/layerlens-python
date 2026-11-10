@@ -9,7 +9,7 @@ import queue
 import logging
 import weakref
 import threading
-from typing import Any, Set, Dict, List, Callable, Iterable, Optional
+from typing import Any, Set, Dict, List, Union, Callable, Iterable, Optional
 
 from layerlens.attestation import HashChain
 
@@ -558,10 +558,11 @@ class TraceCollector:
             hold.finalizer = weakref.finalize(stream, hold.release)
         return hold
 
-    def _when_stream_ends(self, value: Any, callback: Callable[[Any], None]) -> bool:
-        """Call ``callback`` with the stream's reply once ``value``, a stream opened in this trace,
-        ends (None when it ended without one); at once when it already has. False, and no call,
-        for any other value.
+    def _when_stream_ends(self, value: Any, callback: "Callable[[Any, Optional[BaseException]], None]") -> bool:
+        """Call ``callback(reply, error)`` once ``value``, a stream opened in this trace, ends; at
+        once when it already has. ``reply`` is what it replied (None when it ended without a
+        reply), ``error`` what it failed with (None unless it failed). False, and no call, for any
+        other value.
         """
         try:
             hold = self._holds_by_stream.get(value)
@@ -570,7 +571,7 @@ class TraceCollector:
         if hold is None:
             return False
         if not hold.call_when_ended(callback):
-            callback(hold.reply)  # it ended before it was returned: its reply is known
+            callback(hold.reply, hold.error)  # it ended before it was returned: how is known
         return True
 
     def _stream_ended(self, hold: "_StreamHold") -> None:
@@ -639,21 +640,23 @@ class TraceCollector:
 class _StreamHold:
     """A stream opened in a trace, holding the trace open until the stream ends (S2).
 
-    ``reply`` is what the stream replied, set by the stream when it was read to its end.
+    ``reply`` is what the stream replied, set by the stream when it was read to its end;
+    ``error`` is what it failed with, set by the stream when it raised.
     """
 
-    __slots__ = ("_collector", "_held", "_lock", "_on_end", "reply", "finalizer")
+    __slots__ = ("_collector", "_held", "_lock", "_on_end", "reply", "error", "finalizer")
 
     def __init__(self, collector: TraceCollector) -> None:
         self._collector = collector
         self._held = True
         self._lock = threading.Lock()
-        self._on_end: Optional[Callable[[Any], None]] = None
+        self._on_end: "Optional[Callable[[Any, Optional[BaseException]], None]]" = None
         self.reply: Any = None
+        self.error: Optional[BaseException] = None
         self.finalizer: "Optional[weakref.finalize[Any, Any]]" = None
 
-    def call_when_ended(self, callback: Callable[[Any], None]) -> bool:
-        """Call ``callback(reply)`` when the stream ends; False if it already has."""
+    def call_when_ended(self, callback: "Callable[[Any, Optional[BaseException]], None]") -> bool:
+        """Call ``callback(reply, error)`` when the stream ends; False if it already has."""
         with self._lock:
             if not self._held:
                 return False
@@ -680,7 +683,7 @@ class _StreamHold:
             finalizer.detach()  # it held this trace in memory for as long as the stream lives
         if on_end is not None:
             try:
-                on_end(self.reply)
+                on_end(self.reply, self.error)
             except Exception:  # the caller is reading its stream; tracing must not break it
                 log.warning("layerlens: could not record the output of a stream's trace", exc_info=True)
         try:
@@ -693,15 +696,30 @@ class _StreamHold:
 _waiting_for_streams: Set[TraceCollector] = set()
 _waiting_lock = threading.Lock()
 
+
+class _Barrier:
+    """Put behind the releases handed off so far, by flush() and the exit: once the releasing
+    thread, which does them in order, reaches it, every one of them is done."""
+
+    __slots__ = ("done",)
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+
+    def release(self) -> None:
+        self.done.set()
+
+
 # Releases a garbage collection hands off (S2). A collection runs a dropped stream's release (its
 # finalizer, or the ``finally`` of a started stream it closes) inside whatever the collecting thread
 # was doing, which can be holding a trace's lock, the upload queue's or a logging handler's: a
 # release that took one of them again hung the program. In a collection a release only puts its
-# hold here, and the releasing thread does it; flush() and the exit do what is still here.
-_handed_off: "queue.SimpleQueue[_StreamHold]" = queue.SimpleQueue()
-# Held while a handed-off release is done, so flush() can wait for one in progress. Reentrant: a
-# release can reach a loss callback, and a loss callback may call flush().
-_releasing = threading.RLock()
+# hold here, and the releasing thread does it; flush() and the exit wait for what is here.
+_handed_off: "queue.SimpleQueue[Union[_StreamHold, _Barrier]]" = queue.SimpleQueue()
+# Held while flush() or the exit does the handed-off releases itself (no releasing thread runs),
+# so a second one waits for them too. Reentrant: a release can reach a loss callback, and a loss
+# callback may call flush().
+_releasing_here = threading.RLock()
 _releaser: Optional[threading.Thread] = None
 _releaser_lock = threading.Lock()
 # The thread running a garbage collection, while it runs (a gc callback keeps it).
@@ -743,37 +761,70 @@ def _start_releasing() -> None:
 
 
 def _release_handed_off() -> None:
-    """The releasing thread: does each release a collection hands off, at once."""
+    """The releasing thread: does the releases collections hand off, in order, at once."""
     while True:
-        hold = _handed_off.get()
+        item = _handed_off.get()
         try:
-            with _releasing:
-                hold.release()
+            item.release()
         except Exception:  # the thread outlives one failed release
             log.warning("layerlens: could not end a stream's hold on its trace", exc_info=True)
 
 
-def _do_handed_off_releases() -> None:
-    """Do on this thread the releases collections handed off, once one in progress has ended.
+def _do_handed_off_releases(deadline: Optional[float] = None) -> bool:
+    """Wait until every release handed off so far is done; False if ``deadline`` came first.
 
     flush() runs it before it waits, and the exit before it drains, so what the releases queue
-    is waited for.
+    is waited for. The releasing thread does them in order, so a barrier put behind them is
+    reached once the last is done, even one the thread has taken off the queue and not finished
+    (CodeRabbit on #99). Without that thread (it could not start, or the process forked), or on it
+    (a loss callback calling flush()), they are done here, within the deadline too: a release
+    that fails is logged, and the others are still done.
     """
-    with _releasing:
+    releaser = _releaser
+    if releaser is not None and releaser.is_alive() and releaser is not threading.current_thread():
+        barrier = _Barrier()
+        _handed_off.put(barrier)
+        if deadline is None:
+            barrier.done.wait()
+            return True
+        return barrier.done.wait(_seconds_left(deadline))
+    # Another flush may be doing them: wait for it, but not past the deadline.
+    if not (
+        _releasing_here.acquire() if deadline is None else _releasing_here.acquire(timeout=_seconds_left(deadline))
+    ):
+        return False
+    try:
         while True:
             try:
-                hold = _handed_off.get_nowait()
+                item = _handed_off.get_nowait()
             except queue.Empty:
-                return
-            hold.release()
+                return True
+            try:
+                item.release()
+            except Exception:  # one failed release must not leave the others queued (CodeRabbit on #100)
+                log.warning("layerlens: could not end a stream's hold on its trace", exc_info=True)
+            if deadline is not None and time.monotonic() >= deadline:
+                return _handed_off.empty()
+    finally:
+        _releasing_here.release()
+
+
+def _seconds_left(deadline: float) -> float:
+    """What is left until ``deadline``, as a wait takes it: a wait raises OverflowError past
+    threading.TIMEOUT_MAX."""
+    return min(threading.TIMEOUT_MAX, max(0.0, deadline - time.monotonic()))
 
 
 _run_before_flush(_do_handed_off_releases)
 
+# How long the exit waits for the handed-off releases. Each is quick; a hold still open after it
+# is released below, with the traces still waiting for their streams.
+_HANDED_OFF_AT_EXIT_S = 1.0
+
 
 def _upload_traces_waiting_for_streams() -> None:
     """At exit, before the uploads drain: a trace still waiting for its stream goes with what it has."""
-    _do_handed_off_releases()
+    _do_handed_off_releases(time.monotonic() + _HANDED_OFF_AT_EXIT_S)
     with _waiting_lock:
         waiting = list(_waiting_for_streams)
         _waiting_for_streams.clear()

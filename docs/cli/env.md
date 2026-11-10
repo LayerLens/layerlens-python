@@ -37,7 +37,9 @@ stdout, and progress to stderr; with `--format json`, stdout holds only the JSON
 
 Test for `10` to tell "the agent regressed" from "the pipeline broke". Never treat `11` as a
 flake to ignore: it can be an agent that fails every task, so it must block a merge as `10`
-does.
+does. A `--junit` or `--markdown` file that cannot be written (a missing directory, no
+permission) is printed as an error and does not change a `10` or `11`; a run that passes the
+gate exits `1` then.
 
 ## Environments
 
@@ -152,9 +154,10 @@ When the command writes the id of the trace it sent to `LAYERLENS_TRACE_ID_FILE`
 links that trace to the attempt, whether the attempt answered, failed or timed out. The
 run's results carry it as `agent_trace_id`, beside `trace_id`, LayerLens's own trace of the
 attempt, and each attempt's progress line names it: `[1/4] refund-request: answered (4.2s),
-trace 6a91c0f2a7b8c9d0e1f2a3b4`. An id that names no trace in the organization is not linked:
-the answer is still graded, and the line says why: `…; no trace linked: the trace id "…" names
-no trace in this organization, so the attempt is not linked to it`.
+trace 6a91c0f2a7b8c9d0e1f2a3b4`. An id that is neither the id of a trace in the organization nor
+the SDK or OpenTelemetry trace id of one in the project is not linked: the answer is still
+graded, and the line says why, for example `…; no trace linked: the trace id "…" is not the SDK
+or OpenTelemetry trace id of a trace in this project, so the attempt is not linked to it`.
 
 An agent traced with the LayerLens SDK needs no code for this: the SDK writes there the id
 the API gives the first trace it uploads, unless the file already holds an id, so an id the
@@ -281,8 +284,8 @@ layerlens env run wait support-desk "$RUN_ID" --min-pass-rate 0.9
 
 `start` also takes `--idempotency-key`. `submit` takes `--answer` or `--answer-file`, or
 `--error TEXT` / `--timed-out` for an agent that gave no answer, and `--trace-id` to link the
-agent's own trace; an id that names no trace in the organization is not linked, and `submit`
-warns on stderr. Each answer is graded before `submit` returns. A run finishes on its own
+agent's own trace; an id that names no trace of the organization by its id, nor one of the
+project by its SDK or OpenTelemetry trace id, is not linked, and `submit` warns on stderr. Each answer is graded before `submit` returns. A run finishes on its own
 when its last attempt is graded; `finish` closes it early, and attempts never submitted count
 as errors. Attempts expire 24 hours after `start`.
 
@@ -352,8 +355,8 @@ could be taken as the baseline.
 | Code | Meaning |
 | --- | --- |
 | `0` | No task regressed. |
-| `1` | A task regressed. Nothing else exits `1`. |
-| `2` | The runs could not be compared: bad usage, a run not found, still running or not succeeded, no run with that label, an API or network error, or an interrupt. |
+| `1` | A task regressed. Nothing else exits `1`. A regression exits `1` also when the `--markdown` file could not be written to; stderr says so. |
+| `2` | The runs could not be compared: bad usage, a run not found, still running or not succeeded, no run with that label, an API or network error, or an interrupt. Also when no task regressed but the `--markdown` file could not be written to. |
 
 A gate in CI, on a pull request, after the run of the pull request's commit:
 

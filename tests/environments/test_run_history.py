@@ -342,6 +342,36 @@ class TestCompareCommand:
         written = summary_file.read_text()
         assert written.startswith("# Earlier step\n### LayerLens: support-agent — 2 tasks regressed")
 
+    def test_a_regression_exits_1_even_when_the_markdown_summary_cannot_be_written(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        # It exited 2, "the runs could not be compared", after comparing them and finding the
+        # regression: a CI gate that reads 2 as a broken pipeline, not a regression, let it pass.
+        serves(api, a_run(BASELINE, task(T1, "pass")), a_run(CANDIDATE, task(T1, "fail")))
+        unwritable = tmp_path / "no-such-dir" / "summary.md"
+
+        result = invoke(runner, "env", "run", "compare", ENV_ID, BASELINE, CANDIDATE, "--markdown", str(unwritable))
+
+        assert result.exit_code == 1, result.stderr
+        assert "1 task passed on the baseline and fails on the candidate:" in result.stdout
+        assert f"Error: the Markdown summary could not be appended to {unwritable}" in result.stderr
+        assert "Regression: 1 task regressed" in result.stderr
+        assert "unexpected error" not in result.stderr
+
+    def test_no_regression_with_a_summary_that_cannot_be_written_exits_2(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path
+    ) -> None:
+        # Nothing regressed, but the step did not do what it was asked: not a pass, and never 1.
+        serves(api, a_run(BASELINE, task(T1, "pass")), a_run(CANDIDATE, task(T1, "pass")))
+        unwritable = tmp_path / "no-such-dir" / "summary.md"
+
+        result = invoke(runner, "env", "run", "compare", ENV_ID, BASELINE, CANDIDATE, "--markdown", str(unwritable))
+
+        assert result.exit_code == 2, result.stderr
+        assert f"Error: the Markdown summary could not be appended to {unwritable}" in result.stderr
+        assert "the runs were compared and no task regressed" in result.stderr
+        assert "unexpected error" not in result.stderr
+
     def test_json_is_the_comparison(self, runner: CliRunner, api: FakeAPI) -> None:
         serves(api, a_run(BASELINE, task(T1, "pass")), a_run(CANDIDATE, task(T1, "error", error_source="agent")))
 
@@ -482,7 +512,7 @@ class TestCompareCommand:
     def test_no_api_key_exits_2(self, runner: CliRunner) -> None:
         result = invoke(runner, "env", "run", "compare", ENV_ID, BASELINE, CANDIDATE, env={"LAYERLENS_API_KEY": ""})
         assert result.exit_code == 2
-        assert "needs an Automation API key" in result.stderr
+        assert "layerlens env needs an API key" in result.stderr
 
     def test_an_interrupt_exits_2(self, runner: CliRunner, api: FakeAPI) -> None:
         def interrupt(request: httpx.Request) -> Any:

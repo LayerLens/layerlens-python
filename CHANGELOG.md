@@ -191,6 +191,59 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 
 ### Fixed
 
+- **`layerlens integration test` tells a vendor's refusal from a call LayerLens refused.** It
+  read every 401 from the test as the integration's stored credentials refused by its vendor, so a
+  key whose user may not test integrations (a member's) and a vendor that could not be reached were
+  reported as bad credentials. With layerlens-app's companion change the API answers a vendor's
+  refusal with 422 and an unreachable vendor with 502: a 422 prints `the stored credentials of
+  integration ID were refused`, and a 401 or a 502 prints `integration ID could not be tested`,
+  each with the API's reason. An older API's 401 prints its reason the same way
+
+- **`layerlens env --help` says what a Standard key runs.** It said every command needs an
+  Automation key, and so did the error printed when no key is set, also for `env list`. A key
+  with Standard access runs `env list`, `env tools` and `env reset`; both now say so
+
+- **`env run exec`, `model` and `wait` exit with the gate's code when a report cannot be
+  written.** A `--junit` or `--markdown` file they could not write was an "unexpected error",
+  exit `1`, so a run below `--min-pass-rate` (`10`) or one that did not finish (`11`) read as a
+  broken pipeline. The failure is now printed as an error naming the file, the other report is
+  still written, and the exit code is the gate's; a run that passes the gate exits `1`. `env run
+  results` exits `1` naming the file
+
+- **`env run compare` exits `1` for a regression even when `--markdown` cannot be written.** A
+  summary file it could not append to (a missing directory, no permission) was an "unexpected
+  error" and exited `2`, "the runs could not be compared", after the runs were compared and the
+  regression found: a CI gate that reads `2` as a broken pipeline let the regression through. The
+  verdict now decides: a regression exits `1` and stderr says the summary was not written; with no
+  regression the command exits `2`, naming the file and saying nothing regressed, since the step
+  did not do all it was asked
+
+- **`Trace` holds the parts of a trace continued in another process.** Since layerlens-app#2888
+  such a trace is stored as one trace per process; the traces list shows it once, through its
+  first part, with `segment_count`, and the read of a part names every part (`segments`), its
+  place (`part`) and their number (`parts`). `Trace` dropped all four, so the SDK could not reach
+  a later part: the list hides it, and only `segments` names it. They are now optional fields,
+  with `TraceSegment` (`id`, `segment_id`, `continued_from_span_id`, `start_time`,
+  `event_count`, `attestation_status`); `None` for a trace that is not continued and from an
+  older API. `layerlens trace get --format json` prints them
+
+- **A stream returned by a `@trace` function that fails ends its trace with the error alone.**
+  The trace recorded the stream's `agent.error`, then the function's `agent.output` with
+  `status: "ok"`, as if the call had succeeded. It now ends with `agent.error` on the function's
+  span, as when the function itself raises, and no `agent.output`; the failed model call keeps its
+  own `agent.error`, with the chunks it had read. So does a stream that failed inside the function
+  before it was returned
+
+- **`@trace(AsyncLayerLens())` and `trace_context` with an async client upload their traces.**
+  The upload worker, a thread, called the client's `traces.upload`, which on `AsyncLayerLens` is
+  a coroutine: nobody awaited it, so nothing was sent, Python warned `coroutine … was never
+  awaited`, and every trace was counted `rejected`. The worker now uploads an async client's
+  traces through a synchronous client with its key, URL, timeout, retries and upload hosts, in its
+  organization and project: the async client's connections belong to its event loop, which is
+  closed by the time the upload runs when the program used `asyncio.run`. A client of another
+  kind whose upload returns an awaitable is counted `upload_error`, as a trace that cannot be
+  sent, not `rejected`
+
 - **`layerlens integration test` reads the API's answer.** The API answers a passing test with
   `{"ok": true}`, which `integrations.test()` could not read: it returned `None`, and the CLI said
   "Failed to test integration" for an integration that worked. `TestIntegrationResponse.success`
@@ -219,7 +272,7 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   stream closed early, dropped unread, or still open at exit lets the trace upload without the call
   (the exit queues it before it drains). A stream the garbage collector ends is released on a
   background thread, `layerlens-stream-release`, never inside the collection, and `flush()` and the
-  exit finish such a release before they wait. The function's `agent.output` records the stream's reply,
+  exit wait for those releases before they wait for the uploads. The function's `agent.output` records the stream's reply,
   as `model.invoke` records it, once the caller has read it; it recorded the stream object as text
   (`<generator object …>`), and records no output for a stream that ended without a reply.
   Covers calls made with `stream=True` through the OpenAI, Azure OpenAI, OpenRouter, Anthropic,

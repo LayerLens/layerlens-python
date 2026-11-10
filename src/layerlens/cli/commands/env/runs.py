@@ -19,7 +19,9 @@ from ._exec import (
     agent_environment,
 )
 from ._common import (
+    EXIT_OK,
     DURATION,
+    EXIT_ERROR,
     DEFAULT_TIMEOUT,
     EXIT_NOT_FINISHED,
     fail,
@@ -491,12 +493,14 @@ def _conclude(
     broken: Optional[str] = None,
 ) -> None:
     print_run(ctx, result)
-    write_reports(result, junit, markdown)
+    written = write_reports(result, junit, markdown)
     if broken is not None:
         fail(broken, EXIT_NOT_FINISHED)
     code = gate(result, min_pass_rate)
     explain_gate(result, min_pass_rate, code)
-    finish_with(code)
+    # The gate's 10 or 11 stands when a report could not be written: a run below the pass rate
+    # must not read as a broken pipeline (1). A run that passes exits 1 then: the step failed.
+    finish_with(code if code != EXIT_OK or written else EXIT_ERROR)
 
 
 @run.command("start", cls=LayerLensCommand)
@@ -694,7 +698,8 @@ def results(ctx: click.Context, environment: str, run_id: str, junit: Optional[s
         ]
         columns = [("task", "Task"), ("verdict", "Verdict"), ("evidence", "Evidence"), ("trace_id", "Trace")]
         click.echo(format_table(rows, columns, max_col_width=80))
-    write_reports(result, junit, markdown)
+    if not write_reports(result, junit, markdown):
+        sys.exit(EXIT_ERROR)
 
 
 @run.command("cancel", cls=LayerLensCommand)

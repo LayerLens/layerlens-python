@@ -27,16 +27,41 @@ import math
 import time
 import queue
 import atexit
+import inspect
 import logging
 import weakref
 import tempfile
 import threading
 from typing import Any, Dict, List, Tuple, Callable, Optional
 
+from .._client import AsyncLayerLens
 from .._exit_timeout import EXIT_TIMEOUT_ENV, parse_exit_timeout
 from .._trace_id_file import offer_trace_id
 
 log: logging.Logger = logging.getLogger(__name__)
+
+
+def _upload_file(client: Any, path: str) -> Any:
+    """Upload the trace file at ``path`` through ``client``; returns what the upload returned.
+
+    Runs on the upload worker, a thread, or in the caller's thread in sync mode: never in an
+    event loop. An ``AsyncLayerLens``'s upload is a coroutine of the loop the client is used on,
+    so its traces go through its synchronous twin. Before, the coroutine was never awaited:
+    nothing was sent and the trace was counted ``rejected``. A client of another kind whose
+    upload returns an awaitable cannot be sent from here either: ``TypeError``, which the
+    caller counts as ``upload_error``.
+    """
+    uploader = client._sync_twin() if isinstance(client, AsyncLayerLens) else client  # noqa: SLF001
+    result = uploader.traces.upload(path)
+    if inspect.isawaitable(result):
+        close = getattr(result, "close", None)
+        if callable(close):
+            close()  # a coroutine never awaited warns when it is collected
+        raise TypeError(
+            f"{type(client).__name__}.traces.upload returned an awaitable, which the upload thread "
+            "cannot run: trace with a LayerLens or AsyncLayerLens client"
+        )
+    return result
 
 
 def _upload_succeeded(result: Any) -> bool:
@@ -201,7 +226,7 @@ class UploadChannel:
                 continue
             self._sending = payload
             try:
-                result = client.traces.upload(path)
+                result = _upload_file(client, path)
                 if _upload_succeeded(result):
                     self._on_success()
                     _offer_server_trace_id(result)
@@ -290,7 +315,7 @@ class UploadChannel:
             log.warning("layerlens: failed to serialize trace for upload", exc_info=True)
             return
         try:
-            result = client.traces.upload(path)
+            result = _upload_file(client, path)
             if _upload_succeeded(result):
                 self._on_success()
                 _offer_server_trace_id(result)
@@ -483,10 +508,13 @@ def flush(timeout: Optional[float] = None) -> bool:
     if timeout is not None and (math.isnan(timeout) or timeout < 0):
         raise ValueError(f"timeout must be a number of seconds from 0 up, or None; got {timeout!r}")
     deadline = None if timeout is None or math.isinf(timeout) else time.monotonic() + timeout
+    steps_done = True
     for step in list(_before_flush):
         try:
-            step()
+            if not step(deadline):
+                steps_done = False
         except Exception:  # one failed step must not cost the queued traces their wait
+            steps_done = False
             log.warning("layerlens: a step before the flush failed", exc_info=True)
     with _registry_lock:
         channels = list(_channels)
@@ -500,7 +528,7 @@ def flush(timeout: Optional[float] = None) -> bool:
         # Thread.join raises OverflowError past threading.TIMEOUT_MAX.
         worker.join(None if deadline is None else min(threading.TIMEOUT_MAX, max(0.0, deadline - time.monotonic())))
     still_working = any(worker.is_alive() for worker in workers)
-    return not still_working and not any(ch._unsent() for ch in channels)
+    return steps_done and not still_working and not any(ch._unsent() for ch in channels)
 
 
 # How long the process's exit waits, in all, for the traces still queued, unless
@@ -529,12 +557,13 @@ def _run_before_exit_drain(step: Callable[[], None]) -> None:
     _before_exit_drain.append(step)
 
 
-# Run by flush() before it waits, so what they queue is waited for: the collector ends the streams
-# a garbage collection ended, whose releases it handed to another thread (S2).
-_before_flush: List[Callable[[], None]] = []
+# Run by flush() before it waits, with its deadline (None: no limit), so what they queue is waited
+# for; each says whether it finished in time. The collector waits for the releases of the streams a
+# garbage collection ended, which it handed to another thread (S2).
+_before_flush: List[Callable[[Optional[float]], bool]] = []
 
 
-def _run_before_flush(step: Callable[[], None]) -> None:
+def _run_before_flush(step: Callable[[Optional[float]], bool]) -> None:
     _before_flush.append(step)
 
 

@@ -6,6 +6,9 @@ integration, the API answered 200 `{"status": "success", "data": {"source_type":
 "Failed to test integration …" (exit 1): TestIntegrationResponse expected `success`. And the API
 answers stored credentials that the vendor refuses with a 401 carrying the vendor's reason, which
 the CLI printed as "Error: Invalid or missing API key." although the key had just been checked.
+
+The API now answers a vendor's refusal with 422 and a vendor it cannot reach with 502; a 401 is
+LayerLens refusing the caller (a role), which the CLI no longer calls a credential refusal.
 """
 
 from __future__ import annotations
@@ -56,8 +59,41 @@ def test_a_passing_test_is_read_as_the_api_answers_it() -> None:
 
 
 def test_credentials_the_vendor_refused_are_named_not_blamed_on_the_layerlens_key() -> None:
-    reason = "langfuse refused the credentials: 401 Unauthorized"
+    # The API answers the vendor's refusal with 422 (layerlens-app's companion PR); 401 is
+    # LayerLens refusing the caller.
+    result = _run(422, {"status": "error", "error": "invalid Langfuse credentials"})
+    assert result.exit_code == 1
+    assert (
+        f"Error: the stored credentials of integration {INTEGRATION} were refused: "
+        "invalid Langfuse credentials (HTTP 422)"
+    ) in result.stderr
+    assert "Invalid or missing API key" not in result.stderr
+
+
+def test_a_role_the_api_refuses_is_not_called_a_credential_refusal() -> None:
+    # A member's key: the API refuses the route with 401. It printed "the stored credentials of
+    # integration … were refused", sending the reader to rotate credentials that work.
+    reason = "user is not the owner or an admin of the organization"
     result = _run(401, {"status": "error", "error": reason})
     assert result.exit_code == 1
-    assert reason in result.stderr and "stored credentials" in result.stderr
-    assert "Invalid or missing API key" not in result.stderr
+    assert f"Error: integration {INTEGRATION} could not be tested: {reason} (HTTP 401)" in result.stderr
+    assert "stored credentials" not in result.stderr and "Invalid or missing API key" not in result.stderr
+
+
+def test_a_vendor_that_cannot_be_reached_is_not_called_a_credential_refusal() -> None:
+    result = _run(502, {"status": "error", "error": "failed to reach Langfuse API"})
+    assert result.exit_code == 1
+    assert (
+        f"Error: integration {INTEGRATION} could not be tested: failed to reach Langfuse API (HTTP 502)"
+    ) in result.stderr
+    assert "stored credentials" not in result.stderr
+
+
+def test_an_older_apis_401_still_says_why() -> None:
+    # Before the companion PR, the API answered a vendor's refusal with 401 too: its reason is
+    # printed as it is, without claiming which side refused.
+    result = _run(401, {"status": "error", "error": "invalid Langfuse credentials"})
+    assert result.exit_code == 1
+    assert (
+        f"Error: integration {INTEGRATION} could not be tested: invalid Langfuse credentials (HTTP 401)"
+    ) in result.stderr

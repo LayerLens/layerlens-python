@@ -268,12 +268,14 @@ def stream_chunks_sync(
 
     def generator() -> Iterator[Any]:
         reply: Any = None
+        error: Optional[BaseException] = None
         try:
             try:
                 for chunk in stream:
                     wrapper.record_chunk(chunk)
                     yield chunk
             except Exception as exc:
+                error = exc
                 partial_meta = _safe_partial_meta(aggregate, extract_meta, wrapper.chunks)
                 with _emitting_into(origin):
                     emit_llm_error(
@@ -306,7 +308,10 @@ def stream_chunks_sync(
                 )
         finally:
             for hold in holds:
-                hold.reply = reply  # the function that returned this stream records it as its output
+                # The function that returned this stream records its reply as its output, or ends
+                # with the error the stream failed with.
+                hold.reply = reply
+                hold.error = error
                 hold.release()
 
     return _hold_trace(origin, generator(), holds)
@@ -338,12 +343,14 @@ def stream_chunks_async(
 
     async def generator() -> AsyncIterator[Any]:
         reply: Any = None
+        error: Optional[BaseException] = None
         try:
             try:
                 async for chunk in stream:
                     wrapper.record_chunk(chunk)
                     yield chunk
             except Exception as exc:
+                error = exc
                 partial_meta = _safe_partial_meta(aggregate, extract_meta, wrapper.chunks)
                 with _emitting_into(origin):
                     emit_llm_error(
@@ -376,7 +383,10 @@ def stream_chunks_async(
                 )
         finally:
             for hold in holds:
-                hold.reply = reply  # the function that returned this stream records it as its output
+                # The function that returned this stream records its reply as its output, or ends
+                # with the error the stream failed with.
+                hold.reply = reply
+                hold.error = error
                 hold.release()
 
     return _hold_trace(origin, generator(), holds)

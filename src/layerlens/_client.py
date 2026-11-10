@@ -398,6 +398,21 @@ class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
 
         # The organization and project are read on first use, not here (BUG-03).
         self._init_organization_scope()
+        self._sync_twin_lock = threading.Lock()
+        self._sync_twin_client: Optional[_SyncTwin] = None
+
+    def _sync_twin(self) -> LayerLens:
+        """A synchronous client with this client's key, URL, timeout, retries and upload hosts,
+        working in this client's organization and project. Made once, then kept.
+
+        For work that runs outside the caller's event loop, such as the trace upload worker,
+        a thread of its own: this client's calls are coroutines, and its connections belong to
+        the loop it is used on, which is busy then, or closed once ``asyncio.run`` has returned.
+        """
+        with self._sync_twin_lock:
+            if self._sync_twin_client is None:
+                self._sync_twin_client = _SyncTwin(self)
+            return self._sync_twin_client
 
     @cached_property
     def benchmarks(self) -> AsyncBenchmarks:
@@ -585,6 +600,31 @@ class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
             return _session_organization(resp.data) if isinstance(resp, OrganizationsListResponse) else None
         organization = await self.get_cast("/organizations", timeout=30, cast_to=OrganizationResponse)
         return organization.data if isinstance(organization, OrganizationResponse) else None
+
+
+class _SyncTwin(LayerLens):
+    """The synchronous client of an :class:`AsyncLayerLens` (see ``AsyncLayerLens._sync_twin``).
+
+    Its organization and project are the async client's, read through it, so the two never
+    work in different projects, and ids set on the async client later are followed.
+    """
+
+    def __init__(self, owner: AsyncLayerLens) -> None:
+        super().__init__(
+            api_key=owner.api_key,
+            base_url=owner.base_url,
+            timeout=owner.timeout,
+            max_retries=owner._max_retries,
+            trusted_upload_hosts=list(owner.trusted_upload_hosts),
+        )
+        # Set after: the owner's base_url already carries the session prefix bearer auth adds.
+        self._use_bearer_auth = owner._use_bearer_auth
+        self.trusted_upload_hosts = list(owner.trusted_upload_hosts)
+        self._owner = owner
+
+    @override
+    def _organization_scope(self) -> Tuple[str, str]:
+        return self._owner._organization_scope()
 
 
 Client = LayerLens

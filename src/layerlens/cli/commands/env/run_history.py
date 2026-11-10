@@ -138,6 +138,16 @@ class NotCompared(click.ClickException):
     exit_code = EXIT_NOT_COMPARED
 
 
+class SummaryNotWritten(click.ClickException):
+    """The runs were compared and nothing regressed, but ``--markdown`` could not be appended to.
+
+    Exits 2: the step did not do all it was asked, so it does not pass, and only a regression
+    exits 1. With a regression the command exits 1 all the same, and says the summary is missing.
+    """
+
+    exit_code = EXIT_NOT_COMPARED
+
+
 def compare_errors(fn: Callable[..., Optional[RunComparison]]) -> Callable[..., None]:
     """Exit 2 for anything that is not a comparison, so that only a regression exits 1.
 
@@ -151,7 +161,7 @@ def compare_errors(fn: Callable[..., Optional[RunComparison]]) -> Callable[..., 
     def wrapper(ctx: click.Context, *args: Any, **kwargs: Any) -> None:
         try:
             comparison = fn(ctx, *args, **kwargs)
-        except (NotCompared, click.UsageError):
+        except (NotCompared, SummaryNotWritten, click.UsageError):
             raise
         except InvalidArgument as err:
             raise click.UsageError(str(err), ctx) from None
@@ -216,7 +226,8 @@ def compare(
 
     \b
     Exit codes: 0 no regression, 1 regression, 2 the runs could not be compared (a run
-    not found, still running or not succeeded, no run with that label, an API error).
+    not found, still running or not succeeded, no run with that label, an API error), or
+    no task regressed but the --markdown file could not be written to.
 
     \b
     Examples:
@@ -252,13 +263,28 @@ def compare(
         emit_json(comparison)
     else:
         _print(comparison)
-    if markdown:
-        with open(markdown, "a", encoding="utf-8") as f:
-            f.write(comparison.to_markdown())
-        progress(f"Markdown summary appended to {markdown}")
+    unwritten = _append_summary(markdown, comparison) if markdown else None
     regressed = len(comparison.regressed)
     progress(f"Regression: {regressed} task{'s' if regressed != 1 else ''} regressed" if regressed else "No regression")
+    if unwritten is not None:
+        # The comparison is made, so its verdict is the exit code: a regression exits 1 whatever
+        # else failed. It used to exit 2, "not compared", which a CI gate may let pass.
+        if comparison.regression:
+            click.echo(f"Error: {unwritten}", err=True)
+        else:
+            raise SummaryNotWritten(f"{unwritten}; the runs were compared and no task regressed")
     return comparison
+
+
+def _append_summary(path: str, comparison: RunComparison) -> Optional[str]:
+    """Append the comparison's Markdown to ``path``; None, or why it could not be."""
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(comparison.to_markdown())
+    except OSError as err:
+        return f"the Markdown summary could not be appended to {path}: {err.strerror or err}"
+    progress(f"Markdown summary appended to {path}")
+    return None
 
 
 def _run_ids(runs: Tuple[str, ...], baseline_label: Optional[str]) -> Tuple[Optional[str], str]:

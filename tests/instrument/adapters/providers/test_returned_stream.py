@@ -15,6 +15,7 @@ import sys
 import time
 import queue
 import asyncio
+import logging
 import threading
 from types import SimpleNamespace
 from typing import Any, Dict, List, Callable, Iterator, Generator, AsyncIterator
@@ -369,6 +370,7 @@ def test_flush_and_the_exit_do_a_release_a_collection_handed_off(
     # A release handed off during a collection waits for the releasing thread; flush() and the exit
     # do it themselves, so a trace whose stream was collected is not left behind. No thread here.
     monkeypatch.setattr(_collector, "_handed_off", queue.SimpleQueue())
+    monkeypatch.setattr(_collector, "_releaser", None)
     monkeypatch.setattr(_collector, "_start_releasing", lambda: None)
     answer = _answer_keeping_its_trace(mock_client, [])
     with _no_automatic_collection():
@@ -382,3 +384,235 @@ def test_flush_and_the_exit_do_a_release_a_collection_handed_off(
     else:
         _upload._flush_at_exit()
     assert len(capture_trace_list) == 1
+
+
+class _ConnectionCut(Exception):
+    """What a provider raises when its stream breaks part-way."""
+
+
+def _cut_stream_client() -> Any:
+    """A client whose Responses stream yields two events, then breaks."""
+
+    def create(**kwargs: Any) -> Iterator[Any]:  # noqa: ARG001
+        def stream() -> Iterator[Any]:
+            events = _events(_completed())
+            yield events[0]
+            yield events[1]
+            raise _ConnectionCut("connection reset by peer")
+
+        return stream()
+
+    client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    OpenAIProvider().connect(client)
+    return client
+
+
+def _root_endings(upload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The events that end the trace's root span: its agent.output or agent.error."""
+    root = find_event(upload["events"], "agent.input")["span_id"]
+    return [e for e in upload["events"] if e["span_id"] == root and e["event_type"] in ("agent.output", "agent.error")]
+
+
+def _assert_ends_once_with_the_error(upload: Dict[str, Any]) -> None:
+    endings = _root_endings(upload)
+    assert [e["event_type"] for e in endings] == ["agent.error"], endings
+    payload = endings[0]["payload"]
+    assert payload["status"] == "error" and payload["error_type"] == "_ConnectionCut"
+    assert payload["error"] == "connection reset by peer"
+    # The call itself is recorded as failed too, under its own span, as a call without stream is.
+    call_errors = [e for e in find_events(upload["events"], "agent.error") if e not in endings]
+    assert len(call_errors) == 1 and call_errors[0]["payload"]["partial_chunks"] == 2
+
+
+def test_a_returned_stream_that_fails_ends_its_trace_with_the_error_not_an_ok_output(
+    mock_client: Any, capture_trace_list: List[Dict[str, Any]]
+) -> None:
+    # The trace recorded the stream's agent.error, then agent.output with status "ok": two endings,
+    # the second saying the function succeeded. A function whose call fails before it returns ends
+    # with agent.error; one whose stream fails after it returned ends the same way.
+    client = _cut_stream_client()
+
+    @trace(mock_client, capture_config=CaptureConfig.full())
+    def answer() -> Iterator[Any]:
+        return client.responses.create(model=MODEL, input=PROMPT, stream=True)
+
+    stream = answer()
+    with pytest.raises(_ConnectionCut):
+        for _ in stream:
+            pass
+    assert len(capture_trace_list) == 1
+    _assert_ends_once_with_the_error(capture_trace_list[0])
+
+
+def test_a_returned_async_stream_that_fails_ends_its_trace_with_the_error(
+    mock_client: Any, capture_trace_list: List[Dict[str, Any]]
+) -> None:
+    async def stream() -> AsyncIterator[Any]:
+        events = _events(_completed())
+        yield events[0]
+        yield events[1]
+        raise _ConnectionCut("connection reset by peer")
+
+    async def create(**kwargs: Any) -> AsyncIterator[Any]:  # noqa: ARG001
+        return stream()
+
+    client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    OpenAIProvider().connect(client)
+
+    @trace(mock_client, capture_config=CaptureConfig.full())
+    async def answer() -> AsyncIterator[Any]:
+        return await client.responses.create(model=MODEL, input=PROMPT, stream=True)
+
+    async def main() -> None:
+        returned = await answer()
+        with pytest.raises(_ConnectionCut):
+            async for _ in returned:
+                pass
+
+    asyncio.run(main())
+    assert len(capture_trace_list) == 1
+    _assert_ends_once_with_the_error(capture_trace_list[0])
+
+
+def test_a_stream_that_failed_before_the_function_returned_it_ends_the_trace_with_its_error(
+    mock_client: Any, capture_trace_list: List[Dict[str, Any]]
+) -> None:
+    # The function read the stream, caught its failure and returned the stream: the stream has
+    # already ended when it is returned, and its trace ends with the error it ended with.
+    client = _cut_stream_client()
+
+    @trace(mock_client, capture_config=CaptureConfig.full())
+    def answer() -> Iterator[Any]:
+        stream = client.responses.create(model=MODEL, input=PROMPT, stream=True)
+        try:
+            for _ in stream:
+                pass
+        except _ConnectionCut:
+            pass
+        return stream
+
+    answer()
+    assert len(capture_trace_list) == 1
+    _assert_ends_once_with_the_error(capture_trace_list[0])
+
+
+class _Wake:
+    """An item that only wakes the releasing thread, so it takes its next item from the queue now set."""
+
+    def release(self) -> None:
+        pass
+
+
+class _PausingQueue:
+    """The hand-off queue, whose releasing thread waits for ``go`` just after it takes a hold."""
+
+    def __init__(self) -> None:
+        self._items: "queue.SimpleQueue[Any]" = queue.SimpleQueue()
+        self.taken, self.go = threading.Event(), threading.Event()
+
+    def put(self, item: Any) -> None:
+        self._items.put(item)
+
+    def get_nowait(self) -> Any:
+        return self._items.get_nowait()
+
+    def get(self) -> Any:
+        item = self._items.get()
+        if isinstance(item, _collector._StreamHold):  # noqa: SLF001
+            self.taken.set()
+            self.go.wait(5)
+        return item
+
+
+def test_flush_waits_for_a_release_the_releasing_thread_has_taken_but_not_done(
+    mock_client: Any, capture_trace_list: List[Dict[str, Any]]
+) -> None:
+    # CodeRabbit on #99: the releasing thread took a hold off the queue before it locked out
+    # flush(); a flush in between found the queue empty and returned before the trace was queued.
+    answer = _answer_keeping_its_trace(mock_client, [])
+    stream = answer()  # opening a stream starts the releasing thread
+    real: Any = _collector._handed_off  # noqa: SLF001
+    pausing = _PausingQueue()
+    _collector._handed_off = pausing
+    real.put(_Wake())  # the thread takes its next item from `pausing`
+    try:
+        with _no_automatic_collection():
+            _leave_in_a_cycle(stream)
+            del stream
+            gc.collect()
+        assert pausing.taken.wait(5), "the releasing thread did not take the hold"
+        threading.Timer(0.3, pausing.go.set).start()
+        assert _upload.flush(timeout=5)
+        assert len(capture_trace_list) == 1, "flush() returned before the release it had to wait for"
+    finally:
+        pausing.go.set()
+        _collector._handed_off = real
+        pausing.put(_Wake())  # and from the real queue again
+
+
+class _Release:
+    """A handed-off release that records itself, and may take time or raise."""
+
+    def __init__(self, released: List[str], name: str, *, seconds: float = 0.0, raises: bool = False) -> None:
+        self.released, self.name, self.seconds, self.raises = released, name, seconds, raises
+
+    def release(self) -> None:
+        time.sleep(self.seconds)
+        self.released.append(self.name)
+        if self.raises:
+            raise RuntimeError(f"{self.name} failed")
+
+
+@pytest.fixture
+def done_here(monkeypatch: pytest.MonkeyPatch) -> "queue.SimpleQueue[Any]":
+    """The hand-off queue with no releasing thread, so flush() and the exit do the releases."""
+    handed_off: "queue.SimpleQueue[Any]" = queue.SimpleQueue()
+    monkeypatch.setattr(_collector, "_handed_off", handed_off)
+    monkeypatch.setattr(_collector, "_releaser", None)
+    return handed_off
+
+
+def test_a_release_done_here_that_fails_does_not_leave_the_others_queued(
+    done_here: "queue.SimpleQueue[Any]", caplog: pytest.LogCaptureFixture
+) -> None:
+    # CodeRabbit on #100: one release that raised left every release behind it queued, and at
+    # exit it cut the step short before it ended the streams still open.
+    released: List[str] = []
+    done_here.put(_Release(released, "fails", raises=True))
+    done_here.put(_Release(released, "next"))
+    with caplog.at_level(logging.WARNING, logger=_collector.__name__):
+        assert _collector._do_handed_off_releases() is True  # noqa: SLF001
+    assert released == ["fails", "next"]
+    assert "could not end a stream's hold on its trace" in caplog.text
+
+
+def test_releases_done_here_keep_the_deadline(done_here: "queue.SimpleQueue[Any]") -> None:
+    # CodeRabbit on #100: the releases done here went on past the deadline, and waited without
+    # limit for another flush doing them, though they say False when the deadline comes first.
+    released: List[str] = []
+    for name in ("slow", "next"):
+        done_here.put(_Release(released, name, seconds=0.3))
+    began = time.monotonic()
+    assert _collector._do_handed_off_releases(time.monotonic() + 0.1) is False  # noqa: SLF001
+    assert released == ["slow"], "it went on past the deadline"
+    assert time.monotonic() - began < 1.0
+
+    holding, let_go = threading.Event(), threading.Event()
+
+    def another_flush() -> None:
+        with _collector._releasing_here:  # noqa: SLF001
+            holding.set()
+            let_go.wait(5)
+
+    other = threading.Thread(target=another_flush, daemon=True)
+    other.start()
+    assert holding.wait(5)
+    try:
+        began = time.monotonic()
+        assert _collector._do_handed_off_releases(time.monotonic() + 0.2) is False  # noqa: SLF001
+        assert time.monotonic() - began < 1.0, "it waited for another flush past the deadline"
+    finally:
+        let_go.set()
+        other.join(5)
+    assert _collector._do_handed_off_releases() is True  # noqa: SLF001
+    assert released == ["slow", "next"]

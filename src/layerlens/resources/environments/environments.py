@@ -52,7 +52,9 @@ if TYPE_CHECKING:
 
 
 class Environments(SyncAPIResource):
-    """``client.environments``: the Automation API. Needs an Automation API key.
+    """``client.environments``: the Automation API. Needs an API key: one with Automation access
+    for most methods; one with Standard access reaches only what an agent uses (see
+    docs/api-reference/environments.md), and is refused the rest with ``PermissionDeniedError``.
 
     Wherever a method takes ``environment``, pass the environment's id or its name.
     """

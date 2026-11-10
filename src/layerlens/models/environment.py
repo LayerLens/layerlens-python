@@ -502,6 +502,7 @@ class SubmitResult(_Model):
     total: int
     # The run finished with this submit (its last attempt was graded).
     finished: bool
-    # Set when the trace id sent with it names no trace in the organization: the answer was graded,
+    # Set when the trace id sent with it names no trace the API links (a trace's id in the
+    # organization, or the SDK or OpenTelemetry trace id of one in the project): the answer was graded,
     # and the attempt is not linked to that trace. The API's sentence saying so.
     trace_id_unlinked: Optional[str] = None

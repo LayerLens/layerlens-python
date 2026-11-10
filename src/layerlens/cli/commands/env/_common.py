@@ -38,11 +38,19 @@ DEFAULT_TIMEOUT = "30m"
 
 
 def env_client(ctx: click.Context, *, key_on_command_line: bool = True) -> LayerLens:
-    """A client on the Automation key. ``layerlens env`` takes an API key only, never a login session."""
+    """A client on the API key. ``layerlens env`` takes an API key only, never a login session.
+
+    Most commands need the key's Automation access; ``env list``, ``env tools`` and ``env reset``
+    run with Standard access too, as the API serves an agent those routes.
+    """
     resolved = resolve_api_key(ctx)
     if resolved is None:
         ways = "--api-key-file PATH or --api-key" if key_on_command_line else "--api-key-file PATH"
-        fail(f"layerlens env needs an Automation API key: set {API_KEY_ENV}, or pass {ways}.")
+        fail(
+            f"layerlens env needs an API key: set {API_KEY_ENV}, or pass {ways}. A key with Standard access "
+            "runs only env list, env tools and env reset; every other command needs Automation access "
+            "(Organization Settings → API Keys)."
+        )
     return build_client(ctx, resolved.value, use_bearer_auth=False)
 
 
@@ -261,14 +269,34 @@ def start_not_known(err: LayerLensError) -> bool:
     return isinstance(err, APIConnectionError) or (isinstance(err, APIStatusError) and err.status_code >= 500)
 
 
-def write_reports(run: RunResult, junit: Optional[str], markdown: Optional[str]) -> None:
+def write_reports(run: RunResult, junit: Optional[str], markdown: Optional[str]) -> bool:
+    """Write the reports asked for; False, once each failure is printed, when one could not be.
+
+    A report that cannot be written (a missing directory, no permission) does not stop the other,
+    nor the gate: the caller decides the exit code from the run, and from this only when the run
+    passes it.
+    """
+    written = True
     if junit:
-        run.to_junit(junit)
-        progress(f"JUnit report written to {junit}")
+        try:
+            run.to_junit(junit)
+        except OSError as err:
+            click.echo(f"Error: the JUnit report could not be written to {junit}: {err.strerror or err}", err=True)
+            written = False
+        else:
+            progress(f"JUnit report written to {junit}")
     if markdown:
-        with open(markdown, "a", encoding="utf-8") as f:
-            f.write(run.to_markdown())
-        progress(f"Markdown summary appended to {markdown}")
+        try:
+            with open(markdown, "a", encoding="utf-8") as f:
+                f.write(run.to_markdown())
+        except OSError as err:
+            click.echo(
+                f"Error: the Markdown summary could not be written to {markdown}: {err.strerror or err}", err=True
+            )
+            written = False
+        else:
+            progress(f"Markdown summary appended to {markdown}")
+    return written
 
 
 def gate(run: RunResult, min_pass_rate: Optional[float]) -> int:

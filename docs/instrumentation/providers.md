@@ -71,12 +71,13 @@ for chunk in answer("..."):  # the trace uploads, with model.invoke and cost.rec
 ```
 
 The function's `agent.output` is the stream's reply, as `model.invoke` records it, written once
-the caller has read the stream. A stream closed before its end, dropped unread, or still open when
+the caller has read the stream; a stream that fails as it is read ends the trace with `agent.error`
+instead, as a function that raises does, and records no `agent.output`. A stream closed before its end, dropped unread, or still open when
 the process exits lets its trace upload without that call, and with no output; one closed before
 its first chunk was read does so when it is collected, or at exit. `layerlens.instrument.flush()` does not wait for a trace still
 waiting for its stream: the exit queues it. A stream the garbage collector ends is released on the SDK's
 `layerlens-stream-release` thread, never inside the collection, which can run while the SDK holds that
-trace's lock; `flush()` and the exit finish such a release themselves before they wait.
+trace's lock; `flush()` and the exit wait for those releases before they wait for the uploads.
 
 ### Disconnect
 

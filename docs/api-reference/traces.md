@@ -226,6 +226,32 @@ print(f"Available sources: {sources}")
 | `integration_id`  | `str \| None`     | Integration that created this trace  |
 | `tags`            | `List[str]`       | The trace's tags; empty when it has none. `get_many(tags=...)` filters by them |
 | `agent`           | `str \| None`     | The agent the API names for the trace, from what the trace declares; `None` when it names none |
+| `segments`        | `List[TraceSegment] \| None` | On `get` of a trace continued in another process: every part of it, first part first. `None` for a trace that is not continued |
+| `part`            | `int \| None`     | On `get` of a part: its place among `segments`, from 1 |
+| `parts`           | `int \| None`     | On `get` of a part: how many parts its trace has |
+| `segment_count`   | `int \| None`     | On `get_many`: how many parts the trace has, when it has more than one |
+
+A trace continued in another process with `trace_context(from_context=...)` is stored as one
+trace per process, its parts. `get_many` lists it once, through its first part, with
+`segment_count`; read a later part by its id from `segments`:
+
+```python
+first = client.traces.get(trace_id)
+for segment in first.segments or []:
+    if segment.id != first.id:
+        later = client.traces.get(segment.id)
+```
+
+### TraceSegment Object Properties
+
+| Property                 | Type          | Description                                                        |
+| ------------------------ | ------------- | ------------------------------------------------------------------ |
+| `id`                     | `str`         | The part's trace id, which `get` reads                              |
+| `segment_id`             | `str`         | The id of the SDK collector that recorded the part                  |
+| `continued_from_span_id` | `str \| None` | The span the part picks up from in the process it continued; `None` for the first part |
+| `start_time`             | `str \| None` | When the part's first event was recorded                            |
+| `event_count`            | `int \| None` | How many events the part holds                                      |
+| `attestation_status`     | `str \| None` | Whether the part's hash chain verified (`verified`, …)              |
 
 ### TraceWithEvaluations Object Properties
 

@@ -339,9 +339,12 @@ Test an integration by ID: the API tries the integration's stored credentials ag
 layerlens integration test <ID>
 ```
 
-Prints `Integration <ID>: OK` and exits `0` when they work. When the vendor refuses them, it exits
-`1` with `Error: the stored credentials of integration <ID> were refused:` and the vendor's reason.
-Your LayerLens key is not the problem then: it was checked first.
+Prints `Integration <ID>: OK` and exits `0` when they work. When the vendor refuses them (the API
+answers `422`), it exits `1` with `Error: the stored credentials of integration <ID> were refused:`
+and the vendor's reason. When the test could not be run, it exits `1` with `Error: integration <ID>
+could not be tested:` and the API's reason: the vendor could not be reached (`502`), or LayerLens
+refused the call (`401`: only an organization's owner or admin, or a key one of them created, can
+test integrations). Your LayerLens key itself was checked first.
 
 ---
 
@@ -545,7 +548,8 @@ prints its result, says why, and exits `1`.
 ## env
 
 Create and mint environments, run your own agent or a model against their tasks, and
-gate a build on the result. It needs an Automation API key. Every command and option is in
+gate a build on the result. It needs an API key with Automation access, except `env list`,
+`env tools` and `env reset`, which a Standard key runs too. Every command and option is in
 [`layerlens env`](env.md).
 
 ```bash

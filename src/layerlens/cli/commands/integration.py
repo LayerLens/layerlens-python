@@ -8,7 +8,7 @@ from .._client import get_client, handle_errors, api_error_text
 from .._output import echo_empty, echo_status, exit_unreadable
 from .._command import LayerLensGroup
 from .._formatter import format_output
-from ..._exceptions import AuthenticationError
+from ..._exceptions import AuthenticationError, InternalServerError, UnprocessableEntityError
 from .._completions import complete_integration
 
 INTEGRATION_COLUMNS = [
@@ -74,10 +74,16 @@ def test_integration(ctx: click.Context, id: str) -> None:
     client = get_client(ctx)
     try:
         result = client.integrations.test(id)
-    except AuthenticationError as err:
-        # get_client has checked the LayerLens key, so a 401 here is the integration's own
-        # stored credentials, refused by its vendor: the API's sentence says why.
+    except UnprocessableEntityError as err:
+        # 422: the integration's vendor refused its stored credentials; the API's sentence says why.
         click.echo(f"Error: the stored credentials of integration {id} were refused: {api_error_text(err)}", err=True)
+        sys.exit(1)
+    except (AuthenticationError, InternalServerError) as err:
+        # 401 is LayerLens refusing this caller (get_client has checked the key, so a role: an owner's
+        # or admin's key tests integrations), 502 a vendor it could not reach. Neither says the stored
+        # credentials are wrong; an API older than the 422 answered a vendor's refusal with 401 too, and
+        # its sentence says so. The API's sentence, as it is.
+        click.echo(f"Error: integration {id} could not be tested: {api_error_text(err)}", err=True)
         sys.exit(1)
     if result is None:
         click.echo(f"Failed to test integration {id}.", err=True)

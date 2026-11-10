@@ -30,7 +30,7 @@ from .api import (
 )
 from .judge import Judge, JudgeVersion
 from .model import Model, CustomModel, PublicModel
-from .trace import Trace, TraceWithEvaluations, TraceEvaluationSummary
+from .trace import Trace, TraceSegment, TraceWithEvaluations, TraceEvaluationSummary
 from .public import (
     BenchmarkPrompt,
     ComparisonResult,
@@ -196,6 +196,7 @@ __all__ = [
     "TraceEvaluationStep",
     "TraceEvaluationSummary",
     "TraceEvaluationsResponse",
+    "TraceSegment",
     "TraceWithEvaluations",
     "TracesResponse",
     "UpdateJudgeResponse",

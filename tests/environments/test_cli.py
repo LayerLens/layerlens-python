@@ -82,9 +82,22 @@ class TestExitCodes:
         assert message in result.stderr and "HTTP 403" in result.stderr
 
     def test_no_api_key_exits_1(self, runner: CliRunner) -> None:
+        # `env list` runs with a Standard key: the message said it needed an Automation key.
         result = invoke(runner, "env", "list", env={"LAYERLENS_API_KEY": ""})
         assert result.exit_code == 1
-        assert "needs an Automation API key" in result.stderr
+        assert "layerlens env needs an API key: set LAYERLENS_API_KEY" in result.stderr
+        assert "Standard access runs only env list, env tools and env reset" in result.stderr
+        assert "needs an Automation API key" not in result.stderr
+
+    def test_the_help_says_what_a_standard_key_can_run(self, runner: CliRunner) -> None:
+        # It said "Needs an Automation API key", but a Standard key runs env list, env tools and
+        # env reset (docs/cli/env.md, checked live on #99).
+        result = invoke(runner, "env", "--help")
+        assert result.exit_code == 0
+        assert "Needs an Automation API key" not in result.stdout
+        text = " ".join(result.stdout.split())
+        assert "A key with Standard access runs only env list, env tools and env reset" in text
+        assert "every other command needs an Automation key" in text
 
     def test_a_failed_build_exits_11(self, runner: CliRunner, api: FakeAPI) -> None:
         api.on("GET", f"/{ENV_ID}/build", ok({"status": "failed", "steps": [], "refused_because": "no such world"}))
@@ -109,6 +122,57 @@ class TestExitCodes:
         api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", ok(view))
         result = invoke(runner, "env", "run", "wait", ENV_ID, RUN_ID, "--min-pass-rate", min_rate)
         assert result.exit_code == code
+
+
+class TestAReportThatCannotBeWritten:
+    """A --junit or --markdown file the command cannot write was an "unexpected error", exit 1,
+    whatever the run's gate said: a run below --min-pass-rate (10) read as a broken pipeline,
+    which the docs tell a CI job to tell apart from a regression. The gate decides now; a report
+    not written is an error only when the gate passes."""
+
+    @pytest.mark.parametrize("report", ["--junit", "--markdown"])
+    @pytest.mark.parametrize(
+        "view, code",
+        [
+            (run_view(row(A[0], "pass"), row(A[1], "fail")), 10),
+            (run_view(row(A[0], "pass"), status="cancelled"), 11),
+            (run_view(row(A[0], "pass"), row(A[1], "pass")), 1),
+        ],
+        ids=["below-min-pass-rate", "not-finished", "passed"],
+    )
+    def test_the_gate_decides_the_exit_code(
+        self, runner: CliRunner, api: FakeAPI, tmp_path: Path, report: str, view: dict, code: int
+    ) -> None:
+        api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", ok(view))
+        unwritable = tmp_path / "no-such-dir" / "report"
+
+        result = invoke(runner, "env", "run", "wait", ENV_ID, RUN_ID, "--min-pass-rate", "0.9", report, str(unwritable))
+
+        assert result.exit_code == code, result.stderr
+        assert f"could not be written to {unwritable}" in result.stderr
+        assert "unexpected error" not in result.stderr
+
+    def test_the_other_report_is_still_written(self, runner: CliRunner, api: FakeAPI, tmp_path: Path) -> None:
+        api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", ok(run_view(row(A[0], "pass"), row(A[1], "fail"))))
+        summary = tmp_path / "summary.md"
+
+        result = invoke(
+            runner, "env", "run", "wait", ENV_ID, RUN_ID, "--min-pass-rate", "0.9",
+            "--junit", str(tmp_path / "no-such-dir" / "results.xml"), "--markdown", str(summary),
+        )  # fmt: skip
+
+        assert result.exit_code == 10, result.stderr
+        assert summary.read_text().startswith("### LayerLens")
+
+    def test_results_exits_1_naming_the_report(self, runner: CliRunner, api: FakeAPI, tmp_path: Path) -> None:
+        api.on("GET", f"/{ENV_ID}/runs/{RUN_ID}", ok(run_view(row(A[0], "pass"))))
+        unwritable = tmp_path / "no-such-dir" / "results.xml"
+
+        result = invoke(runner, "env", "run", "results", ENV_ID, RUN_ID, "--junit", str(unwritable))
+
+        assert result.exit_code == 1
+        assert f"Error: the JUnit report could not be written to {unwritable}" in result.stderr
+        assert "unexpected error" not in result.stderr
 
 
 def test_the_summary_adds_up_when_a_verdict_is_not_counted(runner: CliRunner, api: FakeAPI) -> None:
@@ -254,7 +318,10 @@ TRACE_IDS = {f"task-{i}": "6a91c0f2a7b8c9d0e1f2a3b" + str(i) for i in range(1, 4
 TRACE_IDS["task-4"] = "x" * 300
 # A well-formed trace id that names no trace, and the API's answer to it (N3).
 FAKE_TRACE = "6aee0000000000000000feed"
-UNLINKED = f'the trace id "{FAKE_TRACE}" names no trace in this organization, so the attempt is not linked to it'
+UNLINKED = (
+    f'the trace id "{FAKE_TRACE}" names no trace in this organization, nor is it the SDK or OpenTelemetry '
+    "trace id of a trace in this project, so the attempt is not linked to it"
+)
 
 TRACING_AGENT = r"""
 import os, sys, time, json
@@ -1061,7 +1128,8 @@ class TestRound2:
     def test_exec_without_a_key_does_not_suggest_api_key(self, runner: CliRunner) -> None:
         result = invoke(runner, "env", "run", "exec", ENV_ID, "--set", "ci", "--agent-name", "a", "--", "true", env={})
         assert result.exit_code == 1
-        assert result.stderr.strip().endswith("set LAYERLENS_API_KEY, or pass --api-key-file PATH.")
+        assert "set LAYERLENS_API_KEY, or pass --api-key-file PATH." in result.stderr
+        assert "--api-key-file PATH or --api-key" not in result.stderr
 
     def test_a_cancel_that_failed_is_not_reported_as_done(
         self, runner: CliRunner, api: FakeAPI, tmp_path: Path

@@ -56,20 +56,18 @@ def trace(
 
                     result = await fn(*args, **kwargs)
 
-                    output = _output_recorder(collector, span_name, root_span_id)
+                    ending = _ending_recorder(collector, span_name, root_span_id)
                     # A stream the function opened and returns: its output is what it replies, once
-                    # the caller has read it (S2). Anything else is recorded as returned.
-                    if not collector._when_stream_ends(result, output):  # noqa: SLF001
-                        output(result)
+                    # the caller has read it, or the error it fails with (S2). Anything else is
+                    # recorded as returned.
+                    if not collector._when_stream_ends(result, ending):  # noqa: SLF001
+                        ending(result, None)
                     # Uploaded now, or once a stream the function opened and returned is read (S2).
                     collector._finish()  # noqa: SLF001
                     return result
                 except Exception as exc:
                     collector.emit(
-                        "agent.error",
-                        {"name": span_name, "error": str(exc), **error_category(exc), "status": "error"},
-                        span_id=root_span_id,
-                        span_name=span_name,
+                        "agent.error", _error_payload(span_name, exc), span_id=root_span_id, span_name=span_name
                     )
                     collector.flush()
                     raise
@@ -104,20 +102,18 @@ def trace(
 
                     result = fn(*args, **kwargs)
 
-                    output = _output_recorder(collector, span_name, root_span_id)
+                    ending = _ending_recorder(collector, span_name, root_span_id)
                     # A stream the function opened and returns: its output is what it replies, once
-                    # the caller has read it (S2). Anything else is recorded as returned.
-                    if not collector._when_stream_ends(result, output):  # noqa: SLF001
-                        output(result)
+                    # the caller has read it, or the error it fails with (S2). Anything else is
+                    # recorded as returned.
+                    if not collector._when_stream_ends(result, ending):  # noqa: SLF001
+                        ending(result, None)
                     # Uploaded now, or once a stream the function opened and returned is read (S2).
                     collector._finish()  # noqa: SLF001
                     return result
                 except Exception as exc:
                     collector.emit(
-                        "agent.error",
-                        {"name": span_name, "error": str(exc), **error_category(exc), "status": "error"},
-                        span_id=root_span_id,
-                        span_name=span_name,
+                        "agent.error", _error_payload(span_name, exc), span_id=root_span_id, span_name=span_name
                     )
                     collector.flush()
                     raise
@@ -131,10 +127,21 @@ def trace(
     return decorator
 
 
-def _output_recorder(collector: TraceCollector, span_name: str, root_span_id: str) -> Callable[[Any], None]:
-    """Records the function's ``agent.output`` with the output it is given."""
+def _ending_recorder(
+    collector: TraceCollector, span_name: str, root_span_id: str
+) -> Callable[[Any, Optional[BaseException]], None]:
+    """Records how the function's call ended: ``agent.output`` with the output it is given, or,
+    given an error, ``agent.error``, as when the function raises.
 
-    def record(output: Any) -> None:
+    The error is a returned stream's: the function returned, and the stream failed as its caller
+    read it. That call failed, so its trace ends with the error alone, not also with an
+    ``agent.output`` saying ``ok``.
+    """
+
+    def record(output: Any, error: Optional[BaseException]) -> None:
+        if error is not None:
+            collector.emit("agent.error", _error_payload(span_name, error), span_id=root_span_id, span_name=span_name)
+            return
         collector.emit(
             "agent.output",
             {"name": span_name, "output": output, "status": "ok"},
@@ -143,6 +150,11 @@ def _output_recorder(collector: TraceCollector, span_name: str, root_span_id: st
         )
 
     return record
+
+
+def _error_payload(span_name: str, error: BaseException) -> Dict[str, Any]:
+    """The root span's ``agent.error``: what failed and why (see :func:`error_category`)."""
+    return {"name": span_name, "error": str(error), **error_category(error), "status": "error"}
 
 
 def _capture_input(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Any:

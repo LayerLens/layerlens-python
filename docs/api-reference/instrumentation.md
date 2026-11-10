@@ -66,6 +66,8 @@ Decorator that records one trace per call of the function, and uploads it when t
 - Emits `agent.input`: the function's arguments as `input`, and the `metadata` keys
 - Emits `agent.output` with the return value as `output` and `status="ok"`
 - On an exception: emits `agent.error` (see [Error events](#error-events)) and re-raises it
+- When it returns a provider stream: `agent.output` holds the stream's reply, once the caller has
+  read it; a stream that fails as it is read ends the trace with `agent.error` instead
 - Then flushes the collector: seals the hash chain and queues the trace for upload (see [Uploading](#uploading))
 - Works with both sync and async functions
 
@@ -213,7 +215,8 @@ spaces, or a number such as an HTTP status, is not a reason code and is left out
 ### Uploading
 
 Each client gets its own upload queue and background thread, so recording never waits on the
-network:
+network. An `AsyncLayerLens`'s traces are uploaded from that thread through a synchronous client
+with the same key, URL and project, so they are sent after your event loop has closed too:
 
 - The queue holds 64 traces. A trace that arrives when it is full is dropped, with a warning.
 - After 10 failed uploads in a row, uploads stop for 60 seconds (a circuit breaker), and the
