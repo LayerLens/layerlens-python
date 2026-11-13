@@ -105,7 +105,8 @@ def inject_headers(headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 
     collector = _current_collector.get()
     span_id = _current_span_id.get()
-    if collector is None or not span_id:
+    # A sealed collector's trace has been uploaded: no request joins it.
+    if collector is None or collector.sealed or not span_id:
         return headers
 
     headers[TRACEPARENT_HEADER] = _build_traceparent(collector.trace_id, span_id)
@@ -149,7 +150,7 @@ def new_traceparent(trace_id: Optional[str] = None, span_id: Optional[str] = Non
     """
     if trace_id is None:
         collector = _current_collector.get()
-        trace_id = collector.trace_id if collector is not None else uuid.uuid4().hex[:16]
+        trace_id = collector.trace_id if collector is not None and not collector.sealed else uuid.uuid4().hex[:16]
     if span_id is None:
         span_id = _current_span_id.get() or uuid.uuid4().hex[:16]
     return _build_traceparent(trace_id, span_id)

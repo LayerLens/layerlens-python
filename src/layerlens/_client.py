@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, List, Tuple, Union, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union, Mapping, Optional
 from functools import cached_property
 from typing_extensions import Self, override
 
@@ -14,7 +14,7 @@ from ._env import env_api_key, env_base_url
 from ._ssrf import resolve_trusted_upload_hosts
 from ._utils import is_mapping
 from .models import Organization, OrganizationResponse, OrganizationsListResponse
-from ._constants import DEFAULT_TIMEOUT, DEFAULT_BASE_URL, DIRTY_ROUTER_PREFIX
+from ._constants import NOT_GIVEN, DEFAULT_TIMEOUT, DEFAULT_BASE_URL, DIRTY_ROUTER_PREFIX, NotGiven
 from ._exceptions import APIStatusError, LayerLensError
 from ._base_client import BaseClient, BaseAsyncClient, _request_for_error
 from ._deprecation import module_getattr
@@ -143,6 +143,7 @@ def _session_organization(organizations: List[Organization]) -> Optional[Organiz
 class LayerLens(_OrganizationScope, BaseClient):
     api_key: str
     _use_bearer_auth: bool
+    _given_base_url: Union[str, httpx.URL]
 
     def __init__(
         self,
@@ -179,6 +180,8 @@ class LayerLens(_OrganizationScope, BaseClient):
             base_url = env_base_url(stacklevel=2)
         if base_url is None:
             base_url = DEFAULT_BASE_URL
+        # As given, before the session prefix below: what copy() builds its copy from.
+        self._given_base_url = base_url
 
         # Bearer auth (OAuth tokens) routes through the dirty prefix
         if use_bearer_auth:
@@ -263,7 +266,10 @@ class LayerLens(_OrganizationScope, BaseClient):
     def public(self) -> PublicClient:
         from ._public_client import PublicClient
 
-        return PublicClient(api_key=self.api_key, base_url=str(self.base_url), timeout=self.timeout)
+        # Built with this client's options, its retries too (L1R-037).
+        return PublicClient(
+            api_key=self.api_key, base_url=str(self.base_url), timeout=self.timeout, max_retries=self._max_retries
+        )
 
     @property
     @override
@@ -279,19 +285,25 @@ class LayerLens(_OrganizationScope, BaseClient):
         *,
         api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: Union[float, httpx.Timeout, None, NotGiven] = NOT_GIVEN,
+        max_retries: int | None = None,
+        use_bearer_auth: bool | None = None,
+        trusted_upload_hosts: list[str] | None = None,
         _extra_kwargs: Mapping[str, Any] = {},
     ) -> Self:
-        """
-        Create a new client instance re-using the same options given to the current client with optional overriding.
-        """
-        return self.__class__(
-            api_key=api_key or self.api_key,
-            base_url=base_url or self.base_url,
-            timeout=self.timeout or timeout,
-            use_bearer_auth=self._use_bearer_auth,
-            **_extra_kwargs,
+        """A new client with this client's options, and the ones given here instead (see :func:`_copy_options`)."""
+        options = _copy_options(
+            self,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=max_retries,
+            use_bearer_auth=use_bearer_auth,
+            trusted_upload_hosts=trusted_upload_hosts,
         )
+        copy = self.__class__(**options, **_extra_kwargs)
+        _keep_scope_and_hosts(self, copy, options, hosts_given=trusted_upload_hosts is not None)
+        return copy
 
     # Alias for `copy` for nicer inline usage, e.g.
     # client.with_options(timeout=10).foo.create(...)
@@ -353,6 +365,7 @@ class LayerLens(_OrganizationScope, BaseClient):
 class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
     api_key: str
     _use_bearer_auth: bool
+    _given_base_url: Union[str, httpx.URL]
 
     def __init__(
         self,
@@ -390,6 +403,8 @@ class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
             base_url = env_base_url(stacklevel=2)
         if base_url is None:
             base_url = DEFAULT_BASE_URL
+        # As given, before the session prefix below: what copy() builds its copy from.
+        self._given_base_url = base_url
 
         if use_bearer_auth:
             base_url = str(base_url).rstrip("/") + DIRTY_ROUTER_PREFIX
@@ -484,7 +499,10 @@ class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
     def public(self) -> AsyncPublicClient:
         from ._public_client import AsyncPublicClient
 
-        return AsyncPublicClient(api_key=self.api_key, base_url=str(self.base_url), timeout=self.timeout)
+        # Built with this client's options, its retries too (L1R-037).
+        return AsyncPublicClient(
+            api_key=self.api_key, base_url=str(self.base_url), timeout=self.timeout, max_retries=self._max_retries
+        )
 
     @property
     @override
@@ -500,16 +518,25 @@ class AsyncLayerLens(_OrganizationScope, BaseAsyncClient):
         *,
         api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: Union[float, httpx.Timeout, None, NotGiven] = NOT_GIVEN,
+        max_retries: int | None = None,
+        use_bearer_auth: bool | None = None,
+        trusted_upload_hosts: list[str] | None = None,
         _extra_kwargs: Mapping[str, Any] = {},
     ) -> Self:
-        return self.__class__(
-            api_key=api_key or self.api_key,
-            base_url=base_url or self.base_url,
-            timeout=self.timeout or timeout,
-            use_bearer_auth=self._use_bearer_auth,
-            **_extra_kwargs,
+        """A new client with this client's options, and the ones given here instead (see :func:`_copy_options`)."""
+        options = _copy_options(
+            self,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=max_retries,
+            use_bearer_auth=use_bearer_auth,
+            trusted_upload_hosts=trusted_upload_hosts,
         )
+        copy = self.__class__(**options, **_extra_kwargs)
+        _keep_scope_and_hosts(self, copy, options, hosts_given=trusted_upload_hosts is not None)
+        return copy
 
     # Alias for nicer inline usage
     with_options = copy
@@ -625,6 +652,57 @@ class _SyncTwin(LayerLens):
     @override
     def _organization_scope(self) -> Tuple[str, str]:
         return self._owner._organization_scope()
+
+
+def _copy_options(
+    client: Union["LayerLens", "AsyncLayerLens"],
+    *,
+    api_key: Optional[str],
+    base_url: Union[str, httpx.URL, None],
+    timeout: Union[float, httpx.Timeout, None, NotGiven],
+    max_retries: Optional[int],
+    use_bearer_auth: Optional[bool],
+    trusted_upload_hosts: Optional[List[str]],
+) -> Dict[str, Any]:
+    """The constructor options of a copy of ``client``: its own, and the ones given instead.
+
+    Every option the client was built with is kept: its key, its URL as given (a bearer-auth
+    client's gets the session prefix once), its timeout, retries and bearer auth, and (in
+    :func:`_keep_scope_and_hosts`) its upload hosts as they were resolved then, since the
+    environment is not read again, and the organization and project it works in, unless the key,
+    the URL or the auth changes. Before, ``timeout`` never applied (``self.timeout or timeout``:
+    an httpx ``Timeout`` is always true), the retries went back to two, the hosts were read again,
+    a bearer-auth URL got the prefix twice, and the copy read its organization and project
+    afresh, the first project instead of the client's (L1R-035b). ``timeout=None`` is no timeout.
+    """
+    return {
+        "api_key": api_key or client.api_key,
+        "base_url": client._given_base_url if base_url is None else base_url,
+        "timeout": client.timeout if isinstance(timeout, NotGiven) else timeout,
+        "max_retries": client._max_retries if max_retries is None else max_retries,
+        "use_bearer_auth": client._use_bearer_auth if use_bearer_auth is None else use_bearer_auth,
+        "trusted_upload_hosts": trusted_upload_hosts,
+    }
+
+
+def _keep_scope_and_hosts(
+    client: Union["LayerLens", "AsyncLayerLens"],
+    copy: Union["LayerLens", "AsyncLayerLens"],
+    options: Dict[str, Any],
+    *,
+    hosts_given: bool,
+) -> None:
+    """Give ``copy`` the upload hosts ``client`` resolved, unless others were given, and the
+    organization and project it works in when the copy has the same credential and URL."""
+    if not hosts_given:
+        copy.trusted_upload_hosts = list(client.trusted_upload_hosts)
+    same_credential = (
+        options["api_key"] == client.api_key
+        and options["base_url"] == client._given_base_url
+        and options["use_bearer_auth"] == client._use_bearer_auth
+    )
+    if same_credential:
+        copy._organization_id, copy._project_id = client._organization_id, client._project_id
 
 
 Client = LayerLens

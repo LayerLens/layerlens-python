@@ -18,7 +18,8 @@ estimate = client.trace_evaluations.estimate_cost(
     trace_ids=["trace-1", "trace-2"],
     judge_id="judge-123",
 )
-print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+if estimate and estimate.cost_available:
+    print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
 
 # Run a judge on a trace
 evaluation = client.trace_evaluations.create(
@@ -248,10 +249,11 @@ estimate = client.trace_evaluations.estimate_cost(
     trace_ids=["trace-1", "trace-2", "trace-3"],
     judge_id="judge-123",
 )
-if estimate:
+if estimate and estimate.cost_available:
     print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+    print(f"Tokens: {estimate.input_tokens} in, {estimate.output_tokens} out")
+if estimate:
     print(f"Traces: {estimate.trace_count}")
-    print(f"Model: {estimate.model}")
 ```
 
 ## Response Objects
@@ -301,13 +303,14 @@ if estimate:
 
 ### CostEstimateResponse Properties
 
-| Property         | Type    | Description                        |
-| ---------------- | ------- | ---------------------------------- |
-| `estimated_cost` | `float` | Estimated cost in dollars          |
-| `input_tokens`   | `int`   | Estimated input tokens             |
-| `output_tokens`  | `int`   | Estimated output tokens            |
-| `model`          | `str`   | Model that would be used           |
-| `trace_count`    | `int`   | Number of traces to evaluate       |
+| Property          | Type            | Description                                                                 |
+| ----------------- | --------------- | --------------------------------------------------------------------------- |
+| `trace_count`     | `int`           | Number of traces the run would evaluate                                     |
+| `cost_available`  | `bool`          | Whether the run could be priced; when `False` the four fields below are `None` |
+| `estimated_cost`  | `float \| None` | Estimated cost in dollars                                                   |
+| `input_tokens`    | `int \| None`   | Estimated input tokens                                                      |
+| `output_tokens`   | `int \| None`   | Estimated output tokens                                                     |
+| `unpriced_judges` | `int \| None`   | Judges that could not be priced; the estimate covers the others             |
 
 ## Next Steps
 

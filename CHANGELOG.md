@@ -5,11 +5,15 @@ All notable changes to the LayerLens Python SDK (formerly the Stratix Python SDK
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**Latest version:** [2.0.0](https://github.com/LayerLens/stratix-python/releases/tag/v2.0.0) — 2026-10-05
+**Latest release:** 1.11.0 — 2026-08-10. 2.0.0, below, is not released yet.
 
-## [Unreleased]
+## [2.0.0] - Unreleased
 
-Things we're actively working on. Want to help? Check the [issues](https://github.com/LayerLens/stratix-python/issues) or [discussions](https://github.com/LayerLens/stratix-python/discussions).
+The first release as LayerLens: the `Stratix` and `Atlas` names keep working, with a warning (see
+Deprecated). It adds environments (`client.environments`, `layerlens env`), trace tags and
+`flush()`. **Breaking:** the evaluation spaces client surface is removed (see Removed);
+`layerlens ci report` needs `--evaluation-id`, `--trace-evaluation-id`, `--env-run` or
+`--latest N`; and `Result.score` can be `None` (see Changed).
 
 ### Added
 
@@ -193,6 +197,125 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - **`Result.score` is now `Optional[float]`, and `Result` gains `score_error: Optional[str]`.** The API returns `score: null` with a `score_error` reason for a prompt the scorer could not grade (judge unreachable, scorer crash); such prompts are excluded from the evaluation's accuracy. Previously the SDK raised a `ValidationError` on every results page containing one. Treat `None` as "not scored", never as `0`.
 
 ### Fixed
+
+- **`models.add()` and `remove()` no longer break the project's model list.** They sent the ids
+  of the project's custom models in its `models`, which holds its public models only; the API kept
+  them, and from then on the project's public model list answered 500 for every caller, the app
+  included. They now send public ids only, as `benchmarks.add()` / `remove()` do. A custom model
+  belongs to the project it was created in, without `add()`
+
+- **`trace_evaluations.estimate_cost()` returns the estimate.** It returned `None` for every
+  estimate: `CostEstimateResponse` required a `model` the API never sends. It now reads what the
+  API sends: `trace_count` and `cost_available`, and `estimated_cost`, `input_tokens`,
+  `output_tokens` and `unpriced_judges` when the run could be priced (`None` when it could not).
+  `model` stays, as `None`
+
+- **`layerlens evaluate run` and `bulk eval` take `--model` and `--benchmark` as an id.** A
+  LayerLens id (24 hex digits) was never looked up as an id: `Model not found`. It is now looked
+  up in the whole catalog first, then as a key and a name among the project's
+
+- **`evaluations compare` names the items that regressed when the dataset gives them no `id`.**
+  Such an item got a new random id in every run, so `regressed_items` and `recovered_items` were
+  always empty. It is now `item_0`, `item_1`, ... by its place in the file
+
+- **A wait for a cancelled evaluation returns it.** `Evaluation.is_finished` left out
+  `cancelled`, so `wait_for_completion()`, `evaluate run --wait` and `bulk eval --wait` polled a
+  cancelled evaluation until their timeout, forever by default. It now holds the statuses the
+  API calls finished: success, failure, timeout and cancelled
+
+- **The exit accounts for a trace the upload worker had already taken off the queue.** Until its
+  upload began, such a trace was neither queued nor being sent, so an exit in that window (every
+  time, with `LAYERLENS_EXIT_TIMEOUT=0`) lost it without the `trace(s) not sent` warning or an
+  `exit_timeout` count. It is now counted and reported
+
+- **The SDK ships `py.typed`.** Without the PEP 561 marker mypy refused the installed SDK's
+  annotations (`import-untyped`) and typed every call as `Any`
+
+- **Anthropic: a `messages.stream()` read with `text_stream`, `get_final_message()`,
+  `get_final_text()`, `until_done()` or `next()` records the call.** Only iterating the stream
+  itself was recorded: those reads emitted no `model.invoke` and no `cost.record`, and `next()`
+  raised `TypeError`. The same for async streams
+
+- **Claude Haiku 4.5 and Claude Opus 4.6 / 4.7 cost what Anthropic lists**: $1 / $5 and $5 / $25
+  per million input / output tokens. They were priced at $0.80 / $4 and $15 / $75
+
+- **LangChain: a chat model, LLM, tool or retriever called on its own is traced.** The handler on
+  a bare `ChatOpenAI(...).invoke(...)`, or on a tool called outside a chain, recorded nothing
+  outside a `trace` / `trace_context` block. Such a call now records its own trace
+
+- **LangChain and LangGraph: a streamed model call records its tokens and cost.** Usage was read
+  from `llm_output` only, which a streamed call does not have; it is now also read from the
+  reply's `usage_metadata`, and the model from its `response_metadata`
+
+- **LangChain: an agent's finish no longer ends the trace before its chain does.**
+  `on_agent_finish` on the root run ended the trace, so the root chain's own `agent.output`, which
+  follows it, was dropped
+
+- **OpenAI Agents: runs on the default Responses model record their cost.** A `response_span`
+  with token usage now gets a `cost.record`, as a `generation_span` does
+
+- **The protocol certification's "Capture config" check fails an adapter that ignores the config
+  it is given.** It passed one that kept the default config, since the default captures no content
+  either; it now builds the adapter with content capture on, then off
+
+- **`layerlens completion powershell` prints a snippet that works.** It registered a completer
+  that offered lines of click's completion script as completions. It now prints click's own
+  setup, which loads that script with `Invoke-Expression`, and, when the installed click has no
+  PowerShell completion (before 8.5, so on Python 3.9), says so and exits `1`
+
+- **`samples/core/quickstart.py` uploads a trace the API accepts.** Its record had `input` and
+  `output` only, which the API refuses (`400 … is not a valid trace`); it now has a `name` and
+  `metadata`
+
+- **The `instrument_<provider>()` functions say they instrument one client at a time.**
+  Instrumenting a second client restores the first, and `uninstrument_<provider>()` the last one;
+  to trace several clients, connect an adapter to each (`OpenAIProvider().connect(client)`). The
+  behaviour is unchanged
+
+- **`client.public` retries as often as its client does.** It was built without the client's
+  `max_retries`, so `LayerLens(max_retries=0).public` still retried twice. `PublicClient` and
+  `AsyncPublicClient` take `max_retries`
+
+- **`with_options()` and `copy()` keep every option the client was built with, and apply the ones
+  given.** A timeout given was ignored, so `client.with_options(timeout=10)` did nothing; the copy
+  also went back to two retries, read `LAYERLENS_TRUSTED_UPLOAD_HOSTS` again, gave a bearer-auth
+  client's URL the session prefix twice, and read its organization and project again. The copy
+  keeps the key, URL, timeout, retries, bearer auth, upload hosts and project (unless the key or URL
+  changes), and `copy()` also takes `max_retries`, `use_bearer_auth` and `trusted_upload_hosts`;
+  `timeout=None` is no timeout
+
+- **The keys page is "Manage organization → API keys"**, as the app and the API's refusals name
+  it, in `layerlens env --help`, its no-key error and `client.environments`' refusal of a login
+  session (they said "Organization Settings → API Keys")
+
+- **LangChain and LangGraph: async runs are traced.** `await chain.ainvoke(...)` and `astream`,
+  of a chain or a model on its own, recorded nothing: LangChain ran the handler's callbacks in
+  copies of the context. The handler now runs inline, and a model called on its own keeps its run
+  by run id, so an async model's end, reported from another task, leaves nothing behind. The run
+  stays until its end, however many calls overlap. A call cancelled with its task, whose end never
+  comes, has its run dropped a minute after that task ends; past 256 open runs, so has a run with no
+  callback for an hour
+
+- **LangChain and LangGraph: every run in an async task is traced, not only the first.** After an
+  awaited `ainvoke` or `astream`, the next LangChain run in the same task joined the ended run and
+  recorded nothing: LangChain reports an async run's end from a task of its own, so the ended run
+  stayed set in the caller's context. A run's start now puts back what the context held before an
+  ended run, and `get_trace_context()` and `inject_headers()` give no ids for a trace that has ended
+
+- **A public benchmark's description is read.** `client.public.benchmarks.get()` gave
+  `description=None` for every benchmark: the API sends `full_description`. `description` reads
+  it, and `short_description` is new
+
+- **`layerlens scorer create --help` states the API's limits**: description 10-280 characters
+  (it said 500), prompt at least 10
+
+- **`samples/data/traces/example_traces.jsonl` holds records the API takes**, so
+  `samples/core/async_results.py` uploads it; each record has a `name`
+
+- **The samples' graders run on `openai/gpt-4o-mini`.** `create_judge` with no model took the
+  first model of the public catalogue, which is ordered by key, so the quickstart graded on
+  `anthropic/claude-fable-5` ($0.11 for one one-line trace, against $0.001); it now takes
+  gpt-4o-mini when the catalogue has it, then the catalogue's first model, then the project's
 
 - **`layerlens integration test` tells a vendor's refusal from a call LayerLens refused.** It
   read every 401 from the test as the integration's stored credentials refused by its vendor, so a
@@ -462,7 +585,7 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - `PublicClient` and `AsyncPublicClient` now honour `LAYERLENS_ATLAS_API_KEY`, as
   the main clients always have. Every client resolves its configuration the same way.
 - The CLI reference, workflow examples, README and `samples/cli/08_spaces.sh` still
-  documented the `space` command, which 2.0.0 removed. They no longer do.
+  documented the `space` command, which this release removes. They no longer do.
 - **CLI: `--format`, `--api-key`, `--host`, `--port`, `-v` and `-q` failed after the
   command.** They were options of `layerlens` itself, so the form every `--help`
   example used, `layerlens judge result abc123 --format json`, failed with
@@ -616,14 +739,6 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
 - `map_agui_to_stratix()`, which still returns its old `{"stratix_event", "category"}` shape.
 
 All of these will be removed in a future major release.
-
-### Removed
-
-## [2.0.0] - 2026-10-05
-
-Removes the evaluation spaces client surface. **This is the only breaking change:
-if your code does not reference `client.evaluation_spaces`, the `space` CLI command
-or the evaluation space models, upgrading from 1.11.0 requires no changes.**
 
 ### Removed
 

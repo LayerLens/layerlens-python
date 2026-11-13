@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 import time
+import asyncio
+import logging
 import functools
 from uuid import UUID
 from typing import Any, Dict, List, Optional, Sequence
 
+from ..._context import (
+    RunState,
+    _pop_span,
+    _push_span,
+    _current_run,
+    _parent_span_id,
+    _current_span_id,
+    _current_collector,
+    _current_span_name,
+)
 from ..._identity import _API_METHOD_RE, _is_generic
 from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
@@ -21,6 +33,57 @@ __all__ = [
 ]
 
 
+log = logging.getLogger(__name__)
+
+#: How long the run of a model called on its own stays open after the task the call started in has
+#: finished without the call's end: long enough for an end LangChain shields from a cancellation.
+_UNENDED_RUN_GRACE_SECONDS = 60.0
+
+#: Past this many open runs, a run with no callback for ``_STALE_RUN_SECONDS`` is dropped. A call
+#: cancelled inside a task that goes on (``asyncio.timeout``, ``wait_for`` on Python 3.12+) never ends
+#: its run, and its task does not end either; nothing LangChain reports tells it from a call still
+#: waiting. A run's age counts from its last callback, so a call that streams stays; and an hour is
+#: past the OpenAI and Anthropic SDKs' default request timeout (600 s) with their two retries.
+_MAX_OPEN_MODEL_RUNS = 256
+_STALE_RUN_SECONDS = 3600.0
+
+
+def _model_run_scope(fn):  # type: ignore[type-arg]
+    """Decorator for the LLM callbacks: a model called on its own runs in a run of its own, attached
+    to the context only while one of its callbacks runs.
+
+    An async model reports its end (``agenerate`` → ``on_llm_end``) from an ``asyncio.gather`` task,
+    a copy of the caller's context, where the run could end but the caller's ContextVars could not be
+    reset: the next call in that context reused the ended run, never uploaded, and provider adapters
+    took it for the current trace. So the run is kept by its run id, attached for each of its
+    callbacks and detached after; its end, ``@_auto_flush``, ends it while attached.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, run_id, parent_run_id=None, **kwargs):  # type: ignore[no-untyped-def]
+        key = str(run_id)
+        run = self._model_runs.get(key)
+        if run is None:
+            if fn.__name__ not in ("on_llm_start", "on_chat_model_start") or parent_run_id is not None:
+                return fn(self, *args, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
+            run = self._begin_langchain_run()
+            run.data["root_run_id"] = key
+            run.data["owns_collector"] = run._col_token is not None
+            self._keep_model_run(key, run)
+        else:
+            self._saw_model_run(key, run)
+            self._attach(run)
+        try:
+            return fn(self, *args, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
+        finally:
+            if _current_run.get() is run:
+                self._detach(run)
+            else:  # ended by the callback (@_auto_flush)
+                self._release_model_run(key)
+
+    return wrapper
+
+
 def _auto_flush(fn):  # type: ignore[type-arg]
     """Decorator: after the callback returns, flush if this was the outermost run."""
 
@@ -29,6 +92,9 @@ def _auto_flush(fn):  # type: ignore[type-arg]
         fn(self, *args, run_id=run_id, **kwargs)
         run = self._get_run()
         if run is not None and str(run_id) == run.data.get("root_run_id"):
+            # Marked first: an async run ends in a copy of the context its start set (see
+            # _begin_langchain_run), where the caller's ContextVars cannot be reset.
+            run.data["ended"] = True
             self._end_run()
 
     return wrapper
@@ -189,6 +255,13 @@ def _honest_run_name(raw: Any) -> Optional[str]:
 class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
     name = "langchain"
 
+    #: Called in the run's own context in an async run. Otherwise LangChain calls a sync handler's
+    #: callbacks there in an executor thread, each in a copy of the context: the run begun at the
+    #: root's start lived in one copy, the callbacks after it saw none, and `ainvoke` / `astream`
+    #: recorded nothing. The callbacks are quick and never wait on I/O (an upload is queued for
+    #: the upload worker), so they do not hold up the event loop.
+    run_inline = True
+
     def __init__(self, client: Any, capture_config: Optional[CaptureConfig] = None) -> None:
         BaseCallbackHandler.__init__(self)
         FrameworkAdapter.__init__(self, client, capture_config=capture_config)
@@ -199,6 +272,129 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         # child model+tool runs so they attribute to the same honest node. Cleared
         # in on_chain_end / on_chain_error.
         self._chain_agent_names: Dict[str, str] = {}
+        # run_id -> the open run of a model called on its own (see _model_run_scope).
+        self._model_runs: Dict[str, RunState] = {}
+
+    def _begin_langchain_run(self) -> RunState:
+        """``_begin_run`` for a root run, after putting back what an ended run left in the context.
+
+        LangChain reports an async run's end (``on_chain_end``, ``on_llm_end``, ``on_retriever_end``
+        and their errors, all ``@shielded``) from a task of its own, with a copy of the caller's
+        context: the run ends there, and the ContextVars its start set in the caller's context stay
+        set. The caller's next run in that task joined the ended run and its sealed collector, and
+        recorded nothing (L8 B04). A root's start runs in the caller's context, so it first puts back
+        what each ended run found there when it began, then begins its own.
+        """
+        ended = _current_run.get()
+        while ended is not None and ended.data.get("ended") and "outer" in ended.data:
+            collector, span_id, parent_span_id, span_name, outer_run = ended.data["outer"]
+            _current_collector.set(collector)
+            _current_span_id.set(span_id)
+            _parent_span_id.set(parent_span_id)
+            _current_span_name.set(span_name)
+            _current_run.set(outer_run)
+            ended = outer_run
+        outer = (
+            _current_collector.get(),
+            _current_span_id.get(),
+            _parent_span_id.get(),
+            _current_span_name.get(),
+            _current_run.get(),
+        )
+        run = self._begin_run()
+        run.data["outer"] = outer
+        return run
+
+    def _keep_model_run(self, key: str, run: RunState) -> None:
+        """Keep ``run`` open until its end, however many calls are in flight.
+
+        A call's end fails to come only when its task is cancelled: ``agenerate`` re-raises the
+        cancellation from its ``gather`` without ``on_llm_error``. So when the task the call started
+        in finishes with the run still open, the run is dropped ``_UNENDED_RUN_GRACE_SECONDS`` later,
+        unless an end shielded from that cancellation has come by then. A sync call's end always
+        comes, in its own thread, so it needs no watch. Past ``_MAX_OPEN_MODEL_RUNS``, a run with no
+        callback for ``_STALE_RUN_SECONDS`` is dropped too, for a call cancelled in a task that goes on.
+        """
+        run.data["seen_at"] = time.monotonic()
+        self._model_runs[key] = run
+        if len(self._model_runs) > _MAX_OPEN_MODEL_RUNS:
+            self._drop_stale_model_runs(but=key)
+        try:
+            task = asyncio.current_task()
+        except RuntimeError:  # no running event loop
+            task = None
+        if task is None:
+            return
+
+        def task_done(done: "asyncio.Task[Any]") -> None:
+            done.get_loop().call_later(_UNENDED_RUN_GRACE_SECONDS, self._drop_unended_model_run, key, run)
+
+        task.add_done_callback(task_done)
+        run.data["task_watch"] = (task, task_done)
+
+    def _saw_model_run(self, key: str, run: RunState) -> None:
+        """Note a callback of ``run``: its age starts again, and it moves to the end of the dict, which
+        stays in the order of each run's last callback."""
+        run.data["seen_at"] = time.monotonic()
+        self._model_runs.pop(key, None)
+        self._model_runs[key] = run
+
+    def _release_model_run(self, key: str) -> None:
+        """Forget an ended model run, and stop watching the task it started in."""
+        run = self._model_runs.pop(key, None)
+        watch = run.data.pop("task_watch", None) if run is not None else None
+        if watch is not None:
+            task, task_done = watch
+            task.remove_done_callback(task_done)
+
+    def _drop_stale_model_runs(self, but: str) -> None:
+        """Drop the runs with no callback for ``_STALE_RUN_SECONDS``, longest first (the dict's order),
+        except ``but``, the run just kept. A run another thread's call ended meanwhile is skipped."""
+        now = time.monotonic()
+        for key in list(self._model_runs):
+            run = self._model_runs.get(key)
+            if run is None:
+                continue
+            if key == but or now - run.data["seen_at"] < _STALE_RUN_SECONDS:
+                break
+            self._release_model_run(key)
+            log.warning(
+                "layerlens: dropped the open trace of model run %s: no callback for %d s", key, int(_STALE_RUN_SECONDS)
+            )
+
+    def _drop_unended_model_run(self, key: str, run: RunState) -> None:
+        if self._model_runs.get(key) is run:
+            del self._model_runs[key]
+            log.warning("layerlens: dropped the open trace of model run %s: its task ended, its run did not", key)
+
+    def _attach(self, run: RunState) -> None:
+        """Make ``run`` the context's current run, as ``_begin_run`` made it, until ``_detach``."""
+        if run.data.get("owns_collector"):
+            run._col_token = _current_collector.set(run.collector)
+        run._span_snapshot = _push_span(run.root_span_id, f"{self.name}:root")
+        run._token = _current_run.set(run)
+
+    @staticmethod
+    def _detach(run: RunState) -> None:
+        """Undo ``_attach`` (or ``_begin_run``) in this context, leaving the run open."""
+        _current_run.reset(run._token)
+        _pop_span(run._span_snapshot)
+        if run._col_token is not None:
+            _current_collector.reset(run._col_token)
+            run._col_token = None
+
+    def _begin_root_run(self, run_id: UUID, parent_run_id: Optional[UUID]) -> None:
+        """Begin a run for a chain, a tool or a retriever LangChain runs with no parent run.
+
+        A tool or a retriever invoked on its own is a root run, as a chain is: outside a ``trace`` /
+        ``trace_context`` block nothing else begins a trace for it, and it recorded nothing (L3
+        AD-22). Its end or error, the root run's, ends the run (``@_auto_flush``); inside a block the
+        run shares the block's trace, which the block uploads. Their ends come in the context their
+        start ran in. A model's may not, so a model called on its own has ``_model_run_scope``.
+        """
+        if parent_run_id is None:
+            run = self._begin_langchain_run()
+            run.data["root_run_id"] = str(run_id)
 
     # ------------------------------------------------------------------
     # Chain callbacks
@@ -213,9 +409,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
-        if parent_run_id is None:
-            run = self._begin_run()
-            run.data["root_run_id"] = str(run_id)
+        self._begin_root_run(run_id, parent_run_id)
         serialized = serialized or {}
         name = serialized.get("name") or serialized.get("id", ["unknown"])[-1]
         payload = self._payload(name=name)
@@ -271,6 +465,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
     # LLM callbacks — merged into single model.invoke on end
     # ------------------------------------------------------------------
 
+    @_model_run_scope
     def on_llm_start(
         self,
         serialized: Optional[Dict[str, Any]],
@@ -292,6 +487,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         self._set_if_capturing(pending, "messages", prompts)
         self._pending_llm[str(run_id)] = pending
 
+    @_model_run_scope
     def on_chat_model_start(
         self,
         serialized: Optional[Dict[str, Any]],
@@ -317,6 +513,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         )
         self._pending_llm[str(run_id)] = pending
 
+    @_model_run_scope
     def on_llm_new_token(
         self,
         token: str,
@@ -335,6 +532,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         if self._config.capture_content:
             pending["streamed_text"] = (pending.get("streamed_text") or "") + (token or "")
 
+    @_model_run_scope
     @_auto_flush
     def on_llm_end(
         self,
@@ -349,6 +547,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         # Extract response data
         output = None
         finish_reason = None
+        reply: Any = None
         tool_calls: list[dict[str, Any]] = []
         try:
             generations = response.generations
@@ -363,6 +562,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
                 finish_reason = fr if isinstance(fr, str) else None
                 msg = getattr(gen0, "message", None)
                 if msg is not None:
+                    reply = msg
                     tool_calls = _requested_tool_calls(msg)
         except (AttributeError, IndexError):
             pass
@@ -374,8 +574,12 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         if not isinstance(llm_output, dict):
             llm_output = {}
 
+        # A streamed call has no llm_output: LangChain merges its chunks into one message, whose
+        # response_metadata names the model and whose usage_metadata (LangChain's standard usage
+        # field) holds the tokens. Reading llm_output alone recorded such a call without either,
+        # and with no cost.record (L7 AD-05).
         raw_model = llm_output.get("model_name")
-        model_name = raw_model if isinstance(raw_model, str) else None
+        model_name = raw_model if isinstance(raw_model, str) else _reply_model_name(reply)
 
         # Build single merged model.invoke event
         payload = self._payload()
@@ -406,7 +610,10 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
             payload["finish_reason"] = finish_reason
 
         # Tokens
-        usage = llm_output.get("token_usage") or llm_output.get("usage_metadata")
+        # Cached input is priced at the full input rate here, as for llm_output's token_usage:
+        # input_tokens / prompt_tokens include cache reads, and the shared framework pricing
+        # (_price_cost_record) does not read a cached count, for this adapter or any other.
+        usage = llm_output.get("token_usage") or llm_output.get("usage_metadata") or _reply_usage(reply)
         tokens = self._normalize_tokens(usage)
         payload.update(tokens)
 
@@ -450,6 +657,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
                 parent_run_id=pending.get("parent_run_id"),
             )
 
+    @_model_run_scope
     @_auto_flush
     def on_llm_error(
         self,
@@ -496,6 +704,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
+        self._begin_root_run(run_id, parent_run_id)
         name = (serialized or {}).get("name", "tool")
         payload = self._payload(name=name)
         self._set_if_capturing(payload, "input", _to_jsonable(input_str))
@@ -543,6 +752,7 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
+        self._begin_root_run(run_id, parent_run_id)
         name = (serialized or {}).get("name", "retriever")
         payload = self._payload(name=name)
         self._set_if_capturing(payload, "input", query)
@@ -598,7 +808,9 @@ class LangChainCallbackHandler(BaseCallbackHandler, FrameworkAdapter):
         self._set_if_capturing(payload, "log", getattr(action, "log", None) or None)
         self._emit("agent.input", payload, run_id=run_id, parent_run_id=parent_run_id)
 
-    @_auto_flush
+    # Not @_auto_flush: LangChain reports an agent's finish with the run id of the chain running
+    # the agent, the root run for a top-level AgentExecutor, and that chain's end follows. Ending
+    # the trace here dropped the root chain's agent.output (L7 AD-04); the chain's end ends it.
     def on_agent_finish(
         self,
         finish: Any,
@@ -660,6 +872,24 @@ def _requested_tool_calls(msg: Any) -> List[Dict[str, Any]]:
         if not already_listed:
             requested.append({"id": call_id, "tool_name": itc.get("name"), "arguments": itc.get("args")})
     return requested
+
+
+def _reply_usage(reply: Any) -> Optional[Dict[str, Any]]:
+    """The reply message's ``usage_metadata`` (input/output/total tokens), or None."""
+    usage = getattr(reply, "usage_metadata", None)
+    return dict(usage) if isinstance(usage, dict) and usage else None
+
+
+def _reply_model_name(reply: Any) -> Optional[str]:
+    """The model the reply message's ``response_metadata`` names, or None."""
+    metadata = getattr(reply, "response_metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    for key in ("model_name", "model"):
+        name = metadata.get(key)
+        if isinstance(name, str) and name:
+            return name
+    return None
 
 
 def _serialize_lc_message(msg: Any) -> Any:

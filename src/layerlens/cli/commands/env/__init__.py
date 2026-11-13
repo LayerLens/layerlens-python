@@ -15,7 +15,7 @@ from .environments import get, wait, reset, tools, create, delete, revert, statu
 def env() -> None:
     """Create environments, run your agent or a model against them, and gate a build on the result.
 
-    Needs an API key (Organization Settings → API Keys). A key with Standard access runs
+    Needs an API key (Manage organization → API keys). A key with Standard access runs
     only env list, env tools and env reset; every other command needs an Automation key.
     Wherever a command takes ENV, pass the environment's id or its name.
 

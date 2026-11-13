@@ -124,6 +124,8 @@ layerlens completion powershell
 
 Follow the printed instructions to enable completions. After setup, you can tab-complete trace IDs, judge IDs, model names, and more.
 
+PowerShell completion comes from click 8.5 or later, which needs Python 3.10 or later. With an older click, `layerlens completion powershell` says so and exits `1`.
+
 ## First commands
 
 ### List your traces

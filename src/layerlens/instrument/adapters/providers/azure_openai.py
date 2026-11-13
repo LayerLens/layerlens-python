@@ -84,6 +84,13 @@ def _scrubbed_endpoint(client: Any) -> str | None:
 
 
 def instrument_azure_openai(client: Any) -> AzureOpenAIProvider:
+    """Trace the Azure OpenAI calls ``client`` makes; returns the adapter.
+
+    One client at a time: the client instrumented before is restored first, and
+    :func:`uninstrument_azure_openai` restores the last one. To trace several clients at once,
+    connect an adapter to each, ``AzureOpenAIProvider().connect(other_client)``: each adapter's
+    ``disconnect()`` restores its own client.
+    """
     from .._registry import get, register
 
     existing = get("azure_openai")

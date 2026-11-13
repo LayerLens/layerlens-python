@@ -118,10 +118,14 @@ PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-5-20250929": {"input": 0.003, "output": 0.015},
     "claude-sonnet-4-5": {"input": 0.003, "output": 0.015},
     "claude-opus-4-20250115": {"input": 0.015, "output": 0.075},
-    "claude-opus-4-6": {"input": 0.015, "output": 0.075},
-    "claude-opus-4-7": {"input": 0.015, "output": 0.075},
-    "claude-haiku-4-5-20251001": {"input": 0.0008, "output": 0.004},
-    "claude-haiku-4-5": {"input": 0.0008, "output": 0.004},
+    # Anthropic's list prices (https://platform.claude.com/docs/en/about-claude/pricing, read
+    # 2026-11-10): Opus 4.6 and 4.7 $5 / $25 per MTok, Haiku 4.5 $1 / $5. They were Opus 4's
+    # $15 / $75 and Claude 3.5 Haiku's $0.80 / $4. Cache reads (0.1x) and writes (1.25x) follow
+    # from the input price, as for every Claude row.
+    "claude-opus-4-6": {"input": 0.005, "output": 0.025},
+    "claude-opus-4-7": {"input": 0.005, "output": 0.025},
+    "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
+    "claude-haiku-4-5": {"input": 0.001, "output": 0.005},
     "claude-haiku-3-5-20241022": {"input": 0.0008, "output": 0.004},
     "claude-haiku-3-5": {"input": 0.0008, "output": 0.004},
     "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},

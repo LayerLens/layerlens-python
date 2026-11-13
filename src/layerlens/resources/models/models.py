@@ -175,10 +175,15 @@ class Models(SyncAPIResource):
         *model_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Add models (public or custom) to the project by their IDs."""
-        # Fetch the full current list (public + custom). The project's
-        # PATCH endpoint expects the complete model set in a single payload.
-        current = self.get(timeout=timeout) or []
+        """Add public models to the project by their IDs.
+
+        The project's PATCH takes its whole ``models`` list in one payload, and that list holds the
+        project's public models only: a custom model belongs to the project it was created in, and
+        the API lists it by that. A custom model's id in ``models`` made the project's public model
+        list answer 500 for every caller, so the current list is read, and sent, public ids only, as
+        :meth:`Benchmarks.add` does (BUG-11).
+        """
+        current = self.get(type="public", timeout=timeout) or []
         current_ids = [str(m.id) for m in current]
         new_ids = list(dict.fromkeys(current_ids + list(model_ids)))
         return self._patch_project_models(new_ids, timeout)
@@ -188,13 +193,11 @@ class Models(SyncAPIResource):
         *model_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Remove models (public or custom) from the project's model list.
+        """Remove public models from the project's model list (see :meth:`add`).
 
-        Note: this only detaches the models from the project. The underlying
-        records are not deleted — use ``delete_custom`` to fully tear down a
-        custom model.
+        A custom model is not in that list: it belongs to its project until ``delete_custom``.
         """
-        current = self.get(timeout=timeout) or []
+        current = self.get(type="public", timeout=timeout) or []
         remove_set = set(model_ids)
         new_ids = [str(m.id) for m in current if str(m.id) not in remove_set]
         return self._patch_project_models(new_ids, timeout)
@@ -446,10 +449,8 @@ class AsyncModels(AsyncAPIResource):
         *model_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Add models (public or custom) to the project by their IDs."""
-        # Fetch the full current list (public + custom). The project's
-        # PATCH endpoint expects the complete model set in a single payload.
-        current = await self.get(timeout=timeout) or []
+        """Add public models to the project by their IDs (see :meth:`Models.add`)."""
+        current = await self.get(type="public", timeout=timeout) or []
         current_ids = [str(m.id) for m in current]
         new_ids = list(dict.fromkeys(current_ids + list(model_ids)))
         return await self._patch_project_models(new_ids, timeout)
@@ -459,13 +460,8 @@ class AsyncModels(AsyncAPIResource):
         *model_ids: str,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
     ) -> bool:
-        """Remove models (public or custom) from the project's model list.
-
-        Note: this only detaches the models from the project. The underlying
-        records are not deleted — use ``delete_custom`` to fully tear down a
-        custom model.
-        """
-        current = await self.get(timeout=timeout) or []
+        """Remove public models from the project's model list (see :meth:`Models.add`)."""
+        current = await self.get(type="public", timeout=timeout) or []
         remove_set = set(model_ids)
         new_ids = [str(m.id) for m in current if str(m.id) not in remove_set]
         return await self._patch_project_models(new_ids, timeout)

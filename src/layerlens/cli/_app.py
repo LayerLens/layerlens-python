@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib.metadata as importlib_metadata
+
 import click
+from click import shell_completion
 
 from ._command import LayerLensGroup, base_url_for, root_options
 from .._version import __version__
@@ -99,20 +102,30 @@ def completion(shell: str) -> None:
         prog = "layerlens"
     env_var = f"_{prog.upper()}_COMPLETE"
 
+    if shell == "powershell":
+        # click's own setup (its "Shell Completion" docs): ``powershell_source`` prints a whole
+        # Register-ArgumentCompleter script, which the profile loads. The snippet used to register
+        # a completer of its own that offered each line of that script as a completion (L5-41).
+        if shell_completion.get_completion_class("powershell") is None:
+            raise click.ClickException(
+                "PowerShell completion needs click 8.5 or later (Python 3.10 or later); this "
+                f"environment has click {_click_version()}. Upgrade click to use it."
+            )
+        snippet = (
+            f"$env:{env_var} = 'powershell_source'\n{prog} | Out-String | Invoke-Expression\nRemove-Item Env:{env_var}"
+        )
+        print(f"Add this to your PowerShell profile (the file $PROFILE names):\n\n{snippet}")
+        return
     instructions = {
         "bash": f'eval "$({env_var}=bash_source {prog})"',
         "zsh": f'eval "$({env_var}=zsh_source {prog})"',
         "fish": f"{env_var}=fish_source {prog} | source",
-        "powershell": (
-            f"Register-ArgumentCompleter -Native -CommandName {prog} -ScriptBlock {{\n"
-            "    param($wordToComplete, $commandAst, $cursorPosition)\n"
-            f'    $env:{env_var} = "powershell_source"\n'
-            f'    {prog} | ForEach-Object {{ [System.Management.Automation.CompletionResult]::new($_, $_, "ParameterValue", $_) }}\n'
-            f"    Remove-Item Env:{env_var}\n"
-            "}"
-        ),
     }
-    if shell == "powershell":
-        print(f"Add this to your PowerShell profile:\n\n{instructions[shell]}")
-    else:
-        print(f"Add this to your shell profile:\n\n  {instructions[shell]}")
+    print(f"Add this to your shell profile:\n\n  {instructions[shell]}")
+
+
+def _click_version() -> str:
+    try:
+        return importlib_metadata.version("click")
+    except importlib_metadata.PackageNotFoundError:
+        return "of an unknown version"

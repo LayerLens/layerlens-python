@@ -36,12 +36,12 @@ def bulk() -> None:
     type=click.Path(exists=True),
     help='JSONL file with evaluation jobs (each line: {"model": ..., "benchmark": ...}).',
 )
-@click.option("--model", "model_id", default=None, help="Model ID/name (use with --benchmark).")
+@click.option("--model", "model_id", default=None, help="Model ID, key, or name (use with --benchmark).")
 @click.option(
     "--benchmark",
     "benchmark_id",
     default=None,
-    help="Benchmark ID/name (use with --model).",
+    help="Benchmark ID, key, or name (use with --model).",
 )
 @click.option("--judge-id", default=None, help="Judge ID (use with --traces).")
 @click.option(

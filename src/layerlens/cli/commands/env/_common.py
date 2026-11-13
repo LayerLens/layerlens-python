@@ -49,7 +49,7 @@ def env_client(ctx: click.Context, *, key_on_command_line: bool = True) -> Layer
         fail(
             f"layerlens env needs an API key: set {API_KEY_ENV}, or pass {ways}. A key with Standard access "
             "runs only env list, env tools and env reset; every other command needs Automation access "
-            "(Organization Settings → API Keys)."
+            "(Manage organization → API keys)."
         )
     return build_client(ctx, resolved.value, use_bearer_auth=False)
 

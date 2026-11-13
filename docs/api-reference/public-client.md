@@ -49,15 +49,19 @@ public_models = client.public.models.get(query="claude")
 
 ## Constructor Parameters
 
-### `PublicClient(api_key, base_url, timeout)` and `AsyncPublicClient(api_key, base_url, timeout)`
+### `PublicClient(api_key, base_url, timeout, max_retries)` and `AsyncPublicClient(api_key, base_url, timeout, max_retries)`
 
-| Parameter  | Type                             | Required | Default           | Description                   |
-| ---------- | -------------------------------- | -------- | ----------------- | ----------------------------- |
-| `api_key`  | `str \| None`                    | Yes\*    | `None`            | Your LayerLens API key        |
-| `base_url` | `str \| httpx.URL \| None`       | No       | LayerLens API URL | Custom API base URL           |
-| `timeout`  | `float \| httpx.Timeout \| None` | No       | 10 minutes        | Request timeout configuration |
+| Parameter     | Type                             | Required | Default           | Description                                         |
+| ------------- | -------------------------------- | -------- | ----------------- | --------------------------------------------------- |
+| `api_key`     | `str \| None`                    | Yes\*    | `None`            | Your LayerLens API key                              |
+| `base_url`    | `str \| httpx.URL \| None`       | No       | LayerLens API URL | Custom API base URL                                 |
+| `timeout`     | `float \| httpx.Timeout \| None` | No       | 10 minutes        | Request timeout configuration                       |
+| `max_retries` | `int`                            | No       | `2`               | Retries of a 429, a 5xx or a lost connection        |
 
 \*Required unless set via the `LAYERLENS_API_KEY` environment variable
+
+`client.public` on a `LayerLens` / `AsyncLayerLens` client is built with that client's key, URL,
+timeout and `max_retries`.
 
 ## Public Models
 
@@ -178,7 +182,8 @@ Returns `None` if the request fails.
 | `id`              | `str`              | Unique benchmark identifier           |
 | `key`             | `str`              | Unique benchmark key                  |
 | `name`            | `str`              | Human-readable name                   |
-| `description`     | `str \| None`      | Text description                      |
+| `description`     | `str \| None`      | Text description (the API's `full_description`) |
+| `short_description` | `str \| None`    | One-line summary                      |
 | `prompt_count`    | `int \| None`      | Number of prompts in the benchmark    |
 | `language`        | `str \| None`      | Language of the benchmark             |
 | `categories`      | `List[str] \| None`| Categories                            |

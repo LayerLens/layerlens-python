@@ -2397,3 +2397,68 @@ class TestSampleCompleteness:
         assert len(ALL_MOCKED_SAMPLES) == 125, (
             f"Expected 125 mocked entries, got {len(ALL_MOCKED_SAMPLES)}.\nEntries: {ALL_MOCKED_SAMPLES}"
         )
+
+
+# ---------------------------------------------------------------------------
+# The trace records the core samples write are ones the API takes
+# ---------------------------------------------------------------------------
+
+#: A trace record the API reads must carry one of these (layerlens-app's traces_create.go); one
+#: with none is refused: ``400 trace record 0 is not a valid trace: expected at least one of [...]``.
+_TRACE_RECORD_FIELDS = (
+    "events",
+    "spans",
+    "attestation",
+    "trace_id",
+    "metadata",
+    "name",
+    "framework",
+    "agent_name",
+    "agent_id",
+    "event_count",
+)
+
+
+class TestSampleTraceRecords:
+    """``samples/core/quickstart.py`` uploaded ``{input, output}`` alone, and the API refused it
+    (docs E2E 2026-11-10, L7 AD-23). Every record a core sample writes to upload carries a field the
+    API reads a trace by."""
+
+    def test_every_record_the_core_samples_upload_is_one_the_api_takes(self, mock_layerlens: MagicMock) -> None:
+        accepted = mock_layerlens.traces.upload.return_value
+        for name in ("quickstart", "basic_trace", "trace_evaluation"):
+            records: list[dict[str, Any]] = []
+
+            def upload(path: str, records: list[dict[str, Any]] = records) -> Any:
+                with open(path) as f:
+                    records.extend(json.loads(line) for line in f if line.strip())
+                return accepted
+
+            mock_layerlens.traces.upload.side_effect = upload
+            _import_and_run_sync(f"core/{name}.py", mock_layerlens)
+            assert records, f"core/{name}.py uploaded nothing"
+            refused = [r for r in records if not any(field in r for field in _TRACE_RECORD_FIELDS)]
+            assert refused == [], f"core/{name}.py uploads records the API refuses: {refused}"
+
+    def test_every_bundled_trace_file_holds_records_the_api_takes(self) -> None:
+        """``samples/data/traces/example_traces.jsonl``, which ``core/async_results.py`` uploads, held
+        ``{input, output, model, …}`` records the API refuses as the quickstart's was (docs re-run
+        2026-11-10, TS-02)."""
+        traces_dir = os.path.join(SAMPLES_DIR, "data", "traces")
+        refused: dict[str, int] = {}
+        for folder, _dirs, files in os.walk(traces_dir):
+            for file_name in files:
+                if not file_name.endswith((".json", ".jsonl")):
+                    continue
+                path = os.path.join(folder, file_name)
+                with open(path) as f:
+                    text = f.read().strip()
+                try:
+                    loaded = json.loads(text)
+                    records = loaded if isinstance(loaded, list) else [loaded]
+                except json.JSONDecodeError:
+                    records = [json.loads(line) for line in text.splitlines() if line.strip()]
+                bad = [r for r in records if not any(field in r for field in _TRACE_RECORD_FIELDS)]
+                if bad:
+                    refused[os.path.relpath(path, SAMPLES_DIR)] = len(bad)
+        assert refused == {}, f"records the API refuses: {refused}"

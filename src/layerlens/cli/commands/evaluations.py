@@ -30,7 +30,8 @@ def evaluations() -> None:
     "--dataset-file",
     required=True,
     type=click.Path(exists=True, dir_okay=False),
-    help="Load a dataset from a JSON file (list of {input, expected_output}).",
+    help="Load a dataset from a JSON file: a list of {input, expected_output} items, each with an optional id "
+    "(an item without one is item_0, item_1, ... by its place).",
 )
 @click.option("--target", required=True, help="Callable 'module:attr'.")
 @click.option(

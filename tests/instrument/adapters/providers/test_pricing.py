@@ -1329,6 +1329,12 @@ _COST_AFTER_REFRESH = {
     ("PRICING", "text-embedding-3-small"): 0.021,  # 0.015 + 0.005 + 0.001
     ("PRICING", "text-embedding-3-large"): 0.1365,  # 0.0975 + 0.0325 + 0.0065
     ("PRICING", "text-embedding-ada-002"): 0.105,  # 0.075 + 0.025 + 0.005
+    # Anthropic's list prices (2026-11-10, https://platform.claude.com/docs/en/about-claude/pricing):
+    # a read is a tenth of the input price, a write 1.25 times it.
+    ("PRICING", "claude-opus-4-6"): 6.6875,  # $5 / $25: 3.75 + 0.125 + 0.3125 + 2.5
+    ("PRICING", "claude-opus-4-7"): 6.6875,
+    ("PRICING", "claude-haiku-4-5-20251001"): 1.3375,  # $1 / $5: 0.75 + 0.025 + 0.0625 + 0.5
+    ("PRICING", "claude-haiku-4-5"): 1.3375,
 }
 
 _BUNDLED_TABLES = {"PRICING": PRICING, "AZURE_PRICING": AZURE_PRICING, "BEDROCK_PRICING": BEDROCK_PRICING}

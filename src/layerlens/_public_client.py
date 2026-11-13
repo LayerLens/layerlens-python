@@ -10,9 +10,9 @@ import httpx
 from . import _exceptions
 from ._env import env_api_key, env_base_url
 from ._utils import is_mapping
-from ._constants import DEFAULT_TIMEOUT, DEFAULT_BASE_URL
+from ._constants import NOT_GIVEN, DEFAULT_TIMEOUT, DEFAULT_BASE_URL, NotGiven
 from ._exceptions import APIStatusError
-from ._base_client import BaseClient, BaseAsyncClient
+from ._base_client import MAX_RETRIES, BaseClient, BaseAsyncClient
 
 if TYPE_CHECKING:
     from .resources.comparisons import Comparisons, AsyncComparisons
@@ -69,6 +69,7 @@ class PublicClient(BaseClient):
         api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
         timeout: Union[float, httpx.Timeout, None] = DEFAULT_TIMEOUT,
+        max_retries: int = MAX_RETRIES,
     ) -> None:
         if api_key is None:
             api_key = env_api_key(stacklevel=2)
@@ -83,7 +84,7 @@ class PublicClient(BaseClient):
         if base_url is None:
             base_url = DEFAULT_BASE_URL
 
-        super().__init__(base_url=base_url, timeout=timeout)
+        super().__init__(base_url=base_url, timeout=timeout, max_retries=max_retries)
 
     @cached_property
     def models(self) -> PublicModelsResource:
@@ -119,13 +120,20 @@ class PublicClient(BaseClient):
         *,
         api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: Union[float, httpx.Timeout, None, NotGiven] = NOT_GIVEN,
+        max_retries: int | None = None,
         _extra_kwargs: Mapping[str, Any] = {},
     ) -> Self:
+        """A new client with this client's key, URL, timeout and retries, and the ones given here instead.
+
+        ``timeout=None`` is no timeout. The given timeout used to be ignored (``self.timeout or
+        timeout``: an httpx ``Timeout`` is always true), and the retries went back to two.
+        """
         return self.__class__(
             api_key=api_key or self.api_key,
             base_url=base_url or self.base_url,
-            timeout=self.timeout or timeout,
+            timeout=self.timeout if isinstance(timeout, NotGiven) else timeout,
+            max_retries=self._max_retries if max_retries is None else max_retries,
             **_extra_kwargs,
         )
 
@@ -153,6 +161,7 @@ class AsyncPublicClient(BaseAsyncClient):
         api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
         timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        max_retries: int = MAX_RETRIES,
     ) -> None:
         if api_key is None:
             api_key = env_api_key(stacklevel=2)
@@ -167,7 +176,7 @@ class AsyncPublicClient(BaseAsyncClient):
         if base_url is None:
             base_url = DEFAULT_BASE_URL
 
-        super().__init__(base_url=base_url, timeout=timeout)
+        super().__init__(base_url=base_url, timeout=timeout, max_retries=max_retries)
 
     @cached_property
     def models(self) -> AsyncPublicModelsResource:
@@ -203,13 +212,20 @@ class AsyncPublicClient(BaseAsyncClient):
         *,
         api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: Union[float, httpx.Timeout, None, NotGiven] = NOT_GIVEN,
+        max_retries: int | None = None,
         _extra_kwargs: Mapping[str, Any] = {},
     ) -> Self:
+        """A new client with this client's key, URL, timeout and retries, and the ones given here instead.
+
+        ``timeout=None`` is no timeout. The given timeout used to be ignored (``self.timeout or
+        timeout``: an httpx ``Timeout`` is always true), and the retries went back to two.
+        """
         return self.__class__(
             api_key=api_key or self.api_key,
             base_url=base_url or self.base_url,
-            timeout=self.timeout or timeout,
+            timeout=self.timeout if isinstance(timeout, NotGiven) else timeout,
+            max_retries=self._max_retries if max_retries is None else max_retries,
             **_extra_kwargs,
         )
 

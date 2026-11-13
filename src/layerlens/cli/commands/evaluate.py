@@ -211,12 +211,14 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
 def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: bool) -> None:
     """Run an evaluation with a model and benchmark.
 
-    The --model and --benchmark options accept an ID, key, or name.
+    The --model and --benchmark options accept an ID, key, or name. An ID can name
+    any model or benchmark in the catalog; a key or a name is looked up among the
+    project's own.
 
     \b
     Examples:
       layerlens evaluate run --model gpt-4 --benchmark mmlu
-      layerlens evaluate run --model abc123-uuid --benchmark def456-uuid --wait
+      layerlens evaluate run --model 6a0b692ced57a8fd01d1433a --benchmark 67e20572e014f9fa6c49b996 --wait
       layerlens evaluate run --model "GPT-4" --benchmark "MMLU" --wait --format json
     """
     client = get_client(ctx)

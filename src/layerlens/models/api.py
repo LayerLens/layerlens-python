@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import Field, BaseModel, ConfigDict, AliasChoices
+from pydantic import Field, BaseModel, ConfigDict, AliasChoices, model_validator
 
 from .judge import Judge
 from .model import Model
@@ -128,11 +128,32 @@ class TraceEvaluationResultsResponse(TraceEvaluationResult):
 
 
 class CostEstimateResponse(BaseModel):
-    estimated_cost: float
-    input_tokens: int
-    output_tokens: int
-    model: str
+    """What ``POST …/trace-evaluations/estimate`` answers.
+
+    ``trace_count`` and ``cost_available`` always come. The price fields come only when the API
+    could price the run: with ``cost_available`` False (a judge on a model the catalogue no longer
+    carries) they are None, and the counts still say what the run would cover. The API sends no
+    ``model``; the field stays, as None, for code that read it.
+    """
+
     trace_count: int
+    #: Whether the API could price the run. A reply without the field says so by its price.
+    cost_available: bool
+    estimated_cost: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    #: How many of the judges could not be priced; the estimate covers the others.
+    unpriced_judges: Optional[int] = None
+    #: How many traces the tags matched, for an estimate by tags.
+    total_matched: Optional[int] = None
+    model: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _cost_available_from_the_price(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "cost_available" not in data:
+            return {**data, "cost_available": data.get("estimated_cost") is not None}
+        return data
 
 
 class JudgeOptimizationRunsResponse(BaseModel):

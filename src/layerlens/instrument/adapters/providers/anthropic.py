@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterator, Optional, AsyncIterator
 
 from ..._context import _current_collector
 from ._streaming import emit_streamed_events
@@ -445,6 +445,13 @@ class _TracedMessageStream:
 
     Forwards attribute access and enter/exit to the inner SDK manager while
     tapping every yielded event so we can aggregate on close.
+
+    Every way the anthropic SDK reads a stream goes through one tapped pass over its events:
+    iterating it, ``next()``, ``text_stream``, ``until_done()``, ``get_final_message()`` and
+    ``get_final_text()``, sync and async. Those helpers used to reach the SDK's stream directly,
+    past the tap, so a stream read through them recorded no ``model.invoke`` and no
+    ``cost.record`` (L3 AD-15). The final message and text still come from the SDK's stream,
+    once the tapped pass has read it to the end.
     """
 
     def __init__(
@@ -465,6 +472,10 @@ class _TracedMessageStream:
         self._error: Exception | None = None
         # First content-delta timestamp — drives TTFT.
         self._first_delta_at: float | None = None
+        # The one tapped pass over the SDK stream's events, made on first read.
+        self._pass: Optional[Iterator[Any]] = None
+        self._apass: Optional[AsyncIterator[Any]] = None
+        self._async = False
 
     def __enter__(self) -> "_TracedMessageStream":
         self._stream = self._inner.__enter__()
@@ -472,19 +483,84 @@ class _TracedMessageStream:
 
     async def __aenter__(self) -> "_TracedMessageStream":
         self._stream = await self._inner.__aenter__()
+        self._async = True
         return self
 
-    def __iter__(self) -> Any:
+    def _tapped(self) -> Iterator[Any]:
+        if self._pass is None:
+            self._pass = self._tap()
+        return self._pass
+
+    def _tap(self) -> Iterator[Any]:
         for event in self._stream:
             self._events.append(event)
             self._mark_first_delta(event)
             yield event
 
-    async def __aiter__(self) -> Any:
+    def _atapped(self) -> AsyncIterator[Any]:
+        if self._apass is None:
+            self._apass = self._atap()
+        return self._apass
+
+    async def _atap(self) -> AsyncIterator[Any]:
         async for event in self._stream:
             self._events.append(event)
             self._mark_first_delta(event)
             yield event
+
+    # Iterating the stream, as the SDK's stream does: every read continues the one pass.
+    def __iter__(self) -> Iterator[Any]:
+        return self._tapped()
+
+    def __next__(self) -> Any:
+        return next(self._tapped())
+
+    def __aiter__(self) -> AsyncIterator[Any]:
+        return self._atapped()
+
+    async def __anext__(self) -> Any:
+        return await self._atapped().__anext__()
+
+    # The SDK's helpers, read through the same pass.
+    @property
+    def text_stream(self) -> Any:
+        """The text deltas, as the SDK's ``text_stream`` yields them."""
+        if self._async:
+            return self._atext_stream()
+        return (text for text in map(_text_delta, self._tapped()) if text is not None)
+
+    async def _atext_stream(self) -> AsyncIterator[str]:
+        async for event in self._atapped():
+            text = _text_delta(event)
+            if text is not None:
+                yield text
+
+    def until_done(self) -> Any:
+        if self._async:
+            return self._auntil_done()
+        for _ in self._tapped():
+            pass
+        return None
+
+    async def _auntil_done(self) -> None:
+        async for _ in self._atapped():
+            pass
+
+    def get_final_message(self) -> Any:
+        if self._async:
+            return self._aget_final("get_final_message")
+        self.until_done()
+        return self._stream.get_final_message()
+
+    def get_final_text(self) -> Any:
+        if self._async:
+            return self._aget_final("get_final_text")
+        self.until_done()
+        return self._stream.get_final_text()
+
+    async def _aget_final(self, helper: str) -> Any:
+        await self._auntil_done()
+        return await getattr(self._stream, helper)()
 
     def _mark_first_delta(self, event: Any) -> None:
         # Per LAY-3329 / LAY-3332, TTFT measures time-to-first-content. Anthropic
@@ -549,10 +625,28 @@ class _TracedMessageStream:
         )
 
 
+def _text_delta(event: Any) -> Optional[str]:
+    """The text of a stream event that carries text, as the SDK's ``text_stream`` picks it."""
+    if getattr(event, "type", None) != "content_block_delta":
+        return None
+    delta = getattr(event, "delta", None)
+    if getattr(delta, "type", None) != "text_delta":
+        return None
+    text = getattr(delta, "text", None)
+    return text if isinstance(text, str) else None
+
+
 # --- Convenience API ---
 
 
 def instrument_anthropic(client: Any) -> AnthropicProvider:
+    """Trace the Anthropic calls ``client`` makes; returns the adapter.
+
+    One client at a time: the client instrumented before is restored first, and
+    :func:`uninstrument_anthropic` restores the last one. To trace several clients at once,
+    connect an adapter to each, ``AnthropicProvider().connect(other_client)``: each adapter's
+    ``disconnect()`` restores its own client.
+    """
     from .._registry import get, register
 
     existing = get("anthropic")

@@ -142,3 +142,9 @@ evaluation = client.with_options(timeout=120.0).evaluations.create(
     benchmark=benchmark
 )
 ```
+
+`with_options()` (also `copy()`) returns a new client with this client's options: its key, URL,
+timeout, `max_retries`, bearer auth and upload hosts, and the organization and project it works
+in. Pass `api_key`, `base_url`, `timeout`, `max_retries`, `use_bearer_auth` or
+`trusted_upload_hosts` to change them; `timeout=None` is no timeout. A copy with another key or
+URL reads its own organization and project.

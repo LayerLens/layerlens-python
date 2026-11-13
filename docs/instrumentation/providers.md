@@ -92,6 +92,17 @@ provider = instrument_openai(openai_client)
 provider.disconnect()  # or uninstrument_openai()
 ```
 
+`instrument_openai` instruments one client at a time: calling it with another client restores the
+first, and `uninstrument_openai()` restores the last one. Every `instrument_<provider>()` works this
+way. To trace several clients at once, connect an adapter to each:
+
+```python
+from layerlens.instrument.adapters.providers.openai import OpenAIProvider
+
+for c in (openai_client, other_openai_client):
+    OpenAIProvider().connect(c)  # keep the adapters; each one's disconnect() restores its client
+```
+
 ## Anthropic
 
 ### Installation

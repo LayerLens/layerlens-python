@@ -67,3 +67,6 @@ jobs:
           # Verify wheel and source distribution were created
           test -f dist/*.whl
           test -f dist/*.tar.gz
+          # PEP 561: without the marker a user's mypy refuses the SDK's types (py.typed).
+          unzip -l dist/*.whl | grep -q ' layerlens/py.typed$'
+          tar tzf dist/*.tar.gz | grep -q '/src/layerlens/py.typed$'

@@ -83,9 +83,9 @@ def get_scorer(ctx: click.Context, id: str) -> None:
 
 @scorer.command("create")
 @click.option("--name", required=True, help="Scorer name (3-64 chars).")
-@click.option("--description", required=True, help="Scorer description (10-500 chars).")
+@click.option("--description", required=True, help="Scorer description (10-280 chars).")
 @click.option("--model-id", required=True, help="Model ID to use for scoring.")
-@click.option("--prompt", required=True, help="Scoring prompt.")
+@click.option("--prompt", required=True, help="Scoring prompt (at least 10 chars).")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without executing.")
 @click.pass_context
 @handle_errors

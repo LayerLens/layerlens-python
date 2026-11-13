@@ -132,6 +132,11 @@ class LiteLLMProvider(MonkeyPatchProvider):
 
 
 def instrument_litellm() -> LiteLLMProvider:
+    """Trace every ``litellm.completion`` / ``acompletion`` call in the process; returns the adapter.
+
+    LiteLLM is patched at module level, so one adapter covers every call. Calling it again
+    replaces the adapter; :func:`uninstrument_litellm` restores LiteLLM.
+    """
     from .._registry import get, register
 
     existing = get("litellm")

@@ -390,6 +390,16 @@ class OpenAIAgentsAdapter(*_Bases):
         else:
             self._emit("model.invoke", payload, span_id=span_id, parent_span_id=parent_id)
 
+        # The cost beside the call, as a generation_span records it. The Agents SDK's default
+        # model calls the Responses API, so its runs recorded tokens and no cost (L3 AD-32).
+        flat = {k: tokens[k] for k in ("tokens_prompt", "tokens_completion", "tokens_total") if k in tokens}
+        if flat:
+            cost_payload = self._payload()
+            if model:
+                cost_payload["model"] = model
+            cost_payload.update(flat)
+            self._emit("cost.record", cost_payload, span_id=span_id, parent_span_id=parent_id)
+
 
 # ------------------------------------------------------------------
 # Module-level helpers

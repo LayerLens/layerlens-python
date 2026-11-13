@@ -32,7 +32,7 @@ import logging
 import weakref
 import tempfile
 import threading
-from typing import Any, Dict, List, Tuple, Callable, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Callable, Optional
 
 from .._client import AsyncLayerLens
 from .._exit_timeout import EXIT_TIMEOUT_ENV, parse_exit_timeout
@@ -139,6 +139,37 @@ def _record_loss(reason: str, payload: Dict[str, Any]) -> None:
 # Per-client upload channel
 # ---------------------------------------------------------------------------
 
+_QueuedTrace = Tuple[Any, Dict[str, Any]]
+
+if TYPE_CHECKING:
+    _QueueBase = queue.Queue[Optional[_QueuedTrace]]
+else:  # ``queue.Queue[...]`` is not subscriptable at runtime before Python 3.9
+    _QueueBase = queue.Queue
+
+
+class _TraceQueue(_QueueBase):
+    """A channel's queue, whose worker takes a trace and marks it in flight in one step.
+
+    ``Queue.get()`` calls ``_get`` with the queue's lock held, so a trace is always either queued
+    or in flight, never between the two, and the exit can account for every one. The take and the
+    mark were two steps: while the worker checked the circuit breaker and wrote the trace's file, a
+    trace it had taken was neither, and an exit in that window lost it without a word; with
+    ``LAYERLENS_EXIT_TIMEOUT=0``, every trace of a program that recorded one and exited (L1-121).
+    Only the worker takes from the queue; the exit empties it under the lock without a take.
+    """
+
+    def __init__(self, maxsize: int) -> None:
+        super().__init__(maxsize=maxsize)
+        #: The trace the worker took and is not done with: set under ``mutex`` by the take, cleared
+        #: by the worker when it is done.
+        self.in_flight: Optional[Dict[str, Any]] = None
+
+    def _get(self) -> Optional[_QueuedTrace]:
+        item = super()._get()
+        if item is not None:
+            self.in_flight = item[1]
+        return item
+
 
 class UploadChannel:
     """Per-client upload state: circuit breaker + background worker + queue.
@@ -155,15 +186,19 @@ class UploadChannel:
         self._error_count = 0
         self._circuit_open = False
         self._opened_at: float = 0.0
-        self._queue: queue.Queue[Optional[Tuple[Any, Dict[str, Any]]]] = queue.Queue(maxsize=64)
+        self._queue = _TraceQueue(maxsize=64)
         self._worker: Optional[threading.Thread] = None
         # Set by a shutdown: the worker sends what is queued, then ends instead of waiting for
         # more. A worker started later clears it. Guarded by ``_lock`` (LAY-4454).
         self._stop_when_empty = False
-        # The trace the worker is uploading now, so an exit that cannot wait for it can say so.
-        self._sending: Optional[Dict[str, Any]] = None
         # The last attempt to start a worker failed; warn once until one starts.
         self._start_failed = False
+
+    @property
+    def _sending(self) -> Optional[Dict[str, Any]]:
+        """The trace the worker took off the queue and is not done with, so an exit that cannot
+        wait for it can say so (see :class:`_TraceQueue`)."""
+        return self._queue.in_flight
 
     # -- Circuit breaker --
 
@@ -207,46 +242,53 @@ class UploadChannel:
                 if self._stop_when_empty and self._queue.empty():
                     self._worker = None
                     return
+            # The take marks the trace in flight (``_TraceQueue``); it stays so until it is sent
+            # or counted lost.
             item = self._queue.get()
             if item is None:
                 # The wake-up a shutdown sends a worker waiting on an empty queue.
                 continue
             client, payload = item
-            if not self._allow():
-                _record_loss("circuit_open", payload)
-                continue
             try:
-                path = _write_trace_file(payload)
-            except Exception:
-                # A serialize failure must not kill the daemon worker (every
-                # queued trace behind it would be lost) — count it and continue.
-                self._on_failure()
-                _record_loss("serialize_error", payload)
-                log.warning("layerlens: failed to serialize trace for upload", exc_info=True)
-                continue
-            self._sending = payload
-            try:
-                result = _upload_file(client, path)
-                if _upload_succeeded(result):
-                    self._on_success()
-                    _offer_server_trace_id(result)
-                else:
-                    self._on_failure()
-                    _record_loss("rejected", payload)
-                    log.warning(
-                        "layerlens: background trace upload rejected (no trace_ids) for trace %s",
-                        payload.get("trace_id", "?"),
-                    )
-            except Exception:
-                self._on_failure()
-                _record_loss("upload_error", payload)
-                log.warning("layerlens: background trace upload failed", exc_info=True)
+                self._send(client, payload)
             finally:
-                self._sending = None
-                try:
-                    os.unlink(path)
-                except OSError:
-                    log.debug("Failed to remove temp trace file: %s", path)
+                self._queue.in_flight = None
+
+    def _send(self, client: Any, payload: Dict[str, Any]) -> None:
+        """Upload one trace the worker took off the queue; a trace not sent is counted lost."""
+        if not self._allow():
+            _record_loss("circuit_open", payload)
+            return
+        try:
+            path = _write_trace_file(payload)
+        except Exception:
+            # A serialize failure must not kill the daemon worker (every
+            # queued trace behind it would be lost) — count it and continue.
+            self._on_failure()
+            _record_loss("serialize_error", payload)
+            log.warning("layerlens: failed to serialize trace for upload", exc_info=True)
+            return
+        try:
+            result = _upload_file(client, path)
+            if _upload_succeeded(result):
+                self._on_success()
+                _offer_server_trace_id(result)
+            else:
+                self._on_failure()
+                _record_loss("rejected", payload)
+                log.warning(
+                    "layerlens: background trace upload rejected (no trace_ids) for trace %s",
+                    payload.get("trace_id", "?"),
+                )
+        except Exception:
+            self._on_failure()
+            _record_loss("upload_error", payload)
+            log.warning("layerlens: background trace upload failed", exc_info=True)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                log.debug("Failed to remove temp trace file: %s", path)
 
     def _ensure_worker(self) -> None:
         # Always under the lock: a worker that is ending clears ``_worker`` under it, and a
@@ -376,26 +418,25 @@ class UploadChannel:
             self._ensure_worker()
 
     def _unsent(self) -> int:
-        """The traces still queued here, and the one being uploaded."""
+        """The traces still queued here, and the one the worker has taken."""
         with self._queue.mutex:
             queued = sum(1 for item in self._queue.queue if item is not None)
-        return queued + (1 if self._sending is not None else 0)
+            in_flight = self._queue.in_flight is not None
+        return queued + (1 if in_flight else 0)
 
     def _left_unsent_at_exit(self) -> int:
         """Count each trace this channel could not send before the process ends as lost
         (``exit_timeout``): the ones still queued, and the one being uploaded. Returns how many.
 
-        Only for the exit hook: anywhere else the worker would still send them.
+        Only for the exit hook: anywhere else the worker would still send them. The queue is
+        emptied and the trace in flight read under the queue's lock, the lock the worker's take
+        holds, so a trace the worker takes meanwhile is counted either way, never missed.
         """
-        lost = []
-        while True:
-            try:
-                item = self._queue.get_nowait()
-            except queue.Empty:
-                break
-            if item is not None:
-                lost.append(item[1])
-        sending = self._sending
+        with self._queue.mutex:
+            lost = [item[1] for item in self._queue.queue if item is not None]
+            self._queue.queue.clear()
+            self._queue.not_full.notify_all()
+            sending = self._queue.in_flight
         worker = self._worker
         if sending is not None and worker is not None and worker.is_alive():
             lost.append(sending)

@@ -119,7 +119,7 @@ def environments_path(organization_id: Optional[str], project_id: Optional[str])
 def require_api_key_client(use_bearer_auth: bool) -> None:
     if use_bearer_auth:
         raise LayerLensError(
-            "client.environments needs an API key with Automation access (Organization Settings → API Keys); "
+            "client.environments needs an API key with Automation access (Manage organization → API keys); "
             "a `layerlens login` session cannot reach the Automation API"
         )
 

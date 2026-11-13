@@ -23,6 +23,17 @@ class EvaluationStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+#: The statuses in which an evaluation has ended: the API's ``EvaluationStatus.IsFinished``.
+_FINISHED = frozenset(
+    {
+        EvaluationStatus.SUCCESS,
+        EvaluationStatus.FAILURE,
+        EvaluationStatus.TIMEOUT,
+        EvaluationStatus.CANCELLED,
+    }
+)
+
+
 class EvaluationMetric(BaseModel):
     name: str
     description: str = ""
@@ -128,12 +139,10 @@ class Evaluation(BaseModel):
 
     @property
     def is_finished(self) -> bool:
-        """Return True if evaluation is done (success, failure, or timeout)."""
-        return self.status in {
-            EvaluationStatus.SUCCESS,
-            EvaluationStatus.FAILURE,
-            EvaluationStatus.TIMEOUT,
-        }
+        """Return True if the evaluation has ended, whatever the outcome: success, failure,
+        timeout or cancelled, the statuses the API itself calls finished. ``wait_for_completion``
+        returns on them; it polled a cancelled evaluation forever before."""
+        return self.status in _FINISHED
 
     @property
     def is_success(self) -> bool:

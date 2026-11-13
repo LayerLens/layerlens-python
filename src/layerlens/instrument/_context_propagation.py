@@ -98,7 +98,8 @@ def get_trace_context() -> Optional[Dict[str, Any]]:
     * ``version`` — format version for forward compatibility
     """
     collector = _current_collector.get()
-    if collector is None:
+    # A sealed collector's trace has been uploaded: it is not one to continue.
+    if collector is None or collector.sealed:
         return None
 
     span_id = _current_span_id.get()

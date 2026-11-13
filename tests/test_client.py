@@ -80,11 +80,12 @@ class TestLayerLensClientInitialization:
         with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
             new_client = original_client.copy(api_key="new-key", timeout=20.0)
 
-        # Check overridden values
+        # Check overridden values: the key and the timeout given (L1R-035b: the timeout was ignored)
         assert new_client.api_key == "new-key"
-        # The copy method uses 'or' logic, so timeout=20.0 won't override the existing timeout
-        # Let's check that the timeout is still the original value
-        assert new_client.timeout == original_client.timeout  # Should remain the original timeout
+        import httpx
+
+        assert new_client.timeout == httpx.Timeout(20.0)
+        assert original_client.timeout == httpx.Timeout(10.0)
 
         # Check unchanged values
         assert str(new_client.base_url) == "https://original.api.com"
@@ -111,7 +112,7 @@ class TestLayerLensClientInitialization:
         assert new_client is not original_client
 
     def test_copy_method_timeout_override(self, mock_org):
-        """copy method properly overrides timeout when original is None."""
+        """copy method applies the timeout given over the client's default."""
         # Create a client with no explicit timeout (uses default)
         with patch("layerlens.LayerLens._get_organization", return_value=mock_org):
             original_client = LayerLens(api_key="original-key")
@@ -122,8 +123,8 @@ class TestLayerLensClientInitialization:
         import httpx
 
         assert isinstance(new_client.timeout, httpx.Timeout)
-        # Both clients use the same default timeout, so they should be equal
-        assert new_client.timeout == original_client.timeout
+        assert new_client.timeout == httpx.Timeout(30.0)
+        assert new_client.timeout != original_client.timeout
 
 
 class TestLayerLensClientErrorHandling:

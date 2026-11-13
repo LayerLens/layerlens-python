@@ -244,7 +244,7 @@ nanoseconds for `average_duration`.
 
 ### `evaluate run`
 
-Run a new evaluation. Accepts model/benchmark by ID, key, or name.
+Run a new evaluation. Accepts model/benchmark by ID, key, or name. An ID can name any model or benchmark in the catalog; a key or a name is looked up among the project's own.
 
 ```bash
 layerlens evaluate run [OPTIONS]
@@ -275,7 +275,7 @@ layerlens evaluations run --dataset-id ID --dataset-file FILE --target MODULE:AT
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `--dataset-id` | text | yes | Name of the dataset in the run |
-| `--dataset-file` | path | yes | JSON list of `{input, expected_output}` items |
+| `--dataset-file` | path | yes | JSON list of `{input, expected_output}` items, each with an optional `id`. An item without one is `item_0`, `item_1`, ... by its place in the list: `evaluations compare` names the items that regressed by these ids |
 | `--target` | text | yes | The callable under evaluation, `module:attr` |
 | `--scorer` | text | no | A scorer, `name=module:attr` (repeatable). Default: `exact` equality |
 | `--out` | path | no | Write the run to this JSON file (default: stdout) |
@@ -378,9 +378,9 @@ layerlens scorer create [OPTIONS]
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `--name` | text | yes | Name (3–64 characters) |
-| `--description` | text | yes | Description (10–500 characters) |
+| `--description` | text | yes | Description (10–280 characters) |
 | `--model-id` | text | yes | Model ID for scoring |
-| `--prompt` | text | yes | Scoring prompt |
+| `--prompt` | text | yes | Scoring prompt (at least 10 characters) |
 | `--dry-run` | flag | no | Preview without executing |
 
 ### `scorer delete`
@@ -434,8 +434,8 @@ The traces file contains one trace ID per line.
 | Option | Type | Description |
 | --- | --- | --- |
 | `--file` | path | JSONL file with evaluation jobs |
-| `--model` | text | Model ID/name (use with --benchmark) |
-| `--benchmark` | text | Benchmark ID/name (use with --model) |
+| `--model` | text | Model ID, key, or name (use with --benchmark) |
+| `--benchmark` | text | Benchmark ID, key, or name (use with --model) |
 | `--judge-id` | text | Judge ID (use with --traces) |
 | `--traces` | path | File with trace IDs (one per line) |
 | `--dry-run` | flag | Preview without executing |
@@ -567,4 +567,4 @@ Print shell completion setup instructions.
 layerlens completion <SHELL>
 ```
 
-Where `SHELL` is one of: `bash`, `zsh`, `fish`, `powershell`.
+Where `SHELL` is one of: `bash`, `zsh`, `fish`, `powershell`. For PowerShell it prints click's own setup, three lines for your profile that load click's completion script with `Invoke-Expression`; that needs click 8.5 or later (Python 3.10 or later), and with an older click the command says so and exits `1`.

@@ -203,10 +203,17 @@ def trace_call(
     return result, trace_id
 
 
+#: The model a sample's grader runs on when the sample names none: an inexpensive one. The public
+#: catalogue is ordered by key, so its first model can be a frontier model that costs many times
+#: more for the same grading.
+DEFAULT_JUDGE_MODEL_KEY = "openai/gpt-4o-mini"
+
+
 def get_default_model_id(client: LayerLens) -> str:
     """Get a model ID suitable for judge creation.
 
-    Checks project models first, then falls back to the public catalog.
+    Takes :data:`DEFAULT_JUDGE_MODEL_KEY` from the public catalog when it is there, else the
+    catalog's first model, else the project's first model.
     Caches the result for the lifetime of the process.
 
     Args:
@@ -222,6 +229,16 @@ def get_default_model_id(client: LayerLens) -> str:
     cached = getattr(get_default_model_id, "_cached_id", None)
     if cached:
         return cached
+
+    # The inexpensive default, when the catalog has it
+    try:
+        default_resp = client.public.models.get(key=DEFAULT_JUDGE_MODEL_KEY)
+        for model in getattr(default_resp, "models", None) or []:
+            if getattr(model, "key", None) == DEFAULT_JUDGE_MODEL_KEY:
+                get_default_model_id._cached_id = model.id  # type: ignore[attr-defined]
+                return model.id
+    except Exception:
+        pass
 
     # Use public models (required for judge creation)
     try:

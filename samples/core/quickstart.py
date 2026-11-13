@@ -24,10 +24,13 @@ def main() -> None:
     # --- 1. Initialize the client (reads LAYERLENS_API_KEY from env)
     client = LayerLens()
 
-    # --- 2. Create a temporary JSONL trace file and upload it
+    # --- 2. Create a temporary JSONL trace file and upload it. A record needs a field the API
+    # reads a trace by (a name, metadata, events, ...): input and output alone are refused.
     trace_data = {
+        "name": "quickstart",
         "input": [{"role": "user", "content": "What is the speed of light?"}],
         "output": "The speed of light in a vacuum is approximately 299,792,458 m/s.",
+        "metadata": {"source": "sdk-quickstart"},
     }
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
     tmp.write(json.dumps(trace_data) + "\n")

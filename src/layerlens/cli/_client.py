@@ -169,17 +169,35 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
 
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+# LayerLens ids are MongoDB ObjectIds: 24 hex digits.
+_OBJECT_ID_RE = re.compile(r"^[0-9a-f]{24}$", re.IGNORECASE)
 
 
 def _is_uuid(value: str) -> bool:
     return bool(_UUID_RE.match(value))
 
 
+def _looks_like_an_id(value: str) -> bool:
+    return bool(_OBJECT_ID_RE.match(value)) or _is_uuid(value)
+
+
+def _by_id(lookup: Any, identifier: str) -> Any:
+    """``lookup(identifier)``, or None when nothing has that id: a key or a name may still match."""
+    try:
+        return lookup(identifier)
+    except NotFoundError:
+        return None
+
+
 def resolve_model(client: LayerLens, identifier: str) -> Any:
-    """Resolve a model by ID, key, or name."""
-    # Try by ID first if it looks like a UUID
-    if _is_uuid(identifier):
-        model = client.models.get_by_id(identifier)
+    """Resolve a model by ID, key, or name.
+
+    A value shaped like an id (24 hex digits, as LayerLens ids are, or a UUID) is looked up as an
+    id first, in the whole catalog; when nothing has that id, it is tried as a key, then a name.
+    Keys and names are looked up among the project's models.
+    """
+    if _looks_like_an_id(identifier):
+        model = _by_id(client.models.get_by_id, identifier)
         if model:
             return model
 
@@ -197,10 +215,9 @@ def resolve_model(client: LayerLens, identifier: str) -> Any:
 
 
 def resolve_benchmark(client: LayerLens, identifier: str) -> Any:
-    """Resolve a benchmark by ID, key, or name."""
-    # Try by ID first if it looks like a UUID
-    if _is_uuid(identifier):
-        benchmark = client.benchmarks.get_by_id(identifier)
+    """Resolve a benchmark by ID, key, or name, as :func:`resolve_model` resolves a model."""
+    if _looks_like_an_id(identifier):
+        benchmark = _by_id(client.benchmarks.get_by_id, identifier)
         if benchmark:
             return benchmark
 

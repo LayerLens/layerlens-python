@@ -115,7 +115,7 @@ Returns an `Evaluation` object if successful, `None` if the evaluation could not
 
 ### `wait_for_completion(evaluation, interval_seconds=30, timeout_seconds=None)`
 
-Polls an evaluation until it completes (success, failure, or timeout) or the specified timeout is reached.
+Polls an evaluation until it ends (success, failure, timeout or cancelled) or the specified timeout is reached.
 
 #### Parameters
 
@@ -127,8 +127,8 @@ Polls an evaluation until it completes (success, failure, or timeout) or the spe
 
 #### Returns
 
-Returns the updated `Evaluation` object when it has finished (success, failure or
-timeout), or `None` if the evaluation can no longer be read.
+Returns the updated `Evaluation` object when it has finished (success, failure, timeout
+or cancelled), or `None` if the evaluation can no longer be read.
 
 Raises `TimeoutError` if it has not finished after `timeout_seconds`.
 
