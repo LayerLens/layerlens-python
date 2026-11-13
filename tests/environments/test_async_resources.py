@@ -186,15 +186,18 @@ def test_a_ready_build_returns_the_environment(async_client, api: FakeAPI) -> No
 
 
 def test_an_async_create_conflict_names_the_differences(async_client, api: FakeAPI) -> None:
-    api.on("POST", "/worlds", (409, {"status": "error", "error": "differs", "differences": ["seed"]}))
+    api.on("POST", "/worlds", (409, {"status": "error", "error": "differs", "differences": ["description"]}))
     with pytest.raises(EnvironmentConflictError) as caught:
         asyncio.run(
-            async_client.environments.create(
-                "support-desk", "zendesk", description="A desk", seed=2, if_not_exists=True
-            )
+            async_client.environments.create("support-desk", "zendesk", description="A desk", if_not_exists=True)
         )
-    assert caught.value.differences == ["seed"]
-    assert body_of(api.requests[0])["seed"] == 2
+    assert caught.value.differences == ["description"]
+    assert body_of(api.requests[0]) == {
+        "name": "support-desk",
+        "type": "zendesk",
+        "description": "A desk",
+        "if_not_exists": True,
+    }
 
 
 def test_async_name_lookup(async_client, api: FakeAPI) -> None:

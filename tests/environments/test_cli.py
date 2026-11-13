@@ -74,7 +74,7 @@ class TestExitCodes:
         assert result.exit_code == 2
 
     def test_a_refused_request_exits_1_with_the_apis_sentence(self, runner: CliRunner, api: FakeAPI) -> None:
-        message = "this key has Standard access; this route needs an Automation key (Organization Settings → API Keys)"
+        message = "this key has Standard access; this route needs an Automation key (Manage organization → API keys)"
         api.on("GET", f"/{ENV_ID}/build", err(403, message))
         api.on("GET", f"/{ENV_ID}", ok({"environment": environment()}))
         result = invoke(runner, "env", "status", ENV_ID)
@@ -188,21 +188,44 @@ def test_a_run_with_nothing_counted_says_why_it_misses_the_gate(runner: CliRunne
 
 
 class TestEnvironmentCommands:
-    def test_world_types_shows_no_knobs_for_a_type_an_agent_builds(self, runner: CliRunner, api: FakeAPI) -> None:
+    def test_world_types_lists_type_title_and_tools(self, runner: CliRunner, api: FakeAPI) -> None:
         linear = {
             "type": "linear",
             "title": "Linear",
             "tool_count": 30,
-            "config_schema": {"n_issues": {"type": "integer"}},
             "agent_slice": True,
-            "org_knobs": {"counts": {}, "app": "linear"},
+            "org_knobs": {"app": "linear"},
         }
         api.on("GET", "/world-types", ok({"world_types": [linear], "count": 1}))
         result = invoke(runner, "env", "world-types")
         assert result.exit_code == 0
-        assert "an agent builds it from the description" in result.stdout and "n_issues" not in result.stdout
+        header = result.stdout.splitlines()[0].split()
+        assert header == ["Type", "Title", "Tools"]
+        assert result.stdout.splitlines()[-1].split() == ["linear", "Linear", "30"]
         as_json = invoke(runner, "--format", "json", "env", "world-types")
         assert json.loads(as_json.stdout)[0]["built_by_agent"] is True
+
+    def test_world_types_says_which_type_create_cannot_build(self, runner: CliRunner, api: FakeAPI) -> None:
+        # The API refuses to create a type no agent builds; the list should not offer it as if it could.
+        api.on("GET", "/world-types", ok({"world_types": [{"type": "spec", "title": "OpenAPI", "tool_count": 3}]}))
+        result = invoke(runner, "env", "world-types")
+        assert result.exit_code == 0 and "OpenAPI (env create cannot build it)" in result.stdout
+
+    def test_tools_of_a_composite_show_no_real_path_column(self, runner: CliRunner, api: FakeAPI) -> None:
+        # The API blanks a composite's method and path: its tools are its apps' under aliases.
+        tool = {"name": "zendesk__ZENDESK_LIST_ZENDESK_TICKETS", "summary": "Every ticket", "input_schema": {}}
+        api.on("GET", f"/{ENV_ID}/tools", ok({"tools": [tool], "count": 1, "environment_version": 1}))
+        result = invoke(runner, "env", "tools", ENV_ID)
+        assert result.exit_code == 0
+        assert result.stdout.splitlines()[0].split() == ["Tool", "Summary"]
+        assert "zendesk__ZENDESK_LIST_ZENDESK_TICKETS" in result.stdout
+
+    def test_tools_with_real_paths_show_them(self, runner: CliRunner, api: FakeAPI) -> None:
+        tool = {"name": "get_customer", "summary": "One customer", "method": "GET", "path": "/v1/customers/{customer}"}
+        api.on("GET", f"/{ENV_ID}/tools", ok({"tools": [tool], "count": 1, "environment_version": 1}))
+        result = invoke(runner, "env", "tools", ENV_ID)
+        assert result.stdout.splitlines()[0].split() == ["Tool", "Real", "path", "Summary"]
+        assert "GET /v1/customers/{customer}" in result.stdout
 
     def test_list_can_leave_out_members(self, runner: CliRunner, api: FakeAPI) -> None:
         api.on("GET", "", ok({"environments": [], "count": 0, "total_count": 0}))
@@ -211,20 +234,31 @@ class TestEnvironmentCommands:
 
 
 class TestCreate:
-    def test_prints_the_id_and_sends_typed_config(self, runner: CliRunner, api: FakeAPI, tmp_path: Path) -> None:
-        created = {"environment": {"id": ENV_ID, "name": "support-desk", "type": "zendesk", "current_version": 0},
+    def test_prints_the_id_and_sends_the_description(self, runner: CliRunner, api: FakeAPI, tmp_path: Path) -> None:
+        created = {"environment": {"id": ENV_ID, "name": "support-desk", "type": "composite", "current_version": 0},
                    "job": {"id": "j1", "status": "pending"}}  # fmt: skip
         api.on("POST", "/worlds", ok(created, 201))
         description = tmp_path / "environment.md"
         description.write_text("A support desk.\n")
         result = invoke(
             runner, "env", "create", "--type", "zendesk", "--name", "support-desk", "--description-file",
-            str(description), "--config", "n_tickets=40", "--config", "persona=calm", "--if-not-exists",
+            str(description), "--if-not-exists",
         )  # fmt: skip
         assert result.exit_code == 0
         assert result.stdout.strip() == ENV_ID
-        assert body_of(api.requests[0])["config"] == {"n_tickets": 40, "persona": "calm"}
-        assert body_of(api.requests[0])["description"] == "A support desk.\n"
+        assert body_of(api.requests[0]) == {
+            "name": "support-desk",
+            "type": "zendesk",
+            "description": "A support desk.\n",
+            "if_not_exists": True,
+        }
+
+    @pytest.mark.parametrize("option", [["--config", "n_tickets=40"], ["--seed", "3"]])
+    def test_settings_and_seed_are_not_options(self, runner: CliRunner, api: FakeAPI, option: list) -> None:
+        # An agent builds every world from the description alone (layerlens-app#2881).
+        result = invoke(runner, "env", "create", "--type", "zendesk", "--name", "d", "--description", "A desk", *option)
+        assert result.exit_code == 2 and "No such option" in result.stderr and option[0] in result.stderr
+        assert api.requests == []
 
     def test_json_output_is_only_json(self, runner: CliRunner, api: FakeAPI) -> None:
         created = {"environment": {"id": ENV_ID, "name": "d", "type": "zendesk", "current_version": 0}, "job": None}
@@ -239,55 +273,53 @@ class TestCreate:
     ) -> None:
         # G1: it printed the create reply, whose build read "pending", after the build had finished.
         job_id = "6aef0dd3415f6c3a7acc330b"
-        created = {"environment": {"id": ENV_ID, "name": "d", "type": "bank", "current_version": 1},
-                   "job": {"id": job_id, "status": "pending"}, "reused": False, "unused": None}  # fmt: skip
-        finished = {"id": job_id, "kind": "mint_world", "status": "success", "stop_reason": "finished",
+        created = {"environment": {"id": ENV_ID, "name": "d", "type": "composite", "current_version": 1},
+                   "job": {"id": job_id, "status": "pending"}}  # fmt: skip
+        finished = {"id": job_id, "kind": "build_setup", "status": "success", "stop_reason": "finished",
                     "created_at": "2026-11-07T11:38:59.603Z", "finished_at": "2026-11-07T11:39:26.081Z",
-                    "cost_usd": 0.001042125, "result": {"version": 1, "tools": 34}}  # fmt: skip
+                    "cost_usd": 0.001042125, "result": {"tools": 34}}  # fmt: skip
         api.on("POST", "/worlds", ok(created, 201))
         api.on("GET", f"/{ENV_ID}/build", ok({"status": "ready", "version": 1, "steps": []}))
-        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(name="d", type="bank", tool_count=34)}))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(name="d", type="composite", tool_count=34)}))
         api.on("GET", f"/{ENV_ID}/jobs/{job_id}", ok(finished))
-        args = ["env", "create", "--type", "bank", "--name", "d", "--description", "A bank", "--wait"]
+        args = ["env", "create", "--type", "zendesk", "--name", "d", "--description", "A desk", "--wait"]
         result = invoke(runner, "--format", "json", *args)
         assert result.exit_code == 0, result.stderr
         printed = json.loads(result.stdout)
         assert printed["job"]["status"] == "success" and printed["job"]["id"] == job_id
         assert (printed["environment"]["id"], printed["environment"]["environment_version"]) == (ENV_ID, 1)
         assert printed["environment"]["tool_count"] == 34
-        assert (printed["reused"], printed["unused"]) == (False, None)
+        assert set(printed) == {"environment", "job", "reused"} and printed["reused"] is False
         # Without --format json it still prints the id alone.
         assert invoke(runner, *args).stdout.strip() == ENV_ID
 
     def test_different_inputs_exit_1_naming_them(self, runner: CliRunner, api: FakeAPI) -> None:
         body = {
             "status": "error",
-            "error": "already exists, created from a different config",
-            "differences": ["config"],
+            "error": "already exists, created from a different description",
+            "differences": ["description"],
         }
         api.on("POST", "/worlds", (409, body))
         result = invoke(
             runner, "env", "create", "--type", "zendesk", "--name", "d", "--description", "A desk", "--if-not-exists"
         )
-        assert result.exit_code == 1 and "different config" in result.stderr
+        assert result.exit_code == 1 and "different description" in result.stderr
+
+    def test_a_failed_build_exits_1_saying_to_create_it_again(self, runner: CliRunner, api: FakeAPI) -> None:
+        sentence = (
+            '"d" needs a new build, and its apps are built together as a setup that is not built again in place: '
+            "remove it and create it again"
+        )
+        api.on("POST", "/worlds", (409, {"code": "conflict", "message": sentence, "request_id": "r1"}))
+        result = invoke(
+            runner, "env", "create", "--type", "zendesk", "--name", "d", "--description", "A desk", "--if-not-exists"
+        )
+        assert result.exit_code == 1 and "remove it and create it again" in result.stderr
 
     def test_no_description_is_a_usage_error(self, runner: CliRunner, api: FakeAPI) -> None:
         result = invoke(runner, "env", "create", "--type", "zendesk", "--name", "d")
         assert result.exit_code == 2 and "--description" in result.stderr
         assert api.requests == []
-
-    def test_settings_the_world_does_not_use_are_named_on_stderr(self, runner: CliRunner, api: FakeAPI) -> None:
-        created = {
-            "environment": {"id": ENV_ID, "name": "d", "type": "composite", "current_version": 0},
-            "job": {"id": "6a0000000000000000000002", "status": "pending"},
-            "unused": "the settings and seed sent with it are not used.",
-        }
-        api.on("POST", "/worlds", ok(created, 201))
-        result = invoke(
-            runner, "env", "create", "--type", "jira", "--name", "d", "--description", "A desk", "--seed", "3"
-        )
-        assert result.exit_code == 0 and result.stdout.strip() == ENV_ID
-        assert "Note: the settings and seed sent with it are not used." in result.stderr
 
 
 AGENT = r"""

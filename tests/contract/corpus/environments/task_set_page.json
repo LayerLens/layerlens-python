@@ -13,65 +13,55 @@
       "next_offset": null,
       "tasks": [
         {
-          "id": "6ae0015f929a66b25ab5d0a5",
-          "name": "As part of our bookshop's bookkeeping for Synthetic Softworks, I need to check our overall revenue…",
+          "id": "6af310801ee6a597f7a8d427",
+          "name": "How many customer support tickets in our queue are marked with urgent priority?",
           "version": 1,
-          "prompt": "As part of our bookshop's bookkeeping for Synthetic Softworks, I need to check our overall revenue and costs. How much have we collected in total across all sales before Stripe processing fees and refunds, and what is the total amount paid in processing fees, both in minor units of USD?",
+          "prompt": "How many customer support tickets in our queue are marked with urgent priority?",
           "grader": {
             "kind": "answer",
             "config": {
-              "expected": "7858296; 230800",
-              "expected_parts": [
-                "7858296",
-                "230800"
-              ],
-              "match": "all_of"
+              "answer_from": "zendesk__filter/type-ticket-priority-urgent-5580764ce114/count",
+              "expected": "3",
+              "match": "numeric"
             }
           },
           "retired": false,
-          "created_at": "2026-10-27T01:41:51.11Z",
-          "updated_at": "2026-10-27T01:41:51.22Z"
+          "created_at": "2026-11-10T12:39:28.809Z",
+          "updated_at": "2026-11-10T12:39:28.882Z"
         },
         {
-          "id": "6ae0015f929a66b25ab5d0a6",
-          "name": "We are reviewing our store's customer base and delivery issue expenses. For the Synthetic Softworks…",
+          "id": "6af310801ee6a597f7a8d428",
+          "name": "How many support tickets are currently assigned to Bettina Castellano?",
           "version": 1,
-          "prompt": "We are reviewing our store's customer base and delivery issue expenses. For the Synthetic Softworks account, how many customers do we have, and how much has been refunded in total across all orders in minor units of USD?",
+          "prompt": "How many support tickets are currently assigned to Bettina Castellano?",
           "grader": {
             "kind": "answer",
             "config": {
-              "expected": "123120; 10",
-              "expected_parts": [
-                "123120",
-                "10"
-              ],
-              "match": "all_of"
+              "answer_from": "zendesk__filter/type-ticket-assignee-bettina-castellano-9460b77e25fc/count",
+              "expected": "11",
+              "match": "numeric"
             }
           },
           "retired": false,
-          "created_at": "2026-10-27T01:41:51.125Z",
-          "updated_at": "2026-10-27T01:41:51.229Z"
+          "created_at": "2026-11-10T12:39:28.837Z",
+          "updated_at": "2026-11-10T12:39:28.886Z"
         },
         {
-          "id": "6ae0015f929a66b25ab5d0a7",
-          "name": "Across all customer records for Synthetic Softworks, what is the total outstanding balance counting…",
+          "id": "6af310801ee6a597f7a8d429",
+          "name": "How many support tickets in the system were submitted by customer Dagny Balogun?",
           "version": 1,
-          "prompt": "Across all customer records for Synthetic Softworks, what is the total outstanding balance counting both open and uncollectible invoices in minor units of USD? Also, which customer has paid the most across their invoices before refunds, and what is that total in minor units of USD?",
+          "prompt": "How many support tickets in the system were submitted by customer Dagny Balogun?",
           "grader": {
             "kind": "answer",
             "config": {
-              "expected": "1952100; Basalt Materials Corporation; 1806192",
-              "expected_parts": [
-                "1952100",
-                "Basalt Materials Corporation",
-                "1806192"
-              ],
-              "match": "all_of"
+              "answer_from": "zendesk__filter/type-ticket-requester-dagny-balogun-257a813d6096/count",
+              "expected": "3",
+              "match": "numeric"
             }
           },
           "retired": false,
-          "created_at": "2026-10-27T01:41:51.131Z",
-          "updated_at": "2026-10-27T01:41:51.235Z"
+          "created_at": "2026-11-10T12:39:28.844Z",
+          "updated_at": "2026-11-10T12:39:28.893Z"
         }
       ]
     }

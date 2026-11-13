@@ -191,22 +191,12 @@ def environment_conflict(err: ConflictError) -> EnvironmentConflictError:
     )
 
 
-def create_body(
-    *,
-    name: str,
-    type: str,
-    description: str,
-    config: Optional[Mapping[str, Any]],
-    seed: Optional[int],
-    if_not_exists: bool,
-) -> Dict[str, Any]:
+def create_body(*, name: str, type: str, description: str, if_not_exists: bool) -> Dict[str, Any]:
+    """A create's body. An agent builds every world from its description alone, so a create
+    sends no settings and no seed: the API would take them and use neither."""
     if not description or not description.strip():
         raise InvalidArgument("description: describe the environment in words; every environment starts from one")
     body: Dict[str, Any] = {"name": name, "type": type, "description": description}
-    if config is not None:
-        body["config"] = dict(config)
-    if seed is not None:
-        body["seed"] = seed
     if if_not_exists:
         body["if_not_exists"] = True
     return body

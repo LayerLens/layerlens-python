@@ -11,49 +11,24 @@
       "version": 1,
       "steps": [
         {
-          "name": "Read the description into this world",
+          "name": "Read the description into an org",
           "state": "done",
-          "detail": "The description was not read into a brief, so this world stands on its settings."
+          "detail": "Org c278ee4c2e48…, read from the description."
         },
         {
-          "name": "Generate the world and run its invariants",
+          "name": "Build sdk-corpus-lay4490 — Zendesk (1 of 1)",
           "state": "done",
-          "detail": "33 invariants passed. 163 records across 8 tools."
+          "detail": "Version 1 of \"sdk-corpus-lay4490 — Zendesk\": 12 tools, 39 invariants passed."
         },
         {
-          "name": "Check the result is complete",
+          "name": "Compose the members into one surface",
           "state": "done",
-          "detail": "163 records, and no two of them answer the same call. All 109 answer key questions have an expected answer and a way to compare it."
-        },
-        {
-          "name": "Build the tools",
-          "state": "done",
-          "detail": "8 tools built."
-        },
-        {
-          "name": "Check the generator and the platform agree on what will be served",
-          "state": "done",
-          "detail": "Both sides describe the same records the same way."
-        },
-        {
-          "name": "Write the version",
-          "state": "done",
-          "detail": "Version 1."
-        },
-        {
-          "name": "Write the answer key as tasks",
-          "state": "done",
-          "detail": "109 tasks written, one per answer key question."
-        },
-        {
-          "name": "Point the environment at the new version",
-          "state": "done",
-          "detail": "Version 1 is what this environment serves now."
+          "detail": ""
         }
       ],
-      "tools": 8,
-      "records": 163,
-      "answer_key": 109,
+      "tools": 12,
+      "records": null,
+      "answer_key": null,
       "refused_because": null
     }
   }

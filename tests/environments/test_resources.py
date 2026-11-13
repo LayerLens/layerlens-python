@@ -142,20 +142,25 @@ class TestList:
 class TestCreate:
     def test_sends_the_inputs_and_an_idempotency_key(self, client, api: FakeAPI) -> None:
         api.on("POST", "/worlds", ok(CREATED, 201))
-        created = client.environments.create(
-            "support-desk", "zendesk", description="A desk", config={"n_tickets": 40}, if_not_exists=True
-        )
+        created = client.environments.create("support-desk", "zendesk", description="A desk", if_not_exists=True)
         assert isinstance(created, CreatedEnvironment)
         assert created.id == ENV_ID and created.job is not None and not created.reused
         request = api.requests[0]
+        # The description is the only input an agent builds from: no settings, no seed.
         assert body_of(request) == {
             "name": "support-desk",
             "type": "zendesk",
             "description": "A desk",
-            "config": {"n_tickets": 40},
             "if_not_exists": True,
         }
         assert request.headers["idempotency-key"].startswith("layerlens-sdk-")
+
+    @pytest.mark.parametrize("setting", [{"config": {"n_tickets": 40}}, {"seed": 2}])
+    def test_takes_no_settings_and_no_seed(self, client, api: FakeAPI, setting: dict) -> None:
+        # The API takes them and uses neither (layerlens-app#2881): a create cannot send them.
+        with pytest.raises(TypeError, match=next(iter(setting))):
+            client.environments.create("support-desk", "zendesk", description="A desk", **setting)
+        assert api.requests == []
 
     def test_a_retried_create_sends_the_same_idempotency_key(self, client, api: FakeAPI) -> None:
         busy = err(503, "too many jobs are being started at once; try again", {"Retry-After": "1"})
@@ -182,34 +187,28 @@ class TestCreate:
         assert api.requests == []
 
     def test_a_conflict_that_is_not_about_inputs_says_why_in_its_message(self, client, api: FakeAPI) -> None:
-        sentence = '"d" needs a new build, and its apps are built together as a setup: remove it and create it again'
+        # What the API says of an environment whose last build failed: it is never built again.
+        sentence = (
+            '"d" needs a new build, and its apps are built together as a setup that is not built again in place: '
+            "remove it and create it again"
+        )
         api.on("POST", "/worlds", (409, {"code": "conflict", "message": sentence, "request_id": "r1"}))
         with pytest.raises(EnvironmentConflictError) as caught:
-            client.environments.create("d", "linear", description="A desk", if_not_exists=True)
+            client.environments.create("d", "zendesk", description="A desk", if_not_exists=True)
         assert str(caught.value) == sentence and caught.value.differences == []
-
-    def test_settings_an_agent_built_world_does_not_use_are_named(self, client, api: FakeAPI) -> None:
-        note = "This world is built by an agent from the organization its description is read into, so the settings and seed sent with it are not used."
-        api.on("POST", "/worlds", ok({**CREATED, "unused": note}, 201))
-        created = client.environments.create("tracker", "jira", description="A desk", config={"n_issues": 40})
-        assert created.unused == note
-
-    def test_unused_is_none_when_every_setting_is_used(self, client, api: FakeAPI) -> None:
-        api.on("POST", "/worlds", ok(CREATED, 201))
-        assert client.environments.create("support-desk", "zendesk", description="A desk").unused is None
 
     def test_different_inputs_raise_a_conflict_naming_them(self, client, api: FakeAPI) -> None:
         conflict = {
             "status": "error",
-            "error": 'an environment named "support-desk" already exists in this project, created from a different description and config',
-            "differences": ["description", "config"],
+            "error": 'an environment named "support-desk" already exists in this project, created from a different type and description',
+            "differences": ["type", "description"],
         }
         api.on("POST", "/worlds", (409, conflict))
         with pytest.raises(EnvironmentConflictError) as caught:
             client.environments.create("support-desk", "zendesk", description="A desk", if_not_exists=True)
-        assert caught.value.differences == ["description", "config"]
+        assert caught.value.differences == ["type", "description"]
         assert caught.value.project_id is None
-        assert "created from a different description" in str(caught.value)
+        assert "created from a different type and description" in str(caught.value)
         assert isinstance(caught.value, ConflictError)
 
     def test_a_name_taken_in_another_project_names_that_project(self, client, api: FakeAPI) -> None:
@@ -293,13 +292,23 @@ class TestWorldTypes:
         with pytest.raises(LayerLensError, match="could not be reached"):
             client.environments.world_types()
 
-    def test_knobs_parse_with_their_json_schema_names(self, client, api: FakeAPI) -> None:
-        knob = {"type": "integer", "minimum": 1, "maximum": 500, "default": 40, "minLength": 2}
-        world_type = {"type": "zendesk", "title": "Zendesk", "config_schema": {"n_tickets": knob}, "tool_count": 18}
-        api.on("GET", "/world-types", ok({"world_types": [world_type], "count": 1}))
+    def test_a_type_is_read_as_the_api_serves_it_with_no_settings(self, client, api: FakeAPI) -> None:
+        # GET /world-types since layerlens-app#2881: no config_schema; checks and agent_prompt are new.
+        zendesk = {
+            "type": "zendesk",
+            "title": "Zendesk",
+            "description": "A support desk.",
+            "tool_count": 9,
+            "example_name": "Acme support",
+            "example_prompt": "An outdoor-gear retailer's support desk.",
+            "checks": [{"id": "c1", "description": "every ticket has a requester", "passed": False}],
+            "org_knobs": {"app": "zendesk"},
+            "agent_slice": True,
+        }
+        api.on("GET", "/world-types", ok({"world_types": [zendesk], "count": 1, "dump_max_bytes": 1 << 30}))
         (found,) = client.environments.world_types()
-        assert found.config_schema["n_tickets"].maximum == 500
-        assert found.config_schema["n_tickets"].min_length == 2
+        assert (found.type, found.title, found.tool_count, found.built_by_agent) == ("zendesk", "Zendesk", 9, True)
+        assert "config_schema" not in found.model_dump()
 
     def test_a_type_an_agent_builds_says_so(self, client, api: FakeAPI) -> None:
         linear = {
@@ -307,9 +316,9 @@ class TestWorldTypes:
             "title": "Linear",
             "tool_count": 30,
             "agent_slice": True,
-            "org_knobs": {"counts": {"issues": "n_issues"}, "app": "linear"},
+            "org_knobs": {"app": "linear"},
         }
-        sliced_without_an_app = {"type": "edgar", "agent_slice": True, "org_knobs": {"counts": {}, "app": " "}}
+        sliced_without_an_app = {"type": "edgar", "agent_slice": True, "org_knobs": {"app": " "}}
         api.on("GET", "/world-types", ok({"world_types": [linear, sliced_without_an_app, {"type": "zendesk"}]}))
         found = {t.type: t.built_by_agent for t in client.environments.world_types()}
         assert found == {"linear": True, "edgar": False, "zendesk": False}

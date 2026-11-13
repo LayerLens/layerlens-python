@@ -7,17 +7,17 @@
   "response": {
     "status": "success",
     "data": {
-      "id": "6ae00131c6f25323b92a1d1f",
+      "id": "6af30fbc280c73a1bc845618",
       "kind": "generate_tasks",
       "status": "success",
       "stop_reason": "finished",
-      "created_at": "2026-10-27T01:41:05.425Z",
-      "finished_at": "2026-10-27T01:41:51.269Z",
+      "created_at": "2026-11-10T12:36:12.456Z",
+      "finished_at": "2026-11-10T12:39:28.91Z",
       "progress": {
         "completed": 3,
-        "total": 9
+        "total": 3
       },
-      "cost_usd": 0.0041295,
+      "cost_usd": 0.000404625,
       "error": null,
       "result": {
         "set_name": "sdk-generated",

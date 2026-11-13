@@ -12,151 +12,6 @@
           "type": "stripe",
           "title": "Stripe",
           "description": "One merchant account and the customers it bills: products, subscriptions, invoices, payments, refunds and the balance history behind them. You name the business and what it sells; its customers come from the cast, so a Stripe world and a filings world built on the same cast are about the same companies. Every amount is whole minor units and every id is legibly synthetic.",
-          "config_schema": {
-            "business_name": {
-              "title": "Business name",
-              "description": "The merchant whose account this is. Its own name, not one of the customers': the customers come from the cast and this is who bills them. Appears on products, invoice descriptions and statement descriptors.",
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 120,
-              "default": "Synthetic Softworks"
-            },
-            "currency": {
-              "title": "Currency",
-              "description": "The account's settlement currency. One currency for the whole account, so every total in the answer key is comparable without a conversion nobody recorded a rate for.",
-              "type": "string",
-              "default": "usd",
-              "enum": [
-                "usd",
-                "eur",
-                "gbp"
-              ]
-            },
-            "dispute_rate": {
-              "title": "Share of payments disputed",
-              "description": "Fraction of successful payments a customer disputes. Zero means the world has none; above zero it gains a dispute-audit task family.",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 0.5,
-              "default": 0
-            },
-            "first_year": {
-              "title": "First year",
-              "description": "The calendar year the history starts in; it runs forward month by month from January of it. A year rather than a date because every object in this world is dated by construction, and a settable start date could contradict the timestamps it is supposed to contain.",
-              "type": "integer",
-              "minimum": 2015,
-              "maximum": 2080,
-              "default": 2024
-            },
-            "n_customers": {
-              "title": "Number of customers",
-              "description": "How many customers the account bills. They are the cast's companies, so this is also how many the cast must hold — a cast with fewer refuses rather than inventing the difference. Two is the floor because one customer cannot produce twenty distinct answer-key tasks.",
-              "type": "integer",
-              "minimum": 2,
-              "maximum": 100,
-              "default": 10
-            },
-            "n_months": {
-              "title": "Months of history",
-              "description": "How many months of invoicing and purchase history to generate. Twenty-four is two years. Every subscribed customer is invoiced once a month, so this multiplies the invoice count directly.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 36,
-              "default": 12
-            },
-            "n_products": {
-              "title": "Number of products",
-              "description": "How many priced tiers the merchant sells, from Starter upward. Capped at four because that is how many tiers are named; a fifth would have to be called something, and inventing a name for it is not this knob's job.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4,
-              "default": 4
-            },
-            "org_counts": {
-              "title": "Shared organisation's counts",
-              "description": "Only with org_seed: how many of each the shared organisation holds.",
-              "type": "object",
-              "default": {
-                "n_customers": 3,
-                "n_escalations": 4,
-                "n_incidents": 2
-              },
-              "properties": {
-                "n_customers": {
-                  "title": "Customer companies",
-                  "type": "integer",
-                  "minimum": 2,
-                  "maximum": 25,
-                  "default": 3
-                },
-                "n_escalations": {
-                  "title": "Support escalations",
-                  "type": "integer",
-                  "minimum": 2,
-                  "maximum": 40,
-                  "default": 4
-                },
-                "n_incidents": {
-                  "title": "Incidents",
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 40,
-                  "default": 2
-                }
-              }
-            },
-            "org_seed": {
-              "title": "Shared organisation",
-              "description": "Leave at 0 unless this world is paired with another in a composite. Any other number mints this world's staff, its customers' contacts, its escalations and its incidents from a shared organisation, so another world minted with the same cast, org seed, company name, what it sells, counts and year shows the same company. The org also decides which escalations support filed in a tracker, and where products disagree on purpose: a record that does not link back, a value still shown from before a correction, a date recorded later. Its counts are org_counts; it needs a year from 2013 and one year of history.",
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 2147483647,
-              "default": 0
-            },
-            "paid_rate": {
-              "title": "Share of invoices paid",
-              "description": "Fraction of finalized invoices that settle. The remainder stay open or go uncollectible, which is what makes an unpaid-balance question answerable.",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.85
-            },
-            "price_scale": {
-              "title": "Price scale",
-              "description": "Roughly what the tiers cost: 'micro' single-digit to low-hundreds, 'saas' tens to low-thousands, 'enterprise' hundreds to tens of thousands. Whole minor units at every scale.",
-              "type": "string",
-              "default": "saas",
-              "enum": [
-                "micro",
-                "saas",
-                "enterprise"
-              ]
-            },
-            "refund_rate": {
-              "title": "Share of payments refunded",
-              "description": "Fraction of successful payments that are refunded, in part or in full. Every refund carries its own balance transaction, so a reconciliation question has something to reconcile.",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.05
-            },
-            "sells": {
-              "title": "What it sells",
-              "description": "What the merchant sells, in the words you would use to a customer. Every product is named from it, so an invoice line reads like the business rather than like a placeholder.",
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 120,
-              "default": "software subscriptions"
-            },
-            "subscription_share": {
-              "title": "Share of customers on a subscription",
-              "description": "Fraction of customers billed monthly on a subscription. The rest buy one-off, which is what gives a world both recurring revenue and purchase history.",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "default": 0.7
-            }
-          },
           "tool_count": 8,
           "example_name": "stripe-acme-billing",
           "example_prompt": "Acme Cloud sells developer tooling to forty customers over eighteen months in EUR, most of them on a subscription, with a tenth of payments refunded.",
@@ -188,7 +43,7 @@
             },
             {
               "id": "stripe_no_response_mentions_a_real_company",
-              "description": "No served response contains a real company's ticker symbol standing as a word, so nothing this world says can be read as about a real business.",
+              "description": "No served response names a real company, so nothing this world says can be read as about a real business. The one exemption is Stripe's own card brand enum value (visa, mastercard) as the value of a card's brand field; the same name anywhere else counts. A name that is also a word (target, meta, oracle) counts only as a proper noun.",
               "passed": false
             },
             {
@@ -320,178 +175,17 @@
               "id": "stripe_every_org_fact_stands_in_the_object_it_points_at",
               "description": "Every shared-org fact this account registers is stored and served where it points: the field it is anchored in (a referenced customer's name for a customer reference) reads the fact's text, and every phrase holding it stands in its service credit's description and in the bytes served for that credit's invoice. An account minted without an org registers none.",
               "passed": false
-            },
-            {
-              "id": "stripe_matches_its_org_view",
-              "description": "An account minted from a shared organisation matches its view of it: its organisation is the one its config and cast mint; it registers exactly the facts its fact map shows, with the view's values; its customers are the view's contacts; it names no tag or person outside what it shows; every statement it declares stands only where a fact registered on that record holds it; and where its view disagrees with the organisation, the organisation's value is not shown. An account minted without one passes.",
-              "passed": false
             }
           ],
           "org_knobs": {
-            "counts": {
-              "n_customers": "n_customers",
-              "year": "first_year"
-            },
-            "fixed": {
-              "n_months": 12
-            },
-            "schema": {
-              "business_name": {
-                "title": "Company",
-                "description": "The company every app of the org belongs to.",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 120,
-                "default": "Synthetic Softworks"
-              },
-              "n_customers": {
-                "title": "Customer companies",
-                "type": "integer",
-                "minimum": 2,
-                "maximum": 25,
-                "default": 3
-              },
-              "n_escalations": {
-                "title": "Support escalations",
-                "type": "integer",
-                "minimum": 2,
-                "maximum": 40,
-                "default": 4
-              },
-              "n_incidents": {
-                "title": "Incidents",
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 40,
-                "default": 2
-              },
-              "org_seed": {
-                "title": "Organisation seed",
-                "description": "Another seed builds another organisation with the same settings.",
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 2147483647
-              },
-              "sells": {
-                "title": "What it sells",
-                "description": "Named the way every app of the org names it.",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 120,
-                "default": "software subscriptions"
-              },
-              "year": {
-                "title": "Year",
-                "type": "integer",
-                "minimum": 2015,
-                "maximum": 2080,
-                "default": 2024
-              }
-            },
             "app": "stripe"
-          }
+          },
+          "agent_slice": true
         },
         {
           "type": "zendesk",
           "title": "Zendesk",
           "description": "One customer-support desk at a company that sells something: tickets raised by named people at companies from the cast, with a status, a priority, an assignee and a comment thread that opens in the requester's own words. Three of its tickets are authored SCENARIOS -- a refund on a damaged item where the customer holds a photo back and asks for the money on a different card, a late parcel nobody has explained, and a known incident with an error code the customer gives only when asked -- and each carries the facts it is graded on, registered as the sentences that state them are written. This is the world type built to ANSWER BACK, and it does: a comment or a status change on a scenario ticket wakes the person waiting on it, and they reply on that ticket in their own words, played either by a scripted customer or by a model. Search is COMPUTED rather than replayed, because a Zendesk query is an unbounded input surface; every ticket, comment, user and organization is served from the shelf. Writes -- a comment, and a ticket update -- land on the caller's state and never on the world. Every date is UTC and derived from the world's own horizon, so no answer depends on the wall clock.",
-          "config_schema": {
-            "business_name": {
-              "title": "Business name",
-              "description": "The company whose support desk this is. It names the desk and signs the agents' replies.",
-              "type": "string",
-              "default": "Northwind Systems"
-            },
-            "first_year": {
-              "title": "First year",
-              "description": "The first calendar year this desk holds tickets in.",
-              "type": "integer",
-              "minimum": 2000,
-              "maximum": 2100,
-              "default": 2025
-            },
-            "n_organizations": {
-              "title": "Customer organizations",
-              "description": "How many companies from the cast raise tickets with this desk.",
-              "type": "integer",
-              "minimum": 2,
-              "maximum": 25,
-              "default": 4
-            },
-            "n_tickets": {
-              "title": "Routine tickets",
-              "description": "The everyday traffic, on top of the three scenario tickets this world always mints. Ten is the floor because the answer key is one question per ticket thread plus a handful of counts, and below ten the desk cannot reach the 20 questions it takes to grade with.",
-              "type": "integer",
-              "minimum": 10,
-              "maximum": 300,
-              "default": 27
-            },
-            "n_years": {
-              "title": "Years of tickets",
-              "description": "How many calendar years the horizon spans.",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 5,
-              "default": 1
-            },
-            "org_counts": {
-              "title": "Shared organisation's counts",
-              "description": "Only with org_seed: how many of each the shared organisation holds.",
-              "type": "object",
-              "default": {
-                "n_customers": 3,
-                "n_escalations": 4,
-                "n_incidents": 2
-              },
-              "properties": {
-                "n_customers": {
-                  "title": "Customer companies",
-                  "type": "integer",
-                  "minimum": 2,
-                  "maximum": 25,
-                  "default": 3
-                },
-                "n_escalations": {
-                  "title": "Support escalations",
-                  "type": "integer",
-                  "minimum": 2,
-                  "maximum": 40,
-                  "default": 4
-                },
-                "n_incidents": {
-                  "title": "Incidents",
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 40,
-                  "default": 2
-                }
-              }
-            },
-            "org_seed": {
-              "title": "Shared organisation",
-              "description": "Leave at 0 unless this world is paired with another in a composite. Any other number mints this world's staff, its customers' contacts, its escalations and its incidents from a shared organisation, so another world minted with the same cast, org seed, company name, what it sells, counts and year shows the same company. The org also decides which escalations support filed in a tracker, and where products disagree on purpose: a record that does not link back, a value still shown from before a correction, a date recorded later. Its counts are org_counts; it needs a year from 2013 and one year of history.",
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 2147483647,
-              "default": 0
-            },
-            "persona": {
-              "title": "Who plays the customer",
-              "description": "'scripted' is a deterministic customer that costs nothing and is what the tests run against. 'llm_persona' is a served model and every agent reply to a scenario ticket is a paid call. It is a knob rather than a constant so that the world an attempt faced records which of the two it was.",
-              "type": "string",
-              "default": "scripted",
-              "enum": [
-                "scripted",
-                "llm_persona"
-              ]
-            },
-            "sells": {
-              "title": "What the business sells",
-              "description": "Named in tickets the way a real desk names the product a problem is about.",
-              "type": "string",
-              "default": "industrial sensors"
-            }
-          },
           "tool_count": 12,
           "example_name": "zendesk-northwind-desk",
           "example_prompt": "Northwind Systems sells industrial sensors: four customer companies and about thirty support tickets across 2025.",
@@ -523,7 +217,7 @@
             },
             {
               "id": "zendesk_no_served_byte_mentions_a_real_company",
-              "description": "No served response carries a real company's ticker symbol standing as a word.",
+              "description": "No served response names a real company. A name that is also a word (target, meta, oracle) counts only as a proper noun.",
               "passed": false
             },
             {
@@ -687,82 +381,19 @@
               "passed": false
             },
             {
-              "id": "zendesk_matches_its_org_view",
-              "description": "A world minted with an org_seed matches its view of the org (org_projection.view_failures): its org is the one its config and cast mint; it registers exactly the facts its FACT_MAP shows, with the view's values; its customers are the view's contacts; it names no tag or person outside what it shows or states; every statement it declares stands only where a fact registered on that record holds it; and where its view disagrees with the org, the org's value is not shown. A world minted without an org passes.",
-              "passed": false
-            },
-            {
               "id": "zendesk_brief_people_are_visible",
               "description": "Every person the brief named is on this desk, by the name the sentence used. A team nobody can find in /users is a team the sentence did not get.",
               "passed": false
             }
           ],
           "org_knobs": {
-            "counts": {
-              "n_customers": "n_organizations",
-              "year": "first_year"
-            },
-            "fixed": {
-              "n_years": 1
-            },
-            "schema": {
-              "business_name": {
-                "title": "Company",
-                "description": "The company every app of the org belongs to.",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 120,
-                "default": "Northwind Systems"
-              },
-              "n_customers": {
-                "title": "Customer companies",
-                "type": "integer",
-                "minimum": 2,
-                "maximum": 25,
-                "default": 3
-              },
-              "n_escalations": {
-                "title": "Support escalations",
-                "type": "integer",
-                "minimum": 2,
-                "maximum": 40,
-                "default": 4
-              },
-              "n_incidents": {
-                "title": "Incidents",
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 40,
-                "default": 2
-              },
-              "org_seed": {
-                "title": "Organisation seed",
-                "description": "Another seed builds another organisation with the same settings.",
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 2147483647
-              },
-              "sells": {
-                "title": "What it sells",
-                "description": "Named the way every app of the org names it.",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 120,
-                "default": "industrial sensors"
-              },
-              "year": {
-                "title": "Year",
-                "type": "integer",
-                "minimum": 2013,
-                "maximum": 2100,
-                "default": 2025
-              }
-            },
             "app": "zendesk"
-          }
+          },
+          "agent_slice": true
         }
       ],
-      "count": 2
+      "count": 2,
+      "dump_max_bytes": 5368709120
     }
   }
 }

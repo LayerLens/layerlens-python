@@ -83,7 +83,6 @@ from .environment import (
     TaskSetSummary,
     EnvironmentBuild,
     ExternalRunStart,
-    WorldConfigField,
     CreatedEnvironment,
     ExternalRunAttempt,
 )
@@ -201,6 +200,5 @@ __all__ = [
     "TracesResponse",
     "UpdateJudgeResponse",
     "UploadURLResponse",
-    "WorldConfigField",
     "WorldType",
 ]

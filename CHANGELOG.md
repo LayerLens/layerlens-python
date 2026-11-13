@@ -35,10 +35,13 @@ Things we're actively working on. Want to help? Check the [issues](https://githu
   is the same comparison in Python. Runs now carry `created_at`, `started_at` and
   `finished_at`. Needs the API's `GET /environments/{id}/runs`.
 - **Environments from CI: `client.environments` and `layerlens env`.** With an API key that has
-  **Automation** access (Organization Settings → API Keys), create and mint an environment, keep
+  **Automation** access (Manage organization → API keys), create an environment, keep
   task sets, and run graded evaluations of your own agent or of a model, then fail a build on the
-  result. `layerlens env run exec ENV --tasks-file ci/tasks.jsonl --agent-name my-agent
-  --min-pass-rate 0.9 -- python agent.py` runs your command once per task, each attempt on its own
+  result. An agent builds each environment from a description of a company, as a composite of
+  that company's app: its tools are named `<alias>__<tool>` (`zendesk__ZENDESK_LIST_ZENDESK_TICKETS`),
+  and `create` takes no settings and no seed, as the API builds every world from the
+  description alone since layerlens-app#2881 (LAY-4490). `layerlens env run exec ENV
+  --tasks-file ci/tasks.jsonl --agent-name my-agent --min-pass-rate 0.9 -- python agent.py` runs your command once per task, each attempt on its own
   copy of the world with its own short-lived token and without your API key in its environment,
   grades every attempt, writes a JUnit report with `--junit FILE` and a Markdown one with
   `--markdown FILE`, and exits `10` below the pass rate (`11` when the run did not

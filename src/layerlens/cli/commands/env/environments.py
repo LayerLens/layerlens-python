@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 import click
 
@@ -17,7 +16,7 @@ from ._common import (
 )
 from ..._command import LayerLensCommand
 from ..._formatter import format_table, format_single
-from ....models.environment import JOB_TERMINAL_STATUSES, WorldType, Environment, EnvironmentBuild
+from ....models.environment import JOB_TERMINAL_STATUSES, Tool, Environment, EnvironmentBuild
 
 _STEP_MARKS = {"done": "✓", "running": "…", "failed": "✗"}
 
@@ -25,7 +24,7 @@ _STEP_MARKS = {"done": "✓", "running": "…", "failed": "✗"}
 @click.command("world-types", cls=LayerLensCommand)
 @env_errors
 def world_types(ctx: click.Context) -> None:
-    """List the services an environment can simulate, with their config knobs.
+    """List the apps an environment can simulate. An agent builds each from the description.
 
     \b
     Examples:
@@ -37,29 +36,15 @@ def world_types(ctx: click.Context) -> None:
         emit_json([{**t.model_dump(mode="json"), "built_by_agent": t.built_by_agent} for t in types])
         return
     rows = [
-        {"type": t.type, "title": t.title, "tools": t.tool_count, "knobs": _knobs(t)}
+        {"type": t.type, "title": _title(t.title, t.built_by_agent), "tools": t.tool_count}
         for t in sorted(types, key=lambda t: t.type)
     ]
-    click.echo(
-        format_table(rows, [("type", "Type"), ("title", "Title"), ("tools", "Tools"), ("knobs", "Config knobs")], 60)
-    )
+    click.echo(format_table(rows, [("type", "Type"), ("title", "Title"), ("tools", "Tools")], 60))
 
 
-def _knobs(world_type: WorldType) -> str:
-    if world_type.built_by_agent:
-        return "none: an agent builds it from the description"
-    parts = []
-    for name, field in sorted(world_type.config_schema.items()):
-        bounds = ""
-        if field.minimum is not None or field.maximum is not None:
-            low = "" if field.minimum is None else f"{field.minimum:g}"
-            high = "" if field.maximum is None else f"{field.maximum:g}"
-            bounds = f" {low}-{high}"
-        elif field.enum:
-            bounds = " " + "|".join(str(v) for v in field.enum)
-        default = "" if field.default is None else f" (default {field.default})"
-        parts.append(f"{name}{bounds}{default}")
-    return ", ".join(parts) or "-"
+def _title(title: str, built_by_agent: bool) -> str:
+    # `env create` builds only what an agent builds; the API refuses any other type.
+    return title if built_by_agent else f"{title} (env create cannot build it)"
 
 
 @click.command("list", cls=LayerLensCommand)
@@ -133,9 +118,16 @@ def get(ctx: click.Context, environment: str) -> None:
 
 @click.command("create", cls=LayerLensCommand)
 @click.option("--type", "world_type", required=True, help="A world type from `layerlens env world-types`.")
-@click.option("--name", required=True, help="1-120 characters, unique in the organization.")
 @click.option(
-    "--description", default=None, help="What the world should contain, in plain words. This or --description-file."
+    "--name",
+    required=True,
+    help='Unique in the organization. With " — " and the type\'s title after it, it also names the app '
+    "inside the environment, and that name must fit in 120 characters too.",
+)
+@click.option(
+    "--description",
+    default=None,
+    help="The company the environment is about, in plain words. This or --description-file.",
 )
 @click.option(
     "--description-file",
@@ -143,13 +135,12 @@ def get(ctx: click.Context, environment: str) -> None:
     type=click.Path(exists=True, dir_okay=False),
     help="Read the description from a file.",
 )
-@click.option("--config", "config", multiple=True, metavar="KEY=VALUE", help="Set a config knob. Repeatable.")
-@click.option("--seed", default=None, type=int, help="Default 1.")
 @click.option(
     "--if-not-exists",
     is_flag=True,
     default=False,
-    help="Reuse an environment of this name created from the same inputs; fail if it differs.",
+    help="Reuse an environment of this name created from the same type and description; fail if it differs "
+    "or its build failed.",
 )
 @click.option("--wait", "wait", is_flag=True, default=False, help="Block until the build finishes.")
 @click.option("--timeout", default=DEFAULT_TIMEOUT, type=DURATION, help="With --wait. Default 30m.")
@@ -160,18 +151,19 @@ def create(
     name: str,
     description: Optional[str],
     description_file: Optional[str],
-    config: Tuple[str, ...],
-    seed: Optional[int],
     if_not_exists: bool,
     wait: bool,
     timeout: float,
 ) -> None:
-    """Create an environment and start minting its world from a description. Prints its id.
+    """Create an environment and start building it from a description. Prints its id.
+
+    An agent reads the company the description is about and builds that company's app. A failed
+    build is never started again: delete the environment and create it again.
 
     \b
     Examples:
       layerlens env create --type zendesk --name support-desk --description-file ci/environment.md --if-not-exists --wait
-      layerlens env create --type zendesk --name support-desk --description "A small support desk" --config tickets=40
+      layerlens env create --type zendesk --name support-desk --description "An outdoor-gear retailer's support desk"
     """
     if description is not None and description_file is not None:
         raise click.UsageError("pass --description or --description-file, not both")
@@ -181,19 +173,10 @@ def create(
     if description is None:
         raise click.UsageError("pass --description or --description-file: every environment starts from a description")
     envs = env_client(ctx).environments
-    created = envs.create(
-        name,
-        world_type,
-        description=description,
-        config=_config(config) if config else None,
-        seed=seed,
-        if_not_exists=if_not_exists,
-    )
+    created = envs.create(name, world_type, description=description, if_not_exists=if_not_exists)
     verb = "Reusing" if created.reused else "Created"
     building = created.job is not None and created.job.status not in JOB_TERMINAL_STATUSES
     progress(f"{verb} {created.name} ({created.id})" + (", building" if building else ""))
-    if created.unused:
-        progress(f"Note: {created.unused}")
     if wait:
         ready = envs.wait_until_ready(created.id, timeout_seconds=timeout)
         progress(f"{ready.name} is ready: version {ready.environment_version}, {ready.tool_count} tools")
@@ -201,26 +184,12 @@ def create(
             # The create reply's build still reads "pending": print the environment and the build
             # as the wait left them, under the reply's own keys.
             job = envs.jobs.get(ready.id, created.job.id) if created.job is not None else None
-            emit_json({"environment": ready, "job": job, "reused": created.reused, "unused": created.unused})
+            emit_json({"environment": ready, "job": job, "reused": created.reused})
             return
     if json_output(ctx):
         emit_json(created)
     else:
         click.echo(created.id)
-
-
-def _config(pairs: Tuple[str, ...]) -> Dict[str, Any]:
-    """``KEY=VALUE`` knobs; a VALUE that reads as JSON (a number, true, a list) is sent as that."""
-    config: Dict[str, Any] = {}
-    for pair in pairs:
-        key, sep, value = pair.partition("=")
-        if not sep or not key.strip():
-            raise click.BadParameter(f"{pair!r} is not KEY=VALUE", param_hint="--config")
-        try:
-            config[key.strip()] = json.loads(value)
-        except ValueError:
-            config[key.strip()] = value
-    return config
 
 
 @click.command("status", cls=LayerLensCommand)
@@ -293,8 +262,17 @@ def tools(ctx: click.Context, environment: str) -> None:
     if not listed.tools:
         progress("This environment has no tools yet.")
         return
-    rows = [{"name": t.name, "path": f"{t.method} {t.path}".strip(), "summary": t.summary} for t in listed.tools]
-    click.echo(format_table(rows, [("name", "Tool"), ("path", "Real path"), ("summary", "Summary")], 60))
+    rows = [{"name": t.name, "path": _real_path(t), "summary": t.summary} for t in listed.tools]
+    columns: List[Tuple[str, str]] = [("name", "Tool"), ("summary", "Summary")]
+    if any(row["path"] for row in rows):
+        # A composite's tools are its apps' under aliases, which no real service's URLs describe:
+        # the API sends them without a method and path.
+        columns.insert(1, ("path", "Real path"))
+    click.echo(format_table(rows, columns, 60))
+
+
+def _real_path(tool: Tool) -> str:
+    return f"{tool.method} {tool.path}".strip()
 
 
 @click.command("reset", cls=LayerLensCommand)

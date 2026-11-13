@@ -1,7 +1,7 @@
 # layerlens env
 
 `layerlens env` drives environments from a terminal or a CI job: create an environment,
-wait for its world to mint, run your agent or a model against a set of tasks, and fail the
+wait for its world to build, run your agent or a model against a set of tasks, and fail the
 build when the pass rate drops. It calls the Automation API, like
 [`client.environments`](../api-reference/environments.md), and needs an API key with
 **Automation** access, in `LAYERLENS_API_KEY`, `--api-key-file PATH` (`-` reads it from
@@ -9,7 +9,7 @@ standard input) or `--api-key` (which `env run exec` refuses: see below).
 
 A key with **Standard** access reaches only what an agent uses: `env list`, `env tools` and
 `env reset`. Every other `env` command exits `1` with `this key has Standard access; this
-route needs an Automation key (Organization Settings → API Keys) (HTTP 403)`, `env get`
+route needs an Automation key (Manage organization → API keys) (HTTP 403)`, `env get`
 included, as it also lists the environment's task sets.
 
 ```bash
@@ -45,13 +45,13 @@ gate exits `1` then.
 
 | Command | |
 | --- | --- |
-| `layerlens env world-types` | The types an environment can simulate, with their config knobs |
+| `layerlens env world-types` | The apps an environment can simulate, with their tool counts |
 | `layerlens env list [--search TEXT] [--hide-members]` | The project's environments; `--hide-members` leaves out a composite's members |
 | `layerlens env get ENV` | One environment, with its task sets |
-| `layerlens env create` | Create an environment and start minting it; prints its id |
+| `layerlens env create` | Create an environment and start building it; prints its id |
 | `layerlens env status ENV` | The build: `building`, `ready` or `failed`, with its steps |
 | `layerlens env wait ENV [--timeout 30m]` | Block until the build finishes; exits `11` if it failed or timed out |
-| `layerlens env tools ENV` | The environment's tools |
+| `layerlens env tools ENV` | The environment's tools, named `<alias>__<tool>` |
 | `layerlens env reset ENV` | Clear the live state back to the minted world |
 | `layerlens env revert ENV --to-version N` | Serve an earlier version |
 | `layerlens env delete ENV --yes` | Delete the environment |
@@ -61,13 +61,11 @@ gate exits `1` then.
 | Option | |
 | --- | --- |
 | `--type TYPE`, `--name NAME` | Required |
-| `--description TEXT`, `--description-file PATH` | Required, one of them. What the world should contain, in plain words |
-| `--config KEY=VALUE` | A config knob; repeatable. A value that reads as JSON (`40`, `true`) is sent as that |
-| `--seed N` | Default `1` |
-| `--if-not-exists` | Reuse an environment of this name created from the same type, description, config and seed; fail, naming the differences, if it differs |
+| `--description TEXT`, `--description-file PATH` | Required, one of them. The company the environment is about, in plain words |
+| `--if-not-exists` | Reuse an environment of this name created from the same type and description; fail, naming the differences, if it differs, and fail if its build failed |
 | `--wait`, `--timeout DURATION` | Block until the build finishes (default `30m`) |
 
-With `--format json`, `env create` prints `environment`, `job`, `reused` and `unused`. Without
+With `--format json`, `env create` prints `environment`, `job` and `reused`. Without
 `--wait` that is the create reply, with the build `pending`. With `--wait` it is the environment
 and its build job as they are once the wait ends: the served `environment_version` and
 `tool_count`, and the job's final `status` and `cost_usd`.
@@ -75,12 +73,23 @@ and its build job as they are once the wait ends: the served `environment_versio
 Step names in `env status` are informational and can change; scripts should read `status`
 from `layerlens --format json env status ENV`.
 
-An agent builds `linear` and `jira` worlds from the description, as a composite of one
-world: the environment's type is `composite`, its tools are named `linear__<tool>`, the
-world is a member environment named `<name> — Linear`, and `--config` and `--seed` are not
-used (`env create` says so on stderr). A failed build of one is not started again: delete
-the environment and create it again. `env world-types` shows these types with no config
-knobs. See [Worlds an agent builds](../api-reference/environments.md#worlds-an-agent-builds).
+An agent reads the company the description is about and builds that company's app of
+`--type`; the description is the only input. The environment is a composite of that one app:
+its type is `composite`, its tools are named `<alias>__<tool>` (the type, with `_` written
+`-`: `zendesk__ZENDESK_LIST_ZENDESK_TICKETS`), and the app is a member environment named
+`<name> — <Title>` (`support-desk — Zendesk`), which `env list --hide-members` leaves out. A
+tasks file whose `actions`, `ordered` or `state` grader names a tool must name it that way, as
+`env tools` lists it. See [Create and wait](../api-reference/environments.md#create-and-wait).
+
+A failed build is never started again: `env create --if-not-exists` then exits `1`, saying
+so, until you delete the environment and create it again. In CI, when `env status` shows
+the build `failed`:
+
+```bash
+layerlens env delete support-desk --yes
+layerlens env create --type zendesk --name support-desk \
+  --description-file ci/environment.md --if-not-exists --wait
+```
 
 ## Task sets
 
@@ -399,6 +408,7 @@ given `--idempotency-key` treats the run it gets back as its own: `run model` ca
 | | |
 | --- | --- |
 | `--description` | 2,000 characters |
+| `--name` | 120 characters, and as many with ` — ` and the type's title after it (the app's name) |
 | `--agent-name` | 64 bytes |
 | `--label` | 128 bytes |
 | A request body (inline tasks, mostly) | 5 MiB (5,242,880 bytes) of JSON, and 5.75 MiB (6,029,312 bytes) once the API's gateway escapes it as text, where every quote and backslash counts twice; the CLI refuses a larger one before sending it. Run fewer or shorter inline tasks, or store them in a task set and run it with `--set` |

@@ -54,16 +54,24 @@ they are the only executable record of what a pinned client receives.
 ## `environments/`: recorded from a live stack
 
 Unlike the files above, these are replies of the environments Automation API
-**recorded from a live atlas-app** (a local stack built from LAY-4251's app branches,
-2026-10-27) through the SDK itself, then parsed by `test_environment_corpus.py`. Each file
-holds the route it came from under `_recorded` and the reply under `response`.
+**recorded from a live atlas-app** through the SDK itself, then parsed by
+`test_environment_corpus.py`. Each file holds the route it came from under `_recorded` and the
+reply under `response`.
 
+- They were recorded on 2026-11-10 from a local stack at layerlens-app main 969d84958
+  (#2881), against a one-app `zendesk` composite, which every environment is since #2881:
+  its type is `composite`, its tools are named `zendesk__…` without a method or path, and
+  its build is a `build_setup` job. `test_the_corpus_is_recorded_from_a_composite` keeps it
+  that way. `run_rollout.json` and `run_rollout_cancelled.json` are from 2026-10-27 (a local
+  stack built from LAY-4251's app branches, a minted `stripe` world): #2881 did not change
+  their route, and recording them again runs a model.
 - Attempt tokens are redacted (their MAC is `m` × 43), the local host is rewritten to
   `https://api.layerlens.ai`, and `world_types.json` keeps two of the types.
-- They cover the states a CI run reaches: a reused create, a finished build, a generation
-  job, external runs (graded, unsubmitted, finished), model runs (finished, cancelled),
-  a start with its attempts, and a submit. `run_external_unsubmitted.json` is the case the
-  SDK's submit settling depends on: an unsubmitted task is `error` with no `agent_answer`.
+- They cover the states a CI run reaches: a create and a reused create, a finished build,
+  a generation job, external runs (graded, unsubmitted, finished), model runs (finished,
+  cancelled), a start with its attempts, and a submit. `run_external_unsubmitted.json` is
+  the case the SDK's submit settling depends on: an unsubmitted task is `error` with no
+  `agent_answer`.
 - The test also forces each pointer field of the Go DTOs to `null`, the same second pass
   as the evaluations corpus.
 

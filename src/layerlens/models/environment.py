@@ -29,7 +29,6 @@ __all__ = [
     "CreatedEnvironment",
     "BuildStep",
     "EnvironmentBuild",
-    "WorldConfigField",
     "WorldType",
     "Tool",
     "ToolList",
@@ -75,7 +74,8 @@ class EnvironmentRef(_Model):
 
     id: str
     name: str
-    # "composite", the world's type, or "" for an OpenAPI spec import.
+    # "composite" for every environment created now; an environment from before composites
+    # shows its world's type, and an OpenAPI spec import "".
     type: str
     current_version: int
 
@@ -85,7 +85,8 @@ class Environment(_Model):
 
     id: str
     name: str
-    # "composite", the world's type, or "spec" for an OpenAPI spec import.
+    # "composite" for every environment created now (an app built inside one is listed too,
+    # under its own world type, unless ``hide_members``); "spec" for an OpenAPI spec import.
     type: str
     current_version: int
     # The version actually served; 0 before the first build lands.
@@ -109,9 +110,6 @@ class CreatedEnvironment(_Model):
     # The build: the one this request started, or with ``reused`` the one on record.
     job: Optional[JobRef] = None
     reused: bool = False
-    # Set when config or seed was sent for a world an agent builds from the description,
-    # which does not use them; says so in a sentence.
-    unused: Optional[str] = None
 
     @property
     def id(self) -> str:
@@ -151,39 +149,25 @@ class EnvironmentBuild(_Model):
         return self.status == BUILD_FAILED
 
 
-class WorldConfigField(_Model):
-    """One config knob of a world type, as a JSON-schema fragment."""
-
-    title: Optional[str] = None
-    description: Optional[str] = None
-    type: Optional[str] = None
-    minimum: Optional[float] = None
-    maximum: Optional[float] = None
-    min_length: Optional[int] = Field(default=None, alias="minLength")
-    max_length: Optional[int] = Field(default=None, alias="maxLength")
-    default: Any = None
-    enum: Optional[List[Any]] = None
-    items: Optional[WorldConfigField] = None
-    properties: Optional[Dict[str, WorldConfigField]] = None
-    required: Optional[List[str]] = None
-
-
 class WorldType(_Model):
+    """One app an environment can simulate, as ``GET /world-types`` lists it."""
+
     type: str
     title: str = ""
     description: str = ""
-    config_schema: Dict[str, WorldConfigField] = {}
     tool_count: int = 0
+    # A name and a description to start from, this type's own.
     example_name: str = ""
     example_prompt: str = ""
-    # Whether an agent builds this type's worlds from an organization slice.
+    # Whether an agent builds this type's worlds from its slice of an organization.
     agent_slice: bool = False
-    # How the type reads an organization onto its knobs; "app" names it in that organization.
+    # How the type stands in that organization: "app" names it there.
     org_knobs: Optional[Dict[str, Any]] = None
 
     @property
     def built_by_agent(self) -> bool:
-        """An agent builds these worlds from the description, as a one-world composite: config and seed are unused."""
+        """Whether ``create`` can build this type: an agent builds it from the description, as
+        the one app of a composite. The API refuses any other type."""
         app = (self.org_knobs or {}).get("app")
         return self.agent_slice and isinstance(app, str) and bool(app.strip())
 
@@ -271,8 +255,9 @@ class Job(_Model):
     cost_usd: Optional[float] = None
     # Why the job failed; set only when ``status`` is "failure".
     error: Optional[str] = None
-    # A build: version and counts; a build_setup (an agent-built world) has no version, which
-    # build_status() reads instead. A generation: set_name, target, written, dropped, unprobed.
+    # A build: counts, and its version once it succeeded; a build_setup (the build of every
+    # environment created now) has no version, which build_status() reads instead.
+    # A generation: set_name, target, written, dropped, unprobed.
     result: Optional[Dict[str, Any]] = None
 
     @property

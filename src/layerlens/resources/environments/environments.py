@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Type, Union, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Type, Union, Optional, Sequence
 from pathlib import Path
 from functools import cached_property
 
@@ -126,26 +126,25 @@ class Environments(SyncAPIResource):
         type: str,
         *,
         description: str,
-        config: Optional[Mapping[str, Any]] = None,
-        seed: Optional[int] = None,
         if_not_exists: bool = False,
         idempotency_key: IdempotencyKey = None,
     ) -> CreatedEnvironment:
-        """Create an environment and start minting its world from ``description``.
+        """Create an environment and start building its world from ``description``.
 
-        With ``if_not_exists``, an environment of this name created from the same type,
-        description, config and seed is returned with ``reused=True`` (rebuilt if its last
-        build failed). Raises :class:`EnvironmentConflictError` when the name is taken by
-        one this call cannot reuse; its ``differences`` names the inputs that differ.
+        An agent reads the company the description is about and builds that company's
+        ``type`` app (a type whose ``WorldType.built_by_agent`` is true; any other is refused
+        with :class:`BadRequestError`). The environment is a composite of that one app: its
+        ``type`` is ``"composite"``, its tools are named ``<alias>__<tool>``, and the app is a
+        member environment named ``<name> — <type's title>``.
 
-        An agent builds the worlds of some types (``WorldType.built_by_agent``) from the
-        description, as a one-world composite: ``config`` and ``seed`` are unused, and the
-        result's ``unused`` says so. A failed build of one is not started again; delete it
-        and create it again.
+        With ``if_not_exists``, an environment of this name created from the same type and
+        description is returned with ``reused=True``. Raises :class:`EnvironmentConflictError`
+        when the name is taken by one this call cannot reuse: its ``differences`` names the
+        inputs that differ; when it is empty, the message says why, such as a last build that
+        failed. A failed build is never started again: delete the environment and create it
+        again.
         """
-        body = create_body(
-            name=name, type=type, description=description, config=config, seed=seed, if_not_exists=if_not_exists
-        )
+        body = create_body(name=name, type=type, description=description, if_not_exists=if_not_exists)
         try:
             return self._call(
                 "POST", self._path("worlds"), CreatedEnvironment, body=body,
@@ -217,7 +216,7 @@ class Environments(SyncAPIResource):
         return self._call("GET", self._path(environment_id), Environment, key="environment", max_retries=POLL_RETRIES)
 
     def world_types(self) -> List[WorldType]:
-        """The world types an environment can simulate, with their config knobs."""
+        """The world types an environment can simulate: the apps an agent builds from a description."""
         response = self._send("GET", self._path("world-types"))
         return _world_types(response)
 
@@ -352,14 +351,11 @@ class AsyncEnvironments(AsyncAPIResource):
         type: str,
         *,
         description: str,
-        config: Optional[Mapping[str, Any]] = None,
-        seed: Optional[int] = None,
         if_not_exists: bool = False,
         idempotency_key: IdempotencyKey = None,
     ) -> CreatedEnvironment:
-        body = create_body(
-            name=name, type=type, description=description, config=config, seed=seed, if_not_exists=if_not_exists
-        )
+        """Create an environment and start building its world. See :meth:`Environments.create`."""
+        body = create_body(name=name, type=type, description=description, if_not_exists=if_not_exists)
         try:
             return await self._call(
                 "POST", self._path("worlds"), CreatedEnvironment, body=body,

@@ -1,10 +1,10 @@
 # Environments
 
-`client.environments` drives the environments **Automation API**: create and mint an
+`client.environments` drives the environments **Automation API**: create and build an
 environment, manage its task sets, and run graded evaluations of your own agent or of a
 model, for example from CI. The [`layerlens env`](../cli/env.md) commands are built on it.
 
-It needs an API key with **Automation** access (Organization Settings → API Keys). A key
+It needs an API key with **Automation** access (Manage organization → API keys). A key
 with Standard access reaches only what an agent uses: `list()`, `get()`, `tools()` and
 `reset_state()`. It gets `PermissionDeniedError` (403) from every other method, including
 `build_status()`, `world_types()`, `task_sets` and `runs`. A `layerlens login` session cannot
@@ -33,32 +33,44 @@ ready = client.environments.wait_until_ready(env.id, timeout_seconds=1800)
 print(ready.id, ready.environment_version, ready.tool_count)
 ```
 
-Every environment starts from a description: what the world should contain, in plain
-words, up to 2,000 characters. `create` refuses a blank one before sending it.
+Every environment starts from a description of a company, in plain words, up to 2,000
+characters. `create` refuses a blank one before sending it. An agent reads the company the
+description is about, then builds that company's app of the type you name (`zendesk` above),
+as when you create the environment in the app. There are no settings and no seed: the
+description is the only input.
+
+The environment is a **composite** of that one app:
+
+- `type` is `composite`, and its tools are named `<alias>__<tool>`, where the alias is the
+  type with `_` written `-`: `zendesk__ZENDESK_LIST_ZENDESK_TICKETS`, `google-calendar__list_events`. A call
+  that names a tool without its alias is refused as an unknown tool, and so is a task whose
+  grader names one: write `actions` calls, `ordered` steps and a `state` grader's tool with
+  the alias, as `tools()` lists them.
+- The app itself is a second environment, a member of the composite, named
+  `<name> — <Title>` (`support-desk — Zendesk`). `list(hide_members=True)` leaves members
+  out. The member's name has to fit in 120 characters too, so the name can be up to 117
+  characters less the type's title.
+- `world_types()` lists the types. `create` builds a type whose `built_by_agent` is `True`,
+  as every listed type is today; the API refuses any other with `BadRequestError` (400).
 
 With `if_not_exists=True`, `create` returns an environment of that name created from the
-same type, description, config and seed (`env.reused` is `True`, and a build that failed
-is started again). If the existing one differs, it raises `EnvironmentConflictError`,
-whose `differences` names the inputs that differ (never their values).
+same type and description (`env.reused` is `True`). If the existing one differs, it raises
+`EnvironmentConflictError`, whose `differences` names the inputs that differ (never their
+values).
 
-### Worlds an agent builds
+A failed build is never started again: `create` with `if_not_exists=True` raises
+`EnvironmentConflictError`, with empty `differences` and a message that says so, until you
+delete the environment and create it again:
 
-An agent builds the worlds of some types (today `linear` and `jira`;
-`WorldType.built_by_agent` says which) from the description: it reads the company the
-description is about, then builds that company's workspace. Such an environment is a
-composite of one world, as when you create it in the app:
+```python
+from layerlens import EnvironmentBuildError
 
-- `type` is `composite`, and its tools are named `<app>__<tool>`, such as
-  `linear__list_issues`.
-- The world itself is a second environment, a member of the composite, named
-  `<name> — <Title>` (`support-desk — Linear`). `list(hide_members=True)` leaves members
-  out. The member's name has to fit in 120 characters too.
-- `config` and `seed` are not used, and `CreatedEnvironment.unused` says so when you
-  sent either; `if_not_exists` compares only the type and description. A `config` that
-  sets `org_seed` is refused.
-- A failed build is not started again: with `if_not_exists=True`, `create` raises
-  `EnvironmentConflictError` (with empty `differences`) until you delete the environment
-  and create it again.
+try:
+    client.environments.wait_until_ready(env.id)
+except EnvironmentBuildError as failed:
+    print(failed.refused_because)
+    client.environments.delete(env.id)  # then create it again
+```
 
 `wait_until_ready` raises `EnvironmentBuildError` with the generator's reason
 (`refused_because`) when the build fails, and `TimeoutError` when it is still building at
@@ -74,13 +86,13 @@ once.
 
 | Method | |
 | --- | --- |
-| `create(name, type, *, description, config=None, seed=None, if_not_exists=False)` | Create and start the mint. Returns `CreatedEnvironment` (`id`, `environment`, `job`, `reused`, `unused`) |
+| `create(name, type, *, description, if_not_exists=False)` | Create and start the build. Returns `CreatedEnvironment` (`id`, `environment`, `job`, `reused`) |
 | `get(environment)` | One `Environment` |
 | `list(*, name=None, search=None, hide_members=False)` | The project's environments; `hide_members` leaves out a composite's members |
 | `resolve(environment)` | The id of an environment given by id or name |
 | `build_status(environment)` | `EnvironmentBuild`: `status` (`building`, `ready`, `failed`), `steps`, counts, `refused_because` |
 | `wait_until_ready(environment, *, timeout_seconds=1800)` | Block until the build finishes; returns the `Environment` |
-| `world_types()` | The types an environment can simulate, with their config knobs and `built_by_agent` |
+| `world_types()` | The types an environment can simulate: `type`, `title`, `description`, `tool_count` and `built_by_agent` |
 | `tools(environment)` | The environment's tools |
 | `reset_state(environment)` | Clear the live state, the one Agent API calls write to |
 | `revert(environment, *, to_version)` | Serve an earlier version |
@@ -315,9 +327,11 @@ client retries (`max_retries`, default 2), and when the API answers 503 with `Re
 (too many jobs being started with the organization's keys at once) it waits as told and
 sends it again, for up to 30 seconds in all. Pass `idempotency_key=` to make a retry from
 another process safe too: the same key for the same one run you mean to start. The API keeps
-a key forever and returns what it created the first time, on the same route, even if the new
-request differs: it does not compare them. So never reuse a key for a different run, and
-never derive one from a CI variable shared by several jobs or reruns.
+a key forever and returns what it created the first time, on the same route. A run or a job
+started again under a key is not compared with the first: the API returns the first even if
+the new request differs. A `create` is compared: a key sent again with a different name, type
+or description raises `UnprocessableEntityError` (422). So never reuse a key for something
+else, and never derive one from a CI variable shared by several jobs or reruns.
 
 A request body is at most 5 MiB (5,242,880 bytes) of JSON, and at most 5.75 MiB (6,029,312
 bytes) once the API's gateway escapes it as text for Lambda, where every quote and backslash
@@ -334,7 +348,8 @@ attempt that is already graded raises `ConflictError`.
 
 | Exception | When |
 | --- | --- |
-| `EnvironmentConflictError` (a `ConflictError`) | `create`: the name is taken by an environment this call cannot reuse. `differences` and `project_id` say why; when both are empty, the message does |
+| `EnvironmentConflictError` (a `ConflictError`) | `create`: the name is taken by an environment this call cannot reuse. `differences` and `project_id` say why; when both are empty, the message does, such as a build that failed |
+| `BadRequestError` | `create`: a type no agent builds, or a name whose member name would be over 120 characters |
 | `EnvironmentBuildError` | `wait_until_ready`: the build failed. `refused_because` and `build` |
 | `TimeoutError` | A `wait` reached its `timeout_seconds`, with what it was waiting for still going, or with its polls still failing (429, 5xx, no connection); then `__cause__` is the last error |
 | `PermissionDeniedError` | The key has Standard access |

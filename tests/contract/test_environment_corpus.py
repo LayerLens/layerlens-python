@@ -55,6 +55,7 @@ _BUILD_NULLABLE = ("version", "tools", "records", "answer_key", "refused_because
 FIXTURES: Dict[str, Tuple[Type[BaseModel], Optional[str], Optional[str], Tuple[str, ...], Tuple[str, ...]]] = {
     "list": (Environment, None, "environments", (), ()),
     "get": (Environment, "environment", None, (), ()),
+    "create": (CreatedEnvironment, None, None, ("job",), ()),
     "create_reused": (CreatedEnvironment, None, None, ("job",), ()),
     "job_build": (Job, None, None, _JOB_NULLABLE, ()),
     "job_generation": (Job, None, None, _JOB_NULLABLE, ()),
@@ -129,6 +130,22 @@ def test_the_start_fixture_carries_no_real_attempt_token() -> None:
     assert all(a.token.endswith("m" * 43) for a in start.attempts)
 
 
+def test_the_corpus_is_recorded_from_a_composite() -> None:
+    # Every environment is one since layerlens-app#2881: a corpus of a minted world would no
+    # longer be what the API sends.
+    (created,) = _parse("create", _load("create"))
+    assert isinstance(created, CreatedEnvironment) and created.environment.type == "composite"
+    (environment,) = _parse("get", _load("get"))
+    assert isinstance(environment, Environment) and environment.type == "composite"
+    member = next(e for e in _parse("list", _load("list")) if isinstance(e, Environment) and e.type != "composite")
+    assert member.name == f"{environment.name} — Zendesk"
+    (tools,) = _parse("tools", _load("tools"))
+    assert isinstance(tools, ToolList) and tools.tools
+    assert all(t.name.startswith("zendesk__") and not t.method and not t.path for t in tools.tools)
+    (job,) = _parse("job_build", _load("job_build"))
+    assert isinstance(job, Job) and job.kind == "build_setup"
+
+
 def test_a_task_set_page_tells_where_the_next_starts() -> None:
     data = _load("task_set_page")["data"]
     assert data["next_offset"] is None
@@ -138,7 +155,7 @@ def test_a_task_set_page_tells_where_the_next_starts() -> None:
 @pytest.mark.parametrize(
     "name, task_name, graded",
     [
-        ("run_external", "customer-count", True),
+        ("run_external", "ticket-count", True),
         ("run_external", "agent-crash", True),
         ("run_external", "slow", True),
         ("run_external_unsubmitted", "wrong-answer", False),
