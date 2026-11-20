@@ -25,7 +25,7 @@ The project uses [uv](https://docs.astral.sh/uv/) to manage Python and dependenc
 
 ```bash
 git clone https://github.com/LayerLens/layerlens-python.git
-cd stratix-python
+cd layerlens-python
 ./scripts/bootstrap        # uv sync --locked --all-extras: the Python in .python-version, then exactly uv.lock
 source .venv/bin/activate
 ```
