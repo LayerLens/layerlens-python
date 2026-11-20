@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 import httpx
 
-from layerlens import LayerLens
+from layerlens import LayerLens, PermissionDeniedError
 
 
 def run_agent(prompt: str, base_url: str, token: str) -> str:
@@ -48,8 +48,17 @@ def main() -> None:
     parser.add_argument("--min-pass-rate", type=float, default=0.9)
     args = parser.parse_args()
 
-    client = LayerLens()
-    env = client.environments.create(args.name, args.type, description=args.description, if_not_exists=True)
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
+    try:
+        env = client.environments.create(args.name, args.type, description=args.description, if_not_exists=True)
+    except PermissionDeniedError as exc:
+        print(f"ERROR: this sample needs an API key with Automation access: {exc}")
+        sys.exit(1)
     ready = client.environments.wait_until_ready(env.id, timeout_seconds=1800)
     print(f"{ready.name}: version {ready.environment_version}, {ready.tool_count} tools")
 

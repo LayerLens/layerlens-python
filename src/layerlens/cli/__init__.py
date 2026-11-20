@@ -17,9 +17,11 @@ def main() -> None:
     try:
         import click  # noqa: F401
     except ImportError:
+        # On stderr: a script reading stdout (`--format json …`) must not take this for output.
         print(  # noqa: T201
             "CLI dependencies not installed. Install them with:\n\n"
-            '  uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"\n'
+            '  uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]"\n',
+            file=sys.stderr,
         )
         sys.exit(1)
 
@@ -31,12 +33,14 @@ def main() -> None:
 def legacy_main() -> None:
     """Entry point for the deprecated ``stratix`` command (LAY-4220).
 
-    Identical to ``layerlens``; the notice goes to stderr so scripts that parse
-    stdout (``--format json``, ``ci report >> $GITHUB_STEP_SUMMARY``) are unaffected.
+    Identical to ``layerlens``. Its notice goes to stderr, and only when stderr is a terminal,
+    so a script sees exactly what 1.11.0 printed, even one that captures ``2>&1`` (R4 F1).
     """
     # Shell completion calls the program on every TAB; a notice there would land in the prompt.
     if "_STRATIX_COMPLETE" not in os.environ:
-        print("warning: the 'stratix' command is deprecated; use 'layerlens' instead", file=sys.stderr)  # noqa: T201
+        from ._notice import notice
+
+        notice("the 'stratix' command is deprecated; use 'layerlens' instead")
     main()
 
 

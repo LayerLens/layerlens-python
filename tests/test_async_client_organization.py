@@ -125,10 +125,10 @@ def test_the_read_raises_what_the_api_said(no_blocking_read: None, reply: Any, r
 
 
 def test_a_blocking_read_in_another_thread_does_not_stall_the_event_loop(no_blocking_read: None) -> None:
-    # CodeRabbit on #99: the async read took the lock the synchronous read holds across its HTTP
+    # CodeRabbit on #99: the async read took the lock the synchronous read held across its HTTP
     # call, so a sync read in another thread (asyncio.to_thread, say) stalled the event loop. Here
-    # the "sync read" holds that lock until the async call has finished, or gives up after 5 s:
-    # the call finishing while the lock is still held is the proof, with no timing threshold.
+    # a sync read is under way until the async call has finished, or gives up after 5 s: the call
+    # finishing while that read is still under way is the proof, with no timing threshold.
     import threading
 
     api = _API()
@@ -136,10 +136,16 @@ def test_a_blocking_read_in_another_thread_does_not_stall_the_event_loop(no_bloc
     holding, call_done = threading.Event(), threading.Event()
     gave_up: List[bool] = []
 
+    def blocking_read() -> Any:
+        holding.set()
+        gave_up.append(not call_done.wait(timeout=5))
+        return None  # read nothing: the ids the async read stored meanwhile stand
+
+    client._get_organization = blocking_read  # type: ignore[method-assign]
+    read_by_the_thread: List[Any] = []
+
     def sync_read_in_progress() -> None:
-        with client._scope_lock:
-            holding.set()
-            gave_up.append(not call_done.wait(timeout=5))
+        read_by_the_thread.append(client._organization_scope())
 
     reader = threading.Thread(target=sync_read_in_progress)
     reader.start()
@@ -154,5 +160,6 @@ def test_a_blocking_read_in_another_thread_does_not_stall_the_event_loop(no_bloc
     finally:
         call_done.set()
         reader.join(timeout=10)
-    assert gave_up == [False], "the async call waited for the synchronous read's lock"
+    assert gave_up == [False], "the async call waited for the synchronous read"
     assert api.paths and SCOPE in api.paths[-1]
+    assert read_by_the_thread == [(ORG_ID, PROJECT_ID)]

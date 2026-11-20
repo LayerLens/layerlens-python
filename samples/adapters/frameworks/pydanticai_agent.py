@@ -32,7 +32,8 @@ def main() -> None:
     PydanticAIAdapter(None).connect(agent)
     with capture_events("pydanticai_agent"):
         result = agent.run_sync("Colour of grass?")
-        print("reply:", result.data)
+        # `.output` since pydantic-ai 0.1 (the extra's lowest, 0.8.1, has it); 2.x removed `.data`.
+        print("reply:", result.output)
 
 
 if __name__ == "__main__":

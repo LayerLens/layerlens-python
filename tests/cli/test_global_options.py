@@ -322,6 +322,19 @@ class TestEntryPointVerboseFlag:
         assert code == 0
         assert out.strip() == f"layerlens {__version__}"
 
+    def test_missing_cli_extra_is_reported_on_stderr(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Without the [cli] extra, a script reading stdout (`--format json …`) must see nothing.
+        monkeypatch.setitem(sys.modules, "click", None)  # `import click` raises ImportError
+
+        code, out, err = self._run_main(["--format", "json", "trace", "list"], capsys)
+
+        assert code == 1
+        assert out == ""
+        assert "CLI dependencies not installed" in err
+        assert '"layerlens[cli]"' in err
+
 
 def _all_command_paths(group: click.Group, prefix: CommandPath = ()) -> List[CommandPath]:
     paths: List[CommandPath] = []

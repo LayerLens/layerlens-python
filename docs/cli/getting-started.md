@@ -53,6 +53,14 @@ layerlens --host my-instance.example.com trace list
 layerlens --host my-instance.example.com --port 8443 trace list
 ```
 
+`--host` and `--port` connect over HTTPS, on every port: both commands above use HTTPS. The CLI
+speaks plain HTTP only to a loopback host (`localhost`, `127.0.0.1` or `::1`) on a port other
+than 443, or when you give `--host` as an `http://` URL, such as `--host http://localhost:8080`.
+`--host` also takes an `https://` URL, with a port and a path if you need them
+(`https://my-instance.example.com:8443`; the path defaults to `/api/v1`). Every request
+carries your API key, so use `http://` only for a server on your own machine or network.
+(1.11.0 used HTTP on every port but 443.)
+
 ## Global options
 
 Every command accepts these options, either right after `layerlens` or at the end
@@ -64,7 +72,7 @@ are not accepted.) If you give an option in both places, the one at the end wins
 | ------------------ | ------------------------------------------ |
 | `--api-key`        | API key (or set `LAYERLENS_API_KEY`)       |
 | `--api-key-file`   | Read the API key from a file (`-`: stdin)  |
-| `--host`           | API host                                   |
+| `--host`           | API host, or an `https://` or `http://` URL  |
 | `--port`           | API port                                   |
 | `--format`         | Output format: `table` (default) or `json` |
 | `--verbose` / `-v` | Enable debug output                        |
@@ -81,11 +89,13 @@ layerlens trace list
 ```
 
 ```
-ID                                   Created              Filename         Evaluations
-───────────────────────────────────────────────────────────────────────────────────────
-a1b2c3d4-...                         2026-03-15 14:30     traces.jsonl     3
-e5f6a7b8-...                         2026-03-14 09:12     batch_02.json    1
+ID                        Created                   Filename       Evaluations  Agent          Tags
+------------------------  ------------------------  -------------  -----------  -------------  ---------------------
+6a56dfe7d357a8f80a3d7786  2026-03-15T14:30:02.475Z  traces.jsonl   3            support-agent  environment, support…
+6a56db8ed357a8f80a3d1b5b  2026-03-14T09:12:44.707Z  batch_02.json  1            -              -
 ```
+
+`-` stands for a trace with no agent or no tags; long values are cut with `…`.
 
 Switch to JSON for scripting:
 
@@ -163,4 +173,4 @@ layerlens ci report --evaluation-id <EVALUATION_ID> -o summary.md
 ## Next steps
 
 - [Command Reference](commands.md) — all commands and their options
-- [Examples](examples.md) — 15 common workflows as copy-paste shell sessions
+- [Examples](examples.md) — 14 common workflows as copy-paste shell sessions

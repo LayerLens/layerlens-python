@@ -50,6 +50,7 @@ logger = logging.getLogger("layerlens.samples.async_workflow")
 async def main() -> None:
     try:
         client = AsyncLayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize async client: %s", exc)
         sys.exit(1)

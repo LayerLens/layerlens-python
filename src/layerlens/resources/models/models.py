@@ -60,15 +60,16 @@ def _exclude_custom_models(
     return models
 
 
+from ..._pages import every_page, page_params, every_page_async
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, NotGiven
 
 
 class Models(SyncAPIResource):
     def get(
         self,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         type: Literal["custom", "public"] | None = None,
         name: Optional[str] = None,
         key: Optional[str] = None,
@@ -77,9 +78,12 @@ class Models(SyncAPIResource):
         regions: Optional[List[str]] = None,
         licenses: Optional[List[str]] = None,
     ) -> Optional[List[Model]]:
-        base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/models"
+        """Every model of the project that matches the filters, custom and public unless ``type`` says one.
 
-        def fetch(model_type: str) -> ModelsResponse | None:
+        Returns every matching row: the SDK reads the API's pages for you.
+        """
+
+        def fetch(model_type: str) -> List[Model]:
             params = {"type": model_type}
             if name:
                 params["name"] = name
@@ -93,14 +97,7 @@ class Models(SyncAPIResource):
                 params["regions"] = ",".join(regions)
             if licenses:
                 params["licenses"] = ",".join(licenses)
-
-            resp = self._get(
-                base_url,
-                params=params,
-                timeout=timeout,
-                cast_to=ModelsResponse,
-            )
-            return resp if isinstance(resp, ModelsResponse) else None
+            return self._every_row(params, timeout)
 
         models: List[Model] = []
 
@@ -113,13 +110,9 @@ class Models(SyncAPIResource):
 
         if type is None:  # fetch both
             for t in ["custom", "public"]:
-                resp = fetch(t)
-                if resp:
-                    models.extend([cast_model(m, t) for m in resp.data.models])
+                models.extend([cast_model(m, t) for m in fetch(t)])
         else:  # fetch only one type
-            resp = fetch(type)
-            if resp:
-                models.extend([cast_model(m, type) for m in resp.data.models])
+            models.extend([cast_model(m, type) for m in fetch(type)])
 
         models = _exclude_custom_models(
             models,
@@ -131,7 +124,12 @@ class Models(SyncAPIResource):
 
         return models
 
-    def get_by_id(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Model]:
+    def get_by_id(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> Optional[Model]:
+        """A model, by id: one of the catalog or a custom one of the project.
+
+        Raises :class:`NotFoundError` when no model has this id. Returns None only for a reply that
+        holds no model.
+        """
         base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/models/{id}"
 
         resp = self._get(
@@ -157,9 +155,9 @@ class Models(SyncAPIResource):
         self,
         key: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Model]:
-        """Fetch a single model by its unique key."""
+        """Fetch a single model of the project by its unique key; None when none has this key."""
         models = self.get(timeout=timeout, key=key)
 
         if not models:
@@ -173,7 +171,7 @@ class Models(SyncAPIResource):
     def add(
         self,
         *model_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Add public models to the project by their IDs.
 
@@ -181,31 +179,59 @@ class Models(SyncAPIResource):
         project's public models only: a custom model belongs to the project it was created in, and
         the API lists it by that. A custom model's id in ``models`` made the project's public model
         list answer 500 for every caller, so the current list is read, and sent, public ids only, as
-        :meth:`Benchmarks.add` does (BUG-11).
+        :meth:`Benchmarks.add` does (BUG-11). It is read whole, every page and the deprecated models
+        too, so no model the project holds is dropped.
         """
-        current = self.get(type="public", timeout=timeout) or []
-        current_ids = [str(m.id) for m in current]
+        current_ids = self._public_ids(timeout)
         new_ids = list(dict.fromkeys(current_ids + list(model_ids)))
         return self._patch_project_models(new_ids, timeout)
 
     def remove(
         self,
         *model_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Remove public models from the project's model list (see :meth:`add`).
 
         A custom model is not in that list: it belongs to its project until ``delete_custom``.
         """
-        current = self.get(type="public", timeout=timeout) or []
         remove_set = set(model_ids)
-        new_ids = [str(m.id) for m in current if str(m.id) not in remove_set]
+        new_ids = [model_id for model_id in self._public_ids(timeout) if model_id not in remove_set]
         return self._patch_project_models(new_ids, timeout)
+
+    def _every_row(
+        self,
+        params: Dict[str, str],
+        timeout: float | httpx.Timeout | None | NotGiven,
+    ) -> List[Model]:
+        """Every row the project's models list answers for ``params``, read a page at a time."""
+        url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/models"
+
+        def page_of(page: int) -> Optional[List[Model]]:
+            resp = self._get(
+                url,
+                params={**params, **page_params(page)},
+                timeout=timeout,
+                cast_to=ModelsResponse,
+            )
+            return resp.data.models if isinstance(resp, ModelsResponse) else None
+
+        return every_page(page_of)
+
+    def _public_ids(self, timeout: float | httpx.Timeout | None | NotGiven) -> List[str]:
+        """The ids of every public model the project holds, deprecated ones too.
+
+        The PATCH replaces the project's whole list, so ``add()`` and ``remove()`` send back every row
+        it holds: the list hides a deprecated model unless asked for it, and it answers 20 rows a page
+        unless asked for more.
+        """
+        rows = self._every_row({"type": "public", "include_deprecated": "true"}, timeout)
+        return [str(m.id) for m in rows]
 
     def _patch_project_models(
         self,
         model_ids: List[str],
-        timeout: float | httpx.Timeout | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
     ) -> bool:
         url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}"
         resp = self._patch(
@@ -230,7 +256,7 @@ class Models(SyncAPIResource):
         max_tokens: int,
         api_key: Optional[str] = None,
         extra_payload: Optional[Dict[str, Any]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateModelResponse]:
         """Create a custom model backed by an OpenAI-compatible API.
 
@@ -284,7 +310,7 @@ class Models(SyncAPIResource):
         api_key: Optional[str] = None,
         max_tokens: Optional[int] = None,
         extra_payload: Optional[Dict[str, Any]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Update a custom model's mutable fields.
 
@@ -323,7 +349,7 @@ class Models(SyncAPIResource):
         self,
         model_id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Disable a custom model and detach it from the project.
 
@@ -342,7 +368,7 @@ class AsyncModels(AsyncAPIResource):
     async def get(
         self,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         type: Literal["custom", "public"] | None = None,
         name: Optional[str] = None,
         key: Optional[str] = None,
@@ -351,9 +377,12 @@ class AsyncModels(AsyncAPIResource):
         regions: Optional[List[str]] = None,
         licenses: Optional[List[str]] = None,
     ) -> Optional[List[Model]]:
-        base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/models"
+        """Every model of the project that matches the filters, custom and public unless ``type`` says one.
 
-        async def fetch(model_type: str) -> ModelsResponse | None:
+        Returns every matching row: the SDK reads the API's pages for you.
+        """
+
+        async def fetch(model_type: str) -> List[Model]:
             params = {"type": model_type}
             if name:
                 params["name"] = name
@@ -367,14 +396,7 @@ class AsyncModels(AsyncAPIResource):
                 params["regions"] = ",".join(regions)
             if licenses:
                 params["licenses"] = ",".join(licenses)
-
-            resp = await self._get(
-                base_url,
-                params=params,
-                timeout=timeout,
-                cast_to=ModelsResponse,
-            )
-            return resp if isinstance(resp, ModelsResponse) else None
+            return await self._every_row(params, timeout)
 
         models: List[Model] = []
 
@@ -387,13 +409,9 @@ class AsyncModels(AsyncAPIResource):
 
         if type is None:  # fetch both
             for t in ["custom", "public"]:
-                resp = await fetch(t)
-                if resp:
-                    models.extend([cast_model(m, t) for m in resp.data.models])
+                models.extend([cast_model(m, t) for m in await fetch(t)])
         else:  # fetch only one type
-            resp = await fetch(type)
-            if resp:
-                models.extend([cast_model(m, type) for m in resp.data.models])
+            models.extend([cast_model(m, type) for m in await fetch(type)])
 
         models = _exclude_custom_models(
             models,
@@ -405,7 +423,14 @@ class AsyncModels(AsyncAPIResource):
 
         return models
 
-    async def get_by_id(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Model]:
+    async def get_by_id(
+        self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN
+    ) -> Optional[Model]:
+        """A model, by id: one of the catalog or a custom one of the project.
+
+        Raises :class:`NotFoundError` when no model has this id. Returns None only for a reply that
+        holds no model.
+        """
         base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/models/{id}"
 
         resp = await self._get(
@@ -431,9 +456,9 @@ class AsyncModels(AsyncAPIResource):
         self,
         key: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Model]:
-        """Fetch a single model by its unique key."""
+        """Fetch a single model of the project by its unique key; None when none has this key."""
         models = await self.get(timeout=timeout, key=key)
 
         if not models:
@@ -447,29 +472,56 @@ class AsyncModels(AsyncAPIResource):
     async def add(
         self,
         *model_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Add public models to the project by their IDs (see :meth:`Models.add`)."""
-        current = await self.get(type="public", timeout=timeout) or []
-        current_ids = [str(m.id) for m in current]
+        current_ids = await self._public_ids(timeout)
         new_ids = list(dict.fromkeys(current_ids + list(model_ids)))
         return await self._patch_project_models(new_ids, timeout)
 
     async def remove(
         self,
         *model_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Remove public models from the project's model list (see :meth:`Models.add`)."""
-        current = await self.get(type="public", timeout=timeout) or []
         remove_set = set(model_ids)
-        new_ids = [str(m.id) for m in current if str(m.id) not in remove_set]
+        new_ids = [model_id for model_id in await self._public_ids(timeout) if model_id not in remove_set]
         return await self._patch_project_models(new_ids, timeout)
+
+    async def _every_row(
+        self,
+        params: Dict[str, str],
+        timeout: float | httpx.Timeout | None | NotGiven,
+    ) -> List[Model]:
+        """Every row the project's models list answers for ``params``, read a page at a time."""
+        url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/models"
+
+        async def page_of(page: int) -> Optional[List[Model]]:
+            resp = await self._get(
+                url,
+                params={**params, **page_params(page)},
+                timeout=timeout,
+                cast_to=ModelsResponse,
+            )
+            return resp.data.models if isinstance(resp, ModelsResponse) else None
+
+        return await every_page_async(page_of)
+
+    async def _public_ids(self, timeout: float | httpx.Timeout | None | NotGiven) -> List[str]:
+        """The ids of every public model the project holds, deprecated ones too.
+
+        The PATCH replaces the project's whole list, so ``add()`` and ``remove()`` send back every row
+        it holds: the list hides a deprecated model unless asked for it, and it answers 20 rows a page
+        unless asked for more.
+        """
+        rows = await self._every_row({"type": "public", "include_deprecated": "true"}, timeout)
+        return [str(m.id) for m in rows]
 
     async def _patch_project_models(
         self,
         model_ids: List[str],
-        timeout: float | httpx.Timeout | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
     ) -> bool:
         url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}"
         resp = await self._patch(
@@ -494,7 +546,7 @@ class AsyncModels(AsyncAPIResource):
         max_tokens: int,
         api_key: Optional[str] = None,
         extra_payload: Optional[Dict[str, Any]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateModelResponse]:
         """Create a custom model backed by an OpenAI-compatible API.
 
@@ -548,7 +600,7 @@ class AsyncModels(AsyncAPIResource):
         api_key: Optional[str] = None,
         max_tokens: Optional[int] = None,
         extra_payload: Optional[Dict[str, Any]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Update a custom model's mutable fields.
 
@@ -584,7 +636,7 @@ class AsyncModels(AsyncAPIResource):
         self,
         model_id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Disable a custom model and detach it from the project."""
         url = (

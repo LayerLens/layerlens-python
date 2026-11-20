@@ -12,7 +12,7 @@ from layerlens.models import (
     BenchmarkPromptsData,
     CreateBenchmarkResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN, DEFAULT_TIMEOUT
 from layerlens._exceptions import LayerLensError
 from layerlens.resources.benchmarks.benchmarks import Benchmarks
 
@@ -115,14 +115,14 @@ class TestBenchmarks:
         expected_calls = [
             call(
                 "/organizations/org-123/projects/proj-456/benchmarks",
-                params={"type": "custom"},
-                timeout=DEFAULT_TIMEOUT,
+                params={"type": "custom", "page": "1", "page_size": "100"},
+                timeout=NOT_GIVEN,
                 cast_to=BenchmarksResponse,
             ),
             call(
                 "/organizations/org-123/projects/proj-456/benchmarks",
-                params={"type": "public"},
-                timeout=DEFAULT_TIMEOUT,
+                params={"type": "public", "page": "1", "page_size": "100"},
+                timeout=NOT_GIVEN,
                 cast_to=BenchmarksResponse,
             ),
         ]
@@ -216,13 +216,13 @@ class TestBenchmarks:
         assert call_args.kwargs["cast_to"] is BenchmarksResponse
 
     def test_get_benchmarks_timeout_default(self, benchmarks_resource, mock_benchmarks_response):
-        """get method uses DEFAULT_TIMEOUT when no timeout specified."""
+        """get leaves the timeout to the client (NOT_GIVEN) when none is given (R1 F1)."""
         benchmarks_resource._get.return_value = mock_benchmarks_response
 
         benchmarks_resource.get()
 
         call_args = benchmarks_resource._get.call_args
-        assert call_args.kwargs["timeout"] is DEFAULT_TIMEOUT
+        assert call_args.kwargs["timeout"] is NOT_GIVEN
 
     def test_get_benchmarks_with_none_timeout(self, benchmarks_resource, mock_benchmarks_response):
         """get method accepts None timeout."""
@@ -470,7 +470,7 @@ class TestBenchmarksAdd:
     def test_add_single_benchmark(self, benchmarks_resource):
         """add() merges new ID with current benchmarks and PATCHes."""
         existing = PublicBenchmark(id="b1", key="b1", name="B1")
-        benchmarks_resource.get = Mock(return_value=[existing])
+        benchmarks_resource._every_row = Mock(return_value=[existing])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         result = benchmarks_resource.add("b2")
@@ -479,13 +479,13 @@ class TestBenchmarksAdd:
         benchmarks_resource._patch.assert_called_once_with(
             "/organizations/org-123/projects/proj-456",
             body={"datasets": ["b1", "b2"]},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
     def test_add_multiple_benchmarks(self, benchmarks_resource):
         """add() handles multiple benchmark IDs."""
-        benchmarks_resource.get = Mock(return_value=[])
+        benchmarks_resource._every_row = Mock(return_value=[])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         result = benchmarks_resource.add("b1", "b2", "b3")
@@ -497,7 +497,7 @@ class TestBenchmarksAdd:
     def test_add_deduplicates(self, benchmarks_resource):
         """add() deduplicates IDs already in the project."""
         existing = PublicBenchmark(id="b1", key="b1", name="B1")
-        benchmarks_resource.get = Mock(return_value=[existing])
+        benchmarks_resource._every_row = Mock(return_value=[existing])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         benchmarks_resource.add("b1", "b2")
@@ -507,7 +507,7 @@ class TestBenchmarksAdd:
 
     def test_add_returns_false_on_failure(self, benchmarks_resource):
         """add() returns False when PATCH fails."""
-        benchmarks_resource.get = Mock(return_value=[])
+        benchmarks_resource._every_row = Mock(return_value=[])
         benchmarks_resource._patch.return_value = "error"
 
         result = benchmarks_resource.add("b1")
@@ -515,8 +515,8 @@ class TestBenchmarksAdd:
         assert result is False
 
     def test_add_with_none_get_response(self, benchmarks_resource):
-        """add() handles None from get() gracefully."""
-        benchmarks_resource.get = Mock(return_value=None)
+        """add() reads a reply that holds no list as an empty project list."""
+        benchmarks_resource._get.return_value = None  # a reply that holds no list
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         result = benchmarks_resource.add("b1")
@@ -527,7 +527,7 @@ class TestBenchmarksAdd:
 
     def test_add_uses_datasets_field(self, benchmarks_resource):
         """add() sends 'datasets' (not 'benchmarks') in the PATCH body."""
-        benchmarks_resource.get = Mock(return_value=[])
+        benchmarks_resource._every_row = Mock(return_value=[])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         benchmarks_resource.add("b1")
@@ -557,7 +557,7 @@ class TestBenchmarksRemove:
         """remove() removes specified ID and PATCHes remaining."""
         b1 = PublicBenchmark(id="b1", key="b1", name="B1")
         b2 = PublicBenchmark(id="b2", key="b2", name="B2")
-        benchmarks_resource.get = Mock(return_value=[b1, b2])
+        benchmarks_resource._every_row = Mock(return_value=[b1, b2])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         result = benchmarks_resource.remove("b1")
@@ -571,7 +571,7 @@ class TestBenchmarksRemove:
         b1 = PublicBenchmark(id="b1", key="b1", name="B1")
         b2 = PublicBenchmark(id="b2", key="b2", name="B2")
         b3 = PublicBenchmark(id="b3", key="b3", name="B3")
-        benchmarks_resource.get = Mock(return_value=[b1, b2, b3])
+        benchmarks_resource._every_row = Mock(return_value=[b1, b2, b3])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         benchmarks_resource.remove("b1", "b3")
@@ -582,7 +582,7 @@ class TestBenchmarksRemove:
     def test_remove_nonexistent_id(self, benchmarks_resource):
         """remove() ignores IDs that aren't in the project."""
         b1 = PublicBenchmark(id="b1", key="b1", name="B1")
-        benchmarks_resource.get = Mock(return_value=[b1])
+        benchmarks_resource._every_row = Mock(return_value=[b1])
         benchmarks_resource._patch.return_value = {"id": "proj-456"}
 
         benchmarks_resource.remove("nonexistent")
@@ -592,7 +592,7 @@ class TestBenchmarksRemove:
 
     def test_remove_returns_false_on_failure(self, benchmarks_resource):
         """remove() returns False when PATCH fails."""
-        benchmarks_resource.get = Mock(return_value=[])
+        benchmarks_resource._every_row = Mock(return_value=[])
         benchmarks_resource._patch.return_value = None
 
         result = benchmarks_resource.remove("b1")
@@ -754,7 +754,7 @@ class TestBenchmarksCreateCustom:
             file_path=tmp_jsonl,
         )
 
-        benchmarks_resource._upload_file.assert_called_once_with(tmp_jsonl, "My Bench", DEFAULT_TIMEOUT)
+        benchmarks_resource._upload_file.assert_called_once_with(tmp_jsonl, "My Bench", NOT_GIVEN)
 
 
 class TestBenchmarksCreateSmart:

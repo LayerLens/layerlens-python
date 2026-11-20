@@ -77,11 +77,11 @@ evaluation = client.evaluations.get_by_id("eval_id")  # by ID string
 
 # List evaluations
 response = client.evaluations.get_many(
-    sort_by="submittedAt",     # sort field
+    sort_by="submitted_at",    # sort field: submitted_at, accuracy or average_duration
     order="desc",              # asc or desc
     model_ids=["id1"],         # filter by model IDs
     benchmark_ids=["id1"],     # filter by benchmark IDs
-    status="completed",        # filter by status
+    status=EvaluationStatus.SUCCESS,  # filter by status (from layerlens.models import EvaluationStatus)
 )
 # Returns EvaluationsResponse with .evaluations list
 

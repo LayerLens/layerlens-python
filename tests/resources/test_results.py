@@ -17,7 +17,7 @@ import pytest
 
 from layerlens._wire import json_object
 from layerlens.models import Result, Pagination, ResultMetrics, ResultsResponse
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens._exceptions import LayerLensError, APIResponseValidationError
 from layerlens.resources.results.results import Results
 
@@ -120,7 +120,7 @@ class TestResults:
         results_resource._get.assert_called_once_with(
             "/results",
             params={"evaluation_id": "eval-456", "page": "1", "page_size": "100"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
         )
 
     def test_get_results_requests_the_raw_response(self, results_resource, mock_results_response):
@@ -242,12 +242,12 @@ class TestResults:
         assert results_resource._get.call_args.kwargs["params"]["evaluation_id"] == "test-eval-789"
 
     def test_get_results_timeout_default(self, results_resource, mock_results_response):
-        """get method uses DEFAULT_TIMEOUT when no timeout specified."""
+        """get leaves the timeout to the client (NOT_GIVEN) when none is given (R1 F1)."""
         results_resource._get.return_value = wire(mock_results_response)
 
         results_resource.get_by_id(evaluation_id="eval-123")
 
-        assert results_resource._get.call_args.kwargs["timeout"] is DEFAULT_TIMEOUT
+        assert results_resource._get.call_args.kwargs["timeout"] is NOT_GIVEN
 
     def test_get_results_with_none_timeout(self, results_resource, mock_results_response):
         """get method accepts None timeout."""
@@ -584,7 +584,7 @@ class TestResultsPagination:
         results_resource._get.assert_called_once_with(
             "/results",
             params={"evaluation_id": "eval-paginated", "page": "2", "page_size": "50"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
         )
 
         assert isinstance(result_data, ResultsResponse)

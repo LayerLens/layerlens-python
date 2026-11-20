@@ -6,7 +6,10 @@ from typing import Any, Dict, List, Iterator, Optional, AsyncIterator
 
 from ..._context import _current_collector
 from ._streaming import emit_streamed_events
-from ._emit_helpers import emit_llm_error
+from ._emit_helpers import (
+    emit_llm_error,
+    emit_llm_events as emit_llm_events,  # importable from here, as in 1.11.0
+)
 from ._base_provider import MonkeyPatchProvider
 
 log: logging.Logger = logging.getLogger(__name__)

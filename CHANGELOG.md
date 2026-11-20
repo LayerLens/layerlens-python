@@ -13,7 +13,12 @@ The first release as LayerLens: the `Stratix` and `Atlas` names keep working, wi
 Deprecated). It adds environments (`client.environments`, `layerlens env`), trace tags and
 `flush()`. **Breaking:** the evaluation spaces client surface is removed (see Removed);
 `layerlens ci report` needs `--evaluation-id`, `--trace-evaluation-id`, `--env-run` or
-`--latest N`; and `Result.score` can be `None` (see Changed).
+`--latest N`; `Result.score` can be `None`; the client checks its key and URL on first use, not
+when it is built (to fail fast, read `client.organization_id` right after building it); and
+`LAYERLENS_API_KEY` / `LAYERLENS_BASE_URL` win over `LAYERLENS_STRATIX_*` / `LAYERLENS_ATLAS_*`
+when both are set, with a warning naming the one ignored; `layerlens evaluate run --wait` and `bulk
+eval --wait` exit `12` when an evaluation does not succeed; and, a security fix, the CLI's `--host`
+/ `--port` speak HTTPS on every port (see Changed).
 
 ### Added
 
@@ -36,15 +41,19 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   pass-rate change and every task that passed on the baseline and fails on the candidate,
   appends the same to `--markdown FILE`, and exits `1` on a regression and `2` when the runs
   could not be compared, never `1` for an error. `RunComparison.between(baseline, candidate)`
-  is the same comparison in Python. Runs now carry `created_at`, `started_at` and
-  `finished_at`. Needs the API's `GET /environments/{id}/runs`.
+  is the same comparison in Python; its `environment_versions_differ` is a field, in
+  `model_dump()` and in `--format json env run compare` too. Runs now carry `created_at`,
+  `started_at` and `finished_at`. Needs the API's `GET /environments/{id}/runs`.
 - **Environments from CI: `client.environments` and `layerlens env`.** With an API key that has
   **Automation** access (Manage organization → API keys), create an environment, keep
   task sets, and run graded evaluations of your own agent or of a model, then fail a build on the
   result. An agent builds each environment from a description of a company, as a composite of
   that company's app: its tools are named `<alias>__<tool>` (`zendesk__ZENDESK_LIST_ZENDESK_TICKETS`),
   and `create` takes no settings and no seed, as the API builds every world from the
-  description alone since layerlens-app#2881 (LAY-4490). `layerlens env run exec ENV
+  description alone since layerlens-app#2881 (LAY-4490). An API key works with the composite
+  only: its environment list leaves the composite's app out, and the agent and Automation routes
+  refuse the app with a 409 naming its composite (LAY-4519). `env list --hide-members` and
+  `list(hide_members=True)` are kept for compatibility and change nothing. `layerlens env run exec ENV
   --tasks-file ci/tasks.jsonl --agent-name my-agent --min-pass-rate 0.9 -- python agent.py` runs your command once per task, each attempt on its own
   copy of the world with its own short-lived token and without your API key in its environment,
   grades every attempt, writes a JUnit report with `--junit FILE` and a Markdown one with
@@ -68,8 +77,10 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   exits (drive the run yourself there, or use `external_run`). It keeps the key out of
   the agent's environment, but an agent running as the same user can still find it: run an agent
   you do not trust in a container (the docs show how in GitHub Actions). New errors:
-  `EnvironmentBuildError` and `EnvironmentConflictError`. See
-  [docs/api-reference/environments.md](docs/api-reference/environments.md) and
+  `EnvironmentBuildError` and `EnvironmentConflictError`. `revert(to_version=...)` to the version
+  already served succeeds and changes nothing; a revert the API refuses because a build or a task
+  generation runs raises its `ConflictError` (`layerlens env revert` exits `1` with its sentence).
+  See [docs/api-reference/environments.md](docs/api-reference/environments.md) and
   [docs/cli/env.md](docs/cli/env.md)
 
 - **`layerlens env run exec` links the agent's own trace to its attempt.** Each attempt's
@@ -86,7 +97,7 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
 - **Filter traces by tag: `client.traces.get_many(tags=[...])` and `layerlens trace list --tag`.**
   A trace matches when it carries every tag, so `layerlens trace list --tag environment --tag
   support-desk --tag "$GIT_SHA"` lists the traces of the environment runs labelled with that
-  commit. `--tag` is repeatable, on `trace search` too, and each trace's `tags` are now read
+  commit (with an Automation key: a Standard key's list leaves environment-attempt traces out). `--tag` is repeatable, on `trace search` too, and each trace's `tags` are now read
   (`Trace.tags`). An empty tag, such as an unset variable, is refused (`ValueError`; a usage
   error in the CLI) rather than sent, since the API would ignore it and list every trace; one
   string passed as `tags` raises `TypeError`
@@ -134,6 +145,13 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
 
 - **A pricing-table row can carry a `cached` price.** A `LAYERLENS_PRICING_TABLE` or `PricingTable` row now accepts `"cached"`, the price of an input token read from the prompt cache, in USD per 1K tokens like `input` and `output`: `{"my-model": {"input": 0.002, "output": 0.008, "cached": 0.0005}}`. A row without it prices a cache read at half its input price (a tenth for Claude models, a quarter for Gemini models)
 
+- **`layerlens.PaymentRequiredError` for a 402.** When the organization has no credit left, a
+  credit-gated request (a benchmark or trace evaluation, a judge optimization, a synthetic job)
+  answers 402 (`insufficient credit amount`); the SDK raised it as a plain `APIStatusError`. It is
+  now `PaymentRequiredError`, a subclass of `APIStatusError` like `RateLimitError`, on every
+  client, so `except APIStatusError` still catches it. Top up, or wait for running evaluations to
+  finish
+
 ### Changed
 
 - **`layerlens evaluate get`, `list` and `run` show dates and a duration with its unit.** A table
@@ -154,8 +172,8 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   run. It now reports `--evaluation-id`, `--trace-evaluation-id` and `--env-run ENV:RUN_ID` (each
   repeatable, each reported once) in one Markdown report, or one JSON document with `--format json`.
   The project's latest are reported only with `--latest N`; `--limit N` still works, as
-  `--latest N`, with a deprecation warning. Without any of them, or with an empty id, it is a usage
-  error (exit `2`), where it used to report the project's latest. If one of them cannot be read it
+  `--latest N`, with a deprecation notice on a terminal. Without any of them, or with an empty
+  id, it is a usage error (exit `2`), where it used to report the project's latest. If one of them cannot be read it
   exits `1`, naming it, and writes no report. `-o FILE` now appends the Markdown report, so
   `-o "$GITHUB_STEP_SUMMARY"` no longer erases what earlier steps wrote there (a JSON report still
   replaces the file). A benchmark evaluation that has not succeeded shows no accuracy or failed
@@ -170,7 +188,8 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   `layerlens`. The client is configured by `LAYERLENS_API_KEY` and
   `LAYERLENS_BASE_URL`. **Existing code keeps working:** every old name,
   variable and the `stratix` command still work (see `Deprecated` for the one
-  star-import caveat). The README, docs and every sample use the new names, and
+  star-import caveat), but a new variable set beside an old one wins (see below).
+  The README, docs and every sample use the new names, and
   [docs/migrating-from-stratix.md](docs/migrating-from-stratix.md) maps each one.
 
   | Before | Now |
@@ -188,15 +207,75 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
 
 - **crewai: a crew or agent run from inside your own `Flow` is now part of that Flow's trace.** It used to be uploaded as separate traces (two on crewai 1.14.6, three on 1.15) whose closing events were lost, so they flushed only at `disconnect()`. The crew and the agent now appear as nested spans under the flow, and the trace uploads when the flow finishes or fails. crewai reports a failed flow from 1.15 on; on earlier versions a failed flow emits no end event, so its trace (now including any crew it ran) uploads at `disconnect()`
 
+- **`layerlens[openai-agents]` imports on Python 3.9.** There the extra resolves openai-agents 0.8
+  with a pydantic that reads its `float | None` annotations only with `eval-type-backport`
+  installed, so `import agents` raised `TypeError` (1.11.0 too). `[openai-agents]` and
+  `[all-frameworks]` now install `eval-type-backport` on Python before 3.10
+
+- **`layerlens[mcp]` installs mcp 1.23 or later, below 3.** It allowed every mcp from 0.9 on: up to
+  1.21 does not import with current pydantic, and 1.22 lacks the URL elicitation types the MCP
+  adapter handles. The adapter's tests pass on 1.23 through 2.3.0, the latest; `[all-protocols]`
+  carries the same bound
+
 - **`layerlens[marvin]` caps `genai-prices` below 0.1.** pydantic-ai 1.9-1.94 (the `[marvin]` extra caps pydantic-ai below 1.95) raises a `TypeError` extracting usage once genai-prices 0.1 is installed, swallows it, and reports zero tokens for every run. pydantic-ai 1.107.7 applies the same cap itself; it will be removed once marvin supports pydantic-ai >= 1.95
 
 - **strands: the adapter traces only while it is connected**, as the other framework adapters do. An agent built with `Agent(hooks=[adapter])` used to be traced even if `adapter.connect()` was never called. It is now traced from `connect()` until `disconnect()`. Attaching the adapter while it isn't connected logs a warning (once per adapter)
 
 - **`layerlens[pydantic-ai]` and `layerlens[all-frameworks]` now install pydantic-ai 2.x.** Both extras capped pydantic-ai below 2.0, although the adapter works on 2.x. They now resolve 2.17 or later on Python 3.10+. Python 3.9 stays on 0.8.1, the last release that supports it, and `[marvin]` still keeps pydantic-ai below 1.95. If you pin pydantic-ai 2.0-2.16 yourself, also pin `genai-prices<0.1` or upgrade: with genai-prices 0.1 or later, those releases report zero tokens for responses that include a reasoning-token count, as OpenAI chat completions do (an upstream bug, fixed in 2.17).
 
+- **Breaking: the client checks its key and URL on first use, not when it is built.**
+  `LayerLens()` (and `Stratix()`) read the organization in the constructor, so a wrong key raised
+  `AuthenticationError`, and an unreachable or wrong URL `APIConnectionError` or `NotFoundError`,
+  right there. Now the first call that needs the organization raises them (see Fixed: an
+  instrumented program starts while LayerLens is down), so code that caught them around the
+  constructor to exit on a misconfiguration gets them later, from another line. To fail fast on
+  a wrong key or URL, read `client.organization_id` right after building the client: it raises
+  `AuthenticationError`, `APIConnectionError`, ... as the constructor did, and works on 1.11.0
+  too. The CLI still checks the key before every command
+
+- **Breaking: `LAYERLENS_API_KEY` and `LAYERLENS_BASE_URL` win over the legacy variables.** 1.11.0
+  read `LAYERLENS_STRATIX_API_KEY` (then `LAYERLENS_ATLAS_API_KEY`) and ignored
+  `LAYERLENS_API_KEY`; with both set to different values, 2.0.0 uses the new one. The SDK says so
+  once per process with a `UserWarning` at the line that built the client:
+  `LAYERLENS_STRATIX_API_KEY is set but ignored: LAYERLENS_API_KEY is set and wins. Unset one of
+  them.` (the same for the base URL and the `LAYERLENS_ATLAS_*` names). The CLI prints the same
+  sentence on stderr when stderr is a terminal. Both set to the same value is not warned about
+
+- **Breaking: `layerlens evaluate run --wait` and `bulk eval --wait` exit `12` when an evaluation
+  does not succeed.** They printed the evaluation and exited `0` whatever its status, so a CI step
+  that gated on `evaluate run --wait` (the docs' recipe) went green on an evaluation that ended in
+  `failure`. With `--wait`, `evaluate run` now exits `12` when the evaluation ends in any status
+  but `success` (`failure`, `cancelled`, `timeout`, ...), and `bulk eval` when any of its
+  evaluations does; what they print, `--format json` included, is unchanged. A job `bulk eval`
+  skipped, or one the API refused or that failed, makes it exit `1`, which wins over `12`. `bulk
+  eval --judge-id … --traces …` does not wait for its trace evaluations, with `--wait` or not, as
+  before, so it never exits `12`; its help says so. No other command exits `12`
+
+- **Breaking (a security fix): the CLI's `--host` / `--port` speak HTTPS on every port.** 1.11.0
+  spoke plain HTTP on every port but 443, so `layerlens --host my-instance.example.com --port 8443
+  trace list` sent the API key in clear text. The CLI now uses HTTPS on every port, and plain HTTP
+  only for a loopback host (`localhost`, `127.0.0.1`, `::1`; on any port but 443) or a `--host`
+  given as an `http://` URL. `--host` also takes an `https://` URL, with its port
+  (`--host https://my-instance.example.com:8443`). A server that speaks plain HTTP on another host
+  now needs `--host http://HOST:PORT`; a `--port` that differs from the port in a `--host` URL is
+  a usage error (exit `2`)
+
 - **`Result.score` is now `Optional[float]`, and `Result` gains `score_error: Optional[str]`.** The API returns `score: null` with a `score_error` reason for a prompt the scorer could not grade (judge unreachable, scorer crash); such prompts are excluded from the evaluation's accuracy. Previously the SDK raised a `ValidationError` on every results page containing one. Treat `None` as "not scored", never as `0`.
 
 ### Fixed
+
+- **`layerlens.__version__` gives the SDK's version.** The install docs show
+  `import layerlens; print(layerlens.__version__)`; it raised `AttributeError`
+
+- **Without the `[cli]` extra, `layerlens` says so on stderr.** It printed "CLI dependencies not
+  installed" on stdout, where a script reading `--format json` output took it for the output
+
+- **The docstrings say what a get or a delete of an unknown id does.** It raises `NotFoundError`,
+  as it always did: the get, `get_by_id` and delete methods of models, benchmarks, evaluations,
+  results, integrations, judge optimizations, judges, scorers, trace evaluations and traces. The
+  docs said they return `None` or `False`. Three differ, and say so: `scorers.delete()` returns
+  `False` and raises nothing, `trace_evaluations.get_results()` returns `None`, and
+  `models.get_by_key()` / `benchmarks.get_by_key()` return `None` for an unknown key
 
 - **`models.add()` and `remove()` no longer break the project's model list.** They sent the ids
   of the project's custom models in its `models`, which holds its public models only; the API kept
@@ -204,11 +283,61 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   included. They now send public ids only, as `benchmarks.add()` / `remove()` do. A custom model
   belongs to the project it was created in, without `add()`
 
+- **`models.get()` and `benchmarks.get()` return every matching row, and `add()` / `remove()` no
+  longer drop the project's other models and benchmarks.** `get()` sent no page size, so the API
+  answered its default page of 20 rows: a project with 42 custom benchmarks listed 20. `add()` and
+  `remove()` rebuilt the project's whole list from that page and PATCHed it, so every public model
+  or benchmark past the 20th was removed from the project. `get()` now returns every matching row:
+  the SDK reads the API's pages for you. `add()` and `remove()` build their PATCH from the full
+  list, deprecated models and benchmarks included, so they change only the ids they are given (sync
+  and async)
+
+- **crewai: an agent's internal `AgentExecutor` flow is always nested under that agent.** crewai runs
+  event handlers on a pool of threads, so the flow's start could be handled before its agent's,
+  and the flow's span then hung under the task instead of the agent. A handler now waits briefly
+  for the span of an ancestor scope that is still being handled
+
+- **One `AsyncLayerLens` (or `AsyncPublicClient`) serves several `asyncio.run()` calls.** A client built
+  once, at module level say, and used again by a second `asyncio.run()` raised `RuntimeError: Event
+  loop is closed` (1.11.0 too): httpx reused a keep-alive connection that belonged to the first,
+  closed, event loop. A request made on a new event loop, once the last one is closed, now starts
+  from an empty connection pool, on every httpx and httpcore the SDK allows (httpx 0.23 and later),
+  and `await client.aclose()` in a later `asyncio.run()` closes the client instead of raising the
+  same error
+
+- **`traces.get_many()` returns `None` for a page it can't read, or raises `LayerLensError` with
+  `strict=True`, as documented.** A page with a trace that lacked fields raised pydantic's
+  `ValidationError` either way, and an answer that was a JSON array raised
+  `APIResponseValidationError` without `strict`. `traces.get()` reads an array the same way (sync
+  and async)
+
+- **Trace and benchmark file uploads ride out S3 throttling, and their errors never quote the
+  presigned URL.** The PUT to storage was sent once, so an S3 `503 Slow Down` or a dropped
+  connection failed the upload. It is now retried as the client retries its own calls: a 429 or
+  5xx after half a second, then twice as long each time, up to 8 seconds, never sooner than a
+  `Retry-After`; a refused or dropped connection too, as a PUT of the same bytes can be sent again.
+  A refused upload raised httpx's `HTTPStatusError`, whose text quoted the whole presigned URL,
+  its credential and signature included; it now raises the SDK's status error
+  (`InternalServerError`, `PermissionDeniedError`, ...) or `APIConnectionError`, which name the
+  storage host and path only and keep no httpx error (its request holds the whole URL) as their
+  `__cause__` or `__context__`. Only a 2xx answer counts as stored: a redirect (3xx), which httpx
+  does not follow, raises `APIStatusError` and is not sent again. httpx's own log lines show such
+  a URL without its query string (on the `httpx` logger, and on `httpx._client`, where httpx 0.23
+  logs each request)
+
+- **pydantic-ai: the adapter no longer prints a `PydanticAIDeprecationWarning` on every 2.x run.**
+  pydantic-ai 2.x made `result.usage` a property and kept calling it, `result.usage()`, working with
+  a deprecation warning; the adapter called it whenever it could. It now reads the usage as it is
+  on 2.x and still calls the method on earlier releases (checked on 0.8.1 and 2.70)
+
 - **`trace_evaluations.estimate_cost()` returns the estimate.** It returned `None` for every
   estimate: `CostEstimateResponse` required a `model` the API never sends. It now reads what the
   API sends: `trace_count` and `cost_available`, and `estimated_cost`, `input_tokens`,
   `output_tokens` and `unpriced_judges` when the run could be priced (`None` when it could not).
-  `model` stays, as `None`
+  `model` stays, as `None`. `estimate_cost()` returns `None` only when the API gives no answer.
+  Check `estimate.cost_available`: an unpriced estimate is falsy (`bool(estimate)` is
+  `cost_available`), so 1.11.0 code written as
+  `if estimate: print(f"{estimate.estimated_cost:.4f}")` never formats a missing price
 
 - **`layerlens evaluate run` and `bulk eval` take `--model` and `--benchmark` as an id.** A
   LayerLens id (24 hex digits) was never looked up as an id: `Model not found`. It is now looked
@@ -276,13 +405,60 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   `max_retries`, so `LayerLens(max_retries=0).public` still retried twice. `PublicClient` and
   `AsyncPublicClient` take `max_retries`
 
+- **The client's timeout applies to every call.** Every method sent its own 600-second timeout
+  with each request, which overrode the client's: `LayerLens(timeout=30)`,
+  `client.with_options(timeout=10)` and `copy(timeout=...)` reached no call, so a call to an API
+  that never answered waited ten minutes (1.11.0 too). Now the client's timeout applies to every
+  call, on `LayerLens`, `AsyncLayerLens`, `PublicClient` and `client.public`, the trace and
+  benchmark uploads included; a timeout given to the call (`models.get(timeout=5)`) still wins,
+  and `timeout=None` is no timeout. The `Evaluation` result helpers (`get_results()`,
+  `get_all_results()` and their async forms) sent no timeout at all, whatever the client's; they
+  now use the client's too. A wait with a deadline (`wait_for_completion()`,
+  `environments.wait_until_ready()`, `jobs.wait()`, `runs.wait()`) no longer blocks past its
+  `timeout_seconds` on a request the API never answers, even with `timeout=None`: each request
+  it sends, the lookup of an environment by name included, is sent once with the client's
+  timeout cut to the time left, and none is sent once the deadline has passed. httpx applies
+  that timeout to connecting and to each wait for data, not to the whole response, so a
+  response still arriving at the deadline can finish after it. It aims a poll at 2 seconds before
+  the deadline, so that poll has time to answer (polls can also run inside those 2 seconds, none
+  with less than half a second left), and a poll that answers just over 2 seconds before the
+  deadline is not followed by another at once. A wait never polls sooner than a `Retry-After`
+  asks. When the `Retry-After` reaches past the wait's deadline, the wait sleeps until the
+  deadline and then raises, with the 429 as the cause. A wait with no deadline
+  (`timeout_seconds=None`, or `0` on an evaluation wait) reads a `Retry-After` longer than 5
+  minutes as 5 minutes. A `Retry-After`, an interval or a backoff that ends less than half a
+  second before the deadline counts as reaching it: the wait sleeps out that time and sends
+  nothing more, as the poll after it had no time to answer, and its timeout, not the 429 or what
+  the last poll saw, became the cause (polls 1 second apart, answered 0.1 seconds late, with
+  `timeout_seconds=4.48`, sent the last one 7 ms before the deadline). An environments wait with
+  `timeout_seconds=0` checks once. A client's first organization read, made once per client,
+  comes before a wait and is not counted in its `timeout_seconds`; it uses the client's timeout
+  with each httpx timeout phase (connecting, each wait for data, writing) capped at 30 seconds,
+  for each attempt, and the client may retry it. The default stays 600 seconds, with 5 to connect
+
+- **Concurrent first calls on a new client share one organization read, and its error.** A read
+  that failed was not remembered, and it held a lock, so the callers that came while it ran each
+  made their own read once the one before had failed: three threads on a stalled API failed at
+  30, 60 and 90 seconds, eight threads on a 503 sent 24 requests. Callers that come while a read is
+  under way now wait for it and get its outcome, its error included; a call made after a read
+  failed reads again (threads on `LayerLens`, tasks of one event loop on `AsyncLayerLens`)
+
+- **A list page holds at most 100 rows, as the API serves, so paging reads every row.** The API
+  serves at most 100 rows a page; the SDK let `page_size` go up to 500 and counted pages from the
+  size it asked for, so `evaluations.get_many(page_size=500)` got 100 of 131 evaluations and said
+  there was one page, and paging by `total_pages` skipped the rest (1.11.0 too); public
+  evaluations and results did the same. Every list now asks for at most 100 rows a page, so a
+  full page holds `page_size` rows, and pages are counted from that size.
+  `layerlens ci report --latest N` reads pages of 100, so `--latest 300` reports 300 evaluations,
+  where it reported 100
+
 - **`with_options()` and `copy()` keep every option the client was built with, and apply the ones
-  given.** A timeout given was ignored, so `client.with_options(timeout=10)` did nothing; the copy
-  also went back to two retries, read `LAYERLENS_TRUSTED_UPLOAD_HOSTS` again, gave a bearer-auth
-  client's URL the session prefix twice, and read its organization and project again. The copy
-  keeps the key, URL, timeout, retries, bearer auth, upload hosts and project (unless the key or URL
-  changes), and `copy()` also takes `max_retries`, `use_bearer_auth` and `trusted_upload_hosts`;
-  `timeout=None` is no timeout
+  given.** The copy ignored a timeout given (its `timeout` stayed the client's), went back to two
+  retries, read `LAYERLENS_TRUSTED_UPLOAD_HOSTS` again, gave a bearer-auth client's URL the session
+  prefix twice, and read its organization and project again. The copy keeps the key, URL,
+  timeout, retries, bearer auth, upload hosts and project (unless the key or URL changes), and its
+  calls use the timeout given (see above); `copy()` also takes `max_retries`, `use_bearer_auth` and
+  `trusted_upload_hosts`; `timeout=None` is no timeout
 
 - **The keys page is "Manage organization → API keys"**, as the app and the API's refusals name
   it, in `layerlens env --help`, its no-key error and `client.environments`' refusal of a login
@@ -350,8 +526,12 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   place (`part`) and their number (`parts`). `Trace` dropped all four, so the SDK could not reach
   a later part: the list hides it, and only `segments` names it. They are now optional fields,
   with `TraceSegment` (`id`, `segment_id`, `continued_from_span_id`, `start_time`,
-  `event_count`, `attestation_status`); `None` for a trace that is not continued and from an
-  older API. `layerlens trace get --format json` prints them
+  `event_count`, `attestation_status`). A trace this SDK recorded in one process is a trace of one
+  part: `part` and `parts` are `1` and `segments` holds that part, so `trace.parts > 1` tells
+  that a trace was continued. They are `None` when that is unknown: for a trace uploaded without
+  a `segment_id` (by an earlier SDK, or from a file) and from an older API; test
+  `trace.parts is None` first when that matters. `segment_count` is set only on a `get_many` row
+  of a trace of more than one part. `layerlens trace get --format json` prints them
 
 - **A stream returned by a `@trace` function that fails ends its trace with the error alone.**
   The trace recorded the stream's `agent.error`, then the function's `agent.output` with
@@ -431,6 +611,19 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   one. They now read and send public ids only (sync and async). They also read the API's answer
   as the models' PATCH does, so a PATCH that succeeded no longer returns `False`
 
+- **`layerlens env run exec` cancels the run on a SIGINT it started with ignored, and exits once
+  the run is cancelled.** A CI step that runs `layerlens ... &` and forwards a cancel with
+  `trap 'kill -INT "$pid"' INT` starts it with SIGINT ignored, as a non-interactive shell starts
+  every background job, and Python then never raises `KeyboardInterrupt`: the forwarded signal did
+  nothing, and the run was left open. `env run exec`, `env run model`, `env run start`,
+  `env run wait` and `env tasks generate` now take SIGINT as they take SIGTERM, whatever it was
+  when they started. After an interrupt exec cancelled the run within its 5-second grace for the
+  answers being submitted, then waited at exit for those submits to be answered, so a CI runner's
+  SIGTERM, 7.5 seconds after its SIGINT on GitHub, ended it with `143` instead of `11`; it now
+  exits `11` as soon as the run is cancelled. Where a SIGINT or SIGTERM handler was installed
+  outside Python (by an app that embeds it), which Python can't put back, these commands raised
+  `TypeError` as they ended; they now leave their own handler in place
+
 - **Ctrl-C makes `layerlens env run exec` cancel the run once, and say so once.** Leaving the
   `external_run` block on the interrupt cancelled the run, then exec cancelled it again: two
   `POST …/cancel` per interrupt. When the answers in flight had been graded meanwhile, the run
@@ -454,7 +647,12 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   that existed. `create()` (sync and async) now reads the scorer back by its id and returns it,
   and raises instead of returning `None` when the answer holds no new scorer. A request the API
   refuses now prints the API's sentence with its status, `Error: … (HTTP 400)`, as the `env`
-  commands do, in every command, instead of the exception's text (`Error code: 400 - {...}`)
+  commands do, in every command, instead of the exception's text (`Error code: 400 - {...}`). A
+  404 too: `Error: trace with ID '…' not found (HTTP 404)`, where it printed
+  `Error: Resource not found.` and the raw envelope. `evaluate get` too: it printed only
+  `could not fetch evaluation <id> (HTTP n)` and a hint that the id may be a trace evaluation's,
+  whatever the error (a 403 or a 503 included); it now prints the API's sentence, and the hint
+  only with a 404, which is what the API answers for a trace evaluation's id
 
 - **A `layerlens login` session renews itself instead of expiring after an hour.** The CLI
   refreshed its token straight with Cognito, with the client id alone; the app client has a
@@ -473,7 +671,8 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   project the first time a call needs them: a traced function runs, and the trace it cannot
   upload is counted as lost (`upload_error`); a call that needs the organization raises what
   the API said, as before, and a failed read is tried again next time. To check the key at
-  start, read `client.organization_id`. `AsyncLayerLens` now raises the SDK's errors for that
+  start, read `client.organization_id` (code that caught these errors around the constructor
+  must: see Changed). `AsyncLayerLens` now raises the SDK's errors for that
   read (`APIConnectionError`, `AuthenticationError`, ...), as `LayerLens` does, instead of
   httpx's. The CLI still checks the key before every command
 
@@ -532,7 +731,7 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   ending the wait while the evaluation went on running on the server. Parallel CI jobs sharing an
   API key, which the API throttles at about 5 requests a second, hit this. The waits now poll again
   half a second later, then after twice as long each time a poll fails again, up to
-  `interval_seconds`, and never sooner than the reply's `Retry-After` (up to 5 minutes), until
+  `interval_seconds`, and never sooner than the reply's `Retry-After`, until
   `timeout_seconds`; then the `TimeoutError` names the last error and carries it as its
   `__cause__`. Any other error is still raised at once. The waits now measure their timeout on the
   monotonic clock, so a change of the system clock no longer cuts one short or stretches it
@@ -604,17 +803,37 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
 - **CLI: a list command reported "No judges found." when it could not read the API's
   response at all** (empty, not an object, or the wrong shape). It now prints an error
   and exits 1, so neither a person nor a script mistakes a failed call for an empty
-  list.
+  list. `evaluations.get_many()` too: it read a 200 without an `evaluations` array as an empty
+  page, so `evaluate list` printed "No evaluations found." and `ci report --latest` reported an
+  empty project, both exiting 0. It now raises `APIResponseValidationError`, and both commands
+  exit 1 (an `evaluations` of `null` is still an empty page).
 - **CLI: `bulk eval` exited 0 when some of its jobs failed.** `bulk eval --file` and
   `bulk eval --judge-id --traces` now exit 1 when any job is skipped, fails, or (with
   `--wait`) can no longer be fetched, after printing the ones that succeeded and how
-  many failed. `bulk eval --model … --benchmark … --wait` printed `None` and exited 0
-  when its evaluation disappeared; it now says so and exits 1, as `evaluate run --wait`
-  does.
+  many failed. A job the API refuses (a missing trace, a deprecated model, ...) or whose
+  request fails is reported with the API's sentence and counted, and the next job still runs:
+  the first refusal used to end the command, so the jobs after it never ran. A `--file` line
+  without a model or a benchmark is skipped and counted the same way. `--file … --dry-run` reports
+  such a line as the run does, and exits 1, where it listed `benchmark=None` and exited 0, or, for
+  a line that is not an object such as `[1, 2]`, ended in `Unexpected error: 'list' object has no
+  attribute 'get'`. `bulk eval --model … --benchmark … --wait` printed `None` and exited 0 when
+  its evaluation disappeared; it now says so and exits 1, as `evaluate run --wait` does.
 - **CLI: `integration test` exited 0 when the check failed.** It now exits 1, so a
   script or CI step sees the failure.
 - **CLI: `--port` without `--host` was silently ignored**, and requests went to the
   default host. It is now a usage error.
+- **CLI: the help says what the commands do, and a missing output folder is a sentence.**
+  `layerlens bulk --help` showed an example the command refuses (`--model … --traces`; now
+  `--judge-id … --traces`), `bulk eval` said it reads stdin, which it does not, and eleven options
+  had no help (`synthetic generate`, `replay run`, `evaluations run` / `compare`, `env run model
+  --system-prompt-file`). `synthetic generate --count 0` generated one trace; a count below 1 is now
+  a usage error. `trace export -o` into a folder that is not there printed `Unexpected error:
+  [Errno 2] …`, and `synthetic generate --out` / `evaluations run --out` ended in a traceback; they
+  now print `Error: the trace could not be written to PATH: No such file or directory` and exit 1
+- **CLI: an empty run id is a usage error.** `env run status`, `results`, `wait`, `finish`,
+  `cancel`, `submit` and `env run compare` sent an empty `RUN_ID` (a CI variable an earlier step
+  left empty) to the API and printed `Error: 404 page not found (HTTP 404)`. They now exit 2 with
+  `Invalid value for 'RUN_ID': it is empty`, naming the argument, before sending anything.
 - **CLI: statuses were shown as `EvaluationStatus.SUCCESS`** in tables (every Python
   version) and in progress lines (Python 3.11+). They are shown as `success`.
 - Shell completion of IDs ignored `--api-key`, `--host` and `--port` typed on the
@@ -733,10 +952,17 @@ Deprecated). It adds environments (`client.environments`, `layerlens env`), trac
   explicitly.
 - `LAYERLENS_STRATIX_API_KEY` / `LAYERLENS_STRATIX_BASE_URL` and the older
   `LAYERLENS_ATLAS_*` variables. They are still read, with a warning, when the
-  `LAYERLENS_*` variable is not set. When both are set, the new one wins.
-- The `stratix` command. It runs the same CLI and prints a one-line notice to
-  stderr; stdout is unchanged.
-- `map_agui_to_stratix()`, which still returns its old `{"stratix_event", "category"}` shape.
+  `LAYERLENS_*` variable is not set. When both are set, the new one wins, and a
+  legacy one set to another value is named in a `UserWarning` (see Changed).
+- The `stratix` command. It runs the same CLI; on a terminal it prints a one-line
+  notice to stderr.
+- `map_agui_to_stratix()`, which still returns its old `{"stratix_event", "category"}` shape,
+  and can still be imported from every module 1.11.0 had it in.
+
+The CLI prints its deprecation notices (the `stratix` command, a legacy variable, `ci report
+--limit`) only when stderr is a terminal, as it shows its banner. In CI, or in a script that
+captures `2>&1` and parses it, the CLI prints exactly what 1.11.0 printed. The SDK's
+`DeprecationWarning`s follow Python's warning filters, as before.
 
 All of these will be removed in a future major release.
 

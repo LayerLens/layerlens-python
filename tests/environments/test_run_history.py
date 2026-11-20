@@ -160,6 +160,7 @@ class TestComparison:
         assert comparison.only_in_candidate == []
         assert comparison.pass_rate_delta == pytest.approx(2 / 3 - 3 / 4)
         assert comparison.environment_versions_differ
+        assert comparison.model_dump()["environment_versions_differ"] is True
         assert comparison.baseline.run_id == BASELINE and not hasattr(comparison.baseline, "attempts")
 
     @pytest.mark.parametrize(
@@ -384,6 +385,16 @@ class TestCompareCommand:
         assert out["regressed"][0]["task_id"] == T1
         assert out["regressed"][0]["candidate"]["verdict"] == "error"
         assert out["pass_rate_delta"] == -1.0
+        assert out["environment_versions_differ"] is False
+
+    def test_json_says_whether_the_runs_were_served_different_versions(self, runner: CliRunner, api: FakeAPI) -> None:
+        # R6 F3: a property was left out of the JSON, so a CI script reading it got null.
+        serves(api, a_run(BASELINE, task(T1, "pass")), a_run(CANDIDATE, task(T1, "pass"), environment_version=5))
+
+        result = invoke(runner, "--format", "json", "env", "run", "compare", ENV_ID, BASELINE, CANDIDATE)
+
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(result.stdout)["environment_versions_differ"] is True
 
     def test_baseline_label_is_the_newest_succeeded_run_of_the_candidates_agent(
         self, runner: CliRunner, api: FakeAPI

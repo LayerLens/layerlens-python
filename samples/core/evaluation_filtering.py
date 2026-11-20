@@ -25,12 +25,19 @@ Usage
 
 from __future__ import annotations
 
+import sys
+
 from layerlens import LayerLens
 from layerlens.models import EvaluationStatus
 
 
 def main() -> None:
-    client = LayerLens()
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     # ── Sort by accuracy (highest first) ──────────────────────────────
     response = client.evaluations.get_many(
@@ -44,40 +51,20 @@ def main() -> None:
             print(f"  - {e.id}: accuracy={e.accuracy:.2f}%, status={e.status.value}")
 
     # ── Sort by submission date (newest first) ────────────────────────
-    # NOTE: The sort_by parameter accepts both camelCase and snake_case
-    # depending on your API version:
-    #   - camelCase: "submittedAt", "averageDuration" (API/server convention)
-    #   - snake_case: "submitted_at", "average_duration" (Python SDK convention)
-    # Both are shown below so you can use whichever works with your version.
+    # sort_by takes "submitted_at", "accuracy" or "average_duration".
     response = client.evaluations.get_many(
-        sort_by="submittedAt",  # camelCase variant
+        sort_by="submitted_at",
         order="desc",
         page_size=5,
     )
     if response:
-        print(f"\nLatest {len(response.evaluations)} evaluations (camelCase sort_by):")
+        print(f"\nLatest {len(response.evaluations)} evaluations:")
         for e in response.evaluations:
             print(f"  - {e.id}: submitted_at={e.submitted_at}")
 
-    # Same query using snake_case sort_by (may work on newer SDK versions)
-    try:
-        response = client.evaluations.get_many(
-            sort_by="submitted_at",  # snake_case variant
-            order="desc",
-            page_size=5,
-        )
-        if response:
-            print(
-                f"\nLatest {len(response.evaluations)} evaluations (snake_case sort_by):"
-            )
-            for e in response.evaluations:
-                print(f"  - {e.id}: submitted_at={e.submitted_at}")
-    except Exception:
-        print("\nsnake_case sort_by='submitted_at' not supported on this API version")
-
     # ── Sort by average duration (fastest first) ──────────────────────
     response = client.evaluations.get_many(
-        sort_by="averageDuration",  # camelCase variant; snake_case: "average_duration"
+        sort_by="average_duration",
         order="asc",
         page_size=5,
     )
@@ -110,7 +97,7 @@ def main() -> None:
     # Replace with actual benchmark IDs from your project
     response = client.evaluations.get_many(
         benchmark_ids=["your-benchmark-id"],
-        sort_by="submittedAt",
+        sort_by="submitted_at",
         order="desc",
     )
     if response:

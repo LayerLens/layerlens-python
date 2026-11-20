@@ -8,9 +8,13 @@ Results contain detailed information about each test case in an evaluation.
 
 > Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
+
 ## Methods
 
-### `get_all(evaluation, timeout=None)`
+### `get_all(evaluation)`
 
 Retrieves all results for a specific evaluation by automatically iterating through all pages. This is a convenience method that handles pagination through all results internally.
 
@@ -19,7 +23,7 @@ Retrieves all results for a specific evaluation by automatically iterating throu
 | Parameter    | Type                             | Required | Description                              |
 | ------------ | -------------------------------- | -------- | ---------------------------------------- |
 | `evaluation` | `Evaluation`                     | Yes      | The evaluation object to get results for |
-| `timeout`    | `float \| httpx.Timeout \| None` | No       | Override request timeout                 |
+| `timeout`    | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -32,15 +36,13 @@ from layerlens import LayerLens
 
 client = LayerLens()
 
-# Get evaluation first
+# Get evaluation first (raises NotFoundError for an unknown id)
 evaluation = client.evaluations.get_by_id("eval_12345")
-if not evaluation:
-    print("Evaluation not found")
-else:
-    # Get all results at once
-    all_results = client.results.get_all(evaluation=evaluation)
 
-    print(f"Retrieved {len(all_results)} total results")
+# Get all results at once
+all_results = client.results.get_all(evaluation=evaluation)
+
+print(f"Retrieved {len(all_results)} total results")
 ```
 
 #### Async Usage
@@ -52,11 +54,8 @@ import asyncio
 async def get_all_results():
     client = AsyncLayerLens()
 
-    # Get evaluation first
+    # Get evaluation first (raises NotFoundError for an unknown id)
     evaluation = await client.evaluations.get_by_id("eval_12345")
-    if not evaluation:
-        print("Evaluation not found")
-        return
 
     # Get all results asynchronously
     all_results = await client.results.get_all(evaluation=evaluation)
@@ -68,7 +67,7 @@ async def get_all_results():
 asyncio.run(get_all_results())
 ```
 
-### `get_all_by_id(evaluation_id, timeout=None)`
+### `get_all_by_id(evaluation_id)`
 
 Retrieves all results for a specific evaluation by evaluation ID, automatically iterating through all pages. This is a convenience method that handles pagination internally.
 
@@ -77,11 +76,11 @@ Retrieves all results for a specific evaluation by evaluation ID, automatically 
 | Parameter       | Type                             | Required | Description                                  |
 | --------------- | -------------------------------- | -------- | -------------------------------------------- |
 | `evaluation_id` | `str`                            | Yes      | The evaluation identifier to get results for |
-| `timeout`       | `float \| httpx.Timeout \| None` | No       | Override request timeout                     |
+| `timeout`       | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `List[Result]` containing all result objects across all pages. Returns an empty list if no results are found or the evaluation doesn't exist.
+Returns a `List[Result]` containing all result objects across all pages. Returns an empty list if the evaluation has no results. Raises `NotFoundError` if no evaluation has this id.
 
 #### Example
 
@@ -116,7 +115,7 @@ async def get_all_results():
 asyncio.run(get_all_results())
 ```
 
-### `get(evaluation, page=None, page_size=None, timeout=None)`
+### `get(evaluation, page=None, page_size=None)`
 
 Retrieves detailed results for a specific evaluation with optional pagination support.
 
@@ -126,18 +125,20 @@ Retrieves detailed results for a specific evaluation with optional pagination su
 | ------------ | -------------------------------- | -------- | ------------------------------------------------------------------------------------- |
 | `evaluation` | `Evaluation`                     | Yes      | The evaluation object to get results for                                              |
 | `page`       | `int \| None`                    | No       | Page number for pagination. If not provided, the first page is returned by default    |
-| `page_size`  | `int \| None`                    | No       | Number of results per page (default: 100). Maximum allowed page_size is 500           |
-| `timeout`    | `float \| httpx.Timeout \| None` | No       | Override request timeout                                                              |
+| `page_size`  | `int \| None`                    | No       | Number of results per page (default and maximum: 100)           |
+| `timeout`    | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `ResultsResponse` object containing results, evaluation metadata, and pagination information if successful, `None` if no results are found or the evaluation doesn't exist.
+Returns a `ResultsResponse` object containing results, evaluation metadata, and pagination information. Its `results` list is empty if the evaluation has no results. Raises `NotFoundError` if no evaluation has this id.
 
 The `ResultsResponse` object includes:
 
 - `results`: List of `Result` objects for the current page
 - `evaluation_id`: The evaluation ID
 - `pagination`: Pagination metadata (total_count, page_size, total_pages)
+
+The API returns at most 100 rows a page: a larger `page_size` is read as 100, and `pagination.page_size` and `total_pages` say so, so paging through `total_pages` reads every result.
 
 #### Examples
 
@@ -148,30 +149,24 @@ from layerlens import LayerLens
 
 client = LayerLens()
 
-# Get evaluation first
+# Get evaluation first (raises NotFoundError for an unknown id)
 evaluation = client.evaluations.get_by_id("eval_12345")
 
-if evaluation:
-    # Get results for the evaluation
-    results_data = client.results.get(evaluation=evaluation)
+# Get results for the evaluation
+results_data = client.results.get(evaluation=evaluation)
 
-    if results_data:
-        print(f"Evaluation ID: {results_data.evaluation_id}")
-        print(f"Retrieved {len(results_data.results)} results")
-        print(f"Total available: {results_data.pagination.total_count}")
-        print(f"Page size: {results_data.pagination.page_size}")
-        print(f"Total pages: {results_data.pagination.total_pages}")
+print(f"Evaluation ID: {results_data.evaluation_id}")
+print(f"Retrieved {len(results_data.results)} results")
+print(f"Total available: {results_data.pagination.total_count}")
+print(f"Page size: {results_data.pagination.page_size}")
+print(f"Total pages: {results_data.pagination.total_pages}")
 
-        # Access individual results
-        for i, result in enumerate(results_data.results[:3]):  # Show first 3
-            print(f"\nResult {i+1}:")
-            print(f"  Subset: {result.subset}")
-            print(f"  Score: {result.score}")
-            print(f"  Duration: {result.duration}")
-    else:
-        print("No results found")
-else:
-    print("Evaluation not found")
+# Access individual results
+for i, result in enumerate(results_data.results[:3]):  # Show first 3
+    print(f"\nResult {i+1}:")
+    print(f"  Subset: {result.subset}")
+    print(f"  Score: {result.score}")  # None for a prompt the scorer could not grade
+    print(f"  Duration: {result.duration}")
 ```
 
 > **Tip:** If you only have an evaluation ID (string), use `client.results.get_by_id(evaluation_id="eval_12345")` instead.
@@ -274,7 +269,8 @@ Each `Result` object contains the following properties:
 | `prompt`   | `str`              | The input prompt given to the model                        |
 | `result`   | `str`              | The model's response/output                                |
 | `truth`    | `str`              | The expected or correct answer                             |
-| `score`    | `float`            | Individual score for this test case (typically 0.0 to 1.0) |
+| `score`    | `float \| None`    | Individual score for this test case (typically 0.0 to 1.0); `None` when the scorer could not grade it |
+| `score_error` | `str \| None`  | Why the prompt was not scored, when `score` is `None` |
 | `duration` | `timedelta`        | Time taken for the model to respond                        |
 | `metrics`  | `Dict[str, float \| ScorerResult \| None] \| None` | Additional metrics for this test case. Built-in metrics are floats; a run with custom scorers instead carries one `ScorerResult` per scorer, keyed by scorer ID |
 | `input_tokens`  | `int \| None` | Input tokens consumed by the successful attempt            |
@@ -286,7 +282,17 @@ Each `Result` object contains the following properties:
 - **`prompt`**: The exact input sent to the model
 - **`result`**: The model's actual response
 - **`truth`**: The ground truth or expected answer for comparison
-- **`score`**: Individual test case score, usually binary (0.0 or 1.0) for correctness
+- **`score`**: Individual test case score, usually binary (0.0 or 1.0) for correctness. It is
+  `None` for a prompt the scorer could not grade (the judge was unreachable, the scorer
+  crashed, or the benchmark has no scorer), and `score_error` says why. Such prompts don't
+  count toward the evaluation's accuracy, so treat `None` as "not scored", never as `0`:
+
+  ```python
+  graded = [r.score for r in results_data.results if r.score is not None]
+  passed = sum(1 for score in graded if score > 0.5)
+  ```
+- **`score_error`**: Why the prompt was not scored, such as `no scorer configured for this
+  benchmark`. `None` when the prompt has a score
 - **`duration`**: Response latency as a Python `timedelta` object. The API sends
   this as an int64 nanosecond count and the SDK converts it. Before 1.11.0 the SDK
   read the raw integer as seconds, so every duration was 10⁹× too large — a 2.5
@@ -327,18 +333,11 @@ from layerlens import AsyncLayerLens
 async def fetch_results_async():
     async_client = AsyncLayerLens()
 
-    # Get evaluation first
+    # Get evaluation first (raises NotFoundError for an unknown id)
     evaluation = await async_client.evaluations.get_by_id("eval_12345")
-    if not evaluation:
-        print("Evaluation not found")
-        return None
 
     # async results fetching all pages of results
-    results = await async_client.results.get_all(evaluation=evaluation)
-    if results:
-        return results
-    else:
-        return None
+    return await async_client.results.get_all(evaluation=evaluation)
 
 # Run the async function
 asyncio.run(fetch_results_async())

@@ -138,10 +138,9 @@ for j in response.judges:
 
 # Update a judge
 client.judges.update(judge.id, name="Updated Judge Name")
-
-# Delete a judge
-client.judges.delete(judge.id)
 ```
+
+The next example uses this judge, and deletes it at the end.
 
 ### Uploading and evaluating traces
 
@@ -165,6 +164,9 @@ trace_eval = client.trace_evaluations.create(
 
 # Wait for completion and get results
 result = client.trace_evaluations.wait_for_completion(trace_eval.id)
+
+# Delete the judge once you no longer need it
+client.judges.delete(judge.id)
 ```
 
 ### Custom models
@@ -210,7 +212,7 @@ The names from before the rename (`Stratix`, `AsyncStratix`, `StratixError` and 
 > the default above. A bare host returns `404 page not found` on every endpoint — for a
 > local/self-hosted backend use e.g. `http://localhost:8080/api/v1`.
 
-The variables from before the rename (`LAYERLENS_STRATIX_API_KEY`, `LAYERLENS_STRATIX_BASE_URL`) still work, with a deprecation warning. See [Migrating from Stratix](migrating-from-stratix.md).
+The variables from before the rename (`LAYERLENS_STRATIX_API_KEY`, `LAYERLENS_STRATIX_BASE_URL`) still work, with a deprecation warning. If both old and new are set, the new one wins, and the SDK warns when their values differ. See [Migrating from Stratix](migrating-from-stratix.md).
 
 ## Error handling
 
@@ -244,6 +246,7 @@ Catch the most specific exception first. The hierarchy:
     - `APIStatusError` (HTTP 4xx/5xx)
       - `BadRequestError` (400)
       - `AuthenticationError` (401)
+      - `PaymentRequiredError` (402: no credit left)
       - `PermissionDeniedError` (403)
       - `NotFoundError` (404)
       - `ConflictError` (409)
@@ -251,12 +254,12 @@ Catch the most specific exception first. The hierarchy:
       - `RateLimitError` (429)
       - `InternalServerError` (500+)
 
-Note: Only `LayerLensError`, `APIError`, `BadRequestError`, `AuthenticationError`, and `NotFoundError` are exported from the top-level package. For other exception types, import from `layerlens._exceptions`.
+Every exception above is exported from the top-level package: `from layerlens import RateLimitError`, or `layerlens.PermissionDeniedError`.
 
 ## Requirements
 
-- Python 3.8+
-- Dependencies: `httpx`, `pydantic`, `requests`
+- Python 3.8+; some extras need 3.9 or 3.10 (see [Installation](getting-started/installation.md#python-versions))
+- Dependencies: `httpx`, `pydantic`
 
 ## Documentation
 

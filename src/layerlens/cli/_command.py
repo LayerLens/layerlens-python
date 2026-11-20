@@ -10,12 +10,13 @@ specific of the two.
 
 from __future__ import annotations
 
-import sys
 from typing import Any, Dict, List, Tuple, TypeVar, Callable, Optional
+from urllib.parse import urlsplit
 
 import click
 
 from .._env import API_KEY_ENV
+from ._notice import stderr_is_terminal as _stderr_is_terminal
 
 _OptionSpec = Tuple[Tuple[str, ...], Dict[str, Any]]
 _F = TypeVar("_F", bound=Callable[..., Any])
@@ -62,8 +63,16 @@ def _option_specs(*, root: bool) -> List[_OptionSpec]:
                 **after,
             },
         ),
-        (("--host",), {"default": None, "help": "API host (e.g. api.layerlens.ai).", **after}),
-        (("--port",), {"default": None, "type": int, "help": "API port.", **after}),
+        (
+            ("--host",),
+            {
+                "default": None,
+                "help": "API host (e.g. api.layerlens.ai), or an https:// or http:// URL. HTTPS on every port, "
+                "unless the host is localhost, 127.0.0.1 or ::1, or the URL says http://.",
+                **after,
+            },
+        ),
+        (("--port",), {"default": None, "type": int, "help": "API port, spoken HTTPS (see --host).", **after}),
         (
             ("--format", "output_format"),
             {
@@ -85,18 +94,54 @@ def root_options(f: _F) -> _F:
     return f
 
 
+# Hosts the CLI speaks plain HTTP to without being told: this machine only.
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
 def base_url_for(host: Optional[str], port: Optional[int]) -> Optional[str]:
-    """The API base URL for ``--host``/``--port``, or ``None`` without a host."""
+    """The API base URL for ``--host``/``--port``, or ``None`` without a host.
+
+    HTTPS on every port. Plain HTTP only for a loopback host (``localhost``, ``127.0.0.1``, ``::1``)
+    on a port other than 443, or for a ``--host`` given as an ``http://`` URL; ``--host`` also takes
+    an ``https://`` URL, with a port and a path if need be (the path defaults to ``/api/v1``). 1.11.0
+    spoke plain HTTP on every port but 443, so ``--host my-instance.example.com --port 8443`` sent
+    the API key in clear text.
+
+    Raises :class:`click.BadParameter` for a URL of another scheme, a port that is not a number,
+    or a ``--port`` that differs from the port the URL names.
+    """
     if host is None:
         return None
-    scheme = "https" if port in (None, 443) else "http"
-    if port and port not in (80, 443):
-        return f"{scheme}://{host}:{port}/api/v1"
-    return f"{scheme}://{host}/api/v1"
-
-
-def _stderr_is_terminal() -> bool:
-    return sys.stderr.isatty()
+    given = host.strip()
+    scheme: Optional[str] = None
+    if "://" in given:
+        scheme, _, given = given.partition("://")
+        scheme = scheme.lower()
+        if scheme not in ("http", "https"):
+            raise click.BadParameter(
+                f"{host!r} is neither a host nor an http:// or https:// URL.", param_hint="'--host'"
+            )
+    authority, _, path = given.partition("/")
+    if authority.count(":") > 1 and not authority.startswith("["):
+        authority = f"[{authority}]"  # an IPv6 address, written without its brackets
+    parts = urlsplit(f"//{authority}")
+    try:
+        url_port = parts.port
+    except ValueError:
+        raise click.BadParameter(f"{host!r} names a port that is not a number.", param_hint="'--host'") from None
+    hostname = parts.hostname
+    if not hostname:
+        raise click.BadParameter(f"{host!r} names no host.", param_hint="'--host'")
+    if port is not None and url_port is not None and port != url_port:
+        raise click.BadParameter(f"{port} differs from the port in --host {host!r}.", param_hint="'--port'")
+    port = port if port is not None else url_port
+    if scheme is None:
+        scheme = "http" if hostname in _LOOPBACK_HOSTS and port != 443 else "https"
+    netloc = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None and port != (443 if scheme == "https" else 80):
+        netloc = f"{netloc}:{port}"
+    path = path.strip("/")
+    return f"{scheme}://{netloc}/{path or 'api/v1'}"
 
 
 def _show_banner(obj: Dict[str, Any]) -> None:

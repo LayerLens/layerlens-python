@@ -71,6 +71,8 @@ Run them locally before pushing.
 2. runs `uv sync --locked --all-extras`, which installs the lock and fails if it is stale instead of re-locking;
 3. runs `uv sync --check` to prove the environment matches the lock exactly, and logs the installed versions.
 
+On an Apple Silicon Mac with Python 3.9, step 3 fails locally though the environment works: grpcio has no 3.9 arm64 wheel, so uv builds it, and the wheel it builds is tagged `macosx_11_0_x86_64` (CI, on Linux, is not affected).
+
 Build backends are resolved in isolated build environments, outside the lock, so `[tool.uv] build-constraint-dependencies` pins the ones CI uses (hatchling for this package, setuptools for the locked sdist-only packages); `uv.lock` records those pins too. An upstream release can't change what CI installs: a new version reaches CI only through a PR that changes `uv.lock`. The **Check Lock** workflow (`uv lock --check`) fails when `pyproject.toml` changed without re-locking.
 
 **Changing a dependency.** Edit `pyproject.toml` (or use `uv add` / `uv remove`), run `uv lock`, and commit `uv.lock` with the change. `uv lock` keeps every existing pin it can and resolves only what your change needs.

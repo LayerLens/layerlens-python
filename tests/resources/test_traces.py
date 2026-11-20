@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from layerlens.models import Trace, TracesResponse, CreateTracesResponse
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens._exceptions import LayerLensError
 from layerlens.resources.traces.traces import Traces
 
@@ -87,7 +87,7 @@ class TestTraces:
 
         traces_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/traces/trace-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -186,7 +186,7 @@ class TestTraces:
 
         traces_resource._delete.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/traces/trace-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
         )
 
     def test_delete_trace_none_response(self, traces_resource):

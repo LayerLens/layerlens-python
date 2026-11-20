@@ -134,6 +134,11 @@ class CostEstimateResponse(BaseModel):
     could price the run: with ``cost_available`` False (a judge on a model the catalogue no longer
     carries) they are None, and the counts still say what the run would cover. The API sends no
     ``model``; the field stays, as None, for code that read it.
+
+    An unpriced estimate is falsy (``bool(estimate)`` is ``cost_available``), so code written for
+    1.11.0, whose ``estimate_cost()`` always returned None, as
+    ``if estimate: print(f"{estimate.estimated_cost:.4f}")`` never formats a missing price (R2 F1).
+    Check ``estimate.cost_available`` to tell an unpriced estimate from no answer (None).
     """
 
     trace_count: int
@@ -154,6 +159,9 @@ class CostEstimateResponse(BaseModel):
         if isinstance(data, dict) and "cost_available" not in data:
             return {**data, "cost_available": data.get("estimated_cost") is not None}
         return data
+
+    def __bool__(self) -> bool:
+        return self.cost_available
 
 
 class JudgeOptimizationRunsResponse(BaseModel):

@@ -8,6 +8,8 @@ from typing_extensions import Annotated
 import httpx
 from pydantic import Field, BaseModel, ConfigDict, BeforeValidator
 
+from .._constants import NOT_GIVEN, NotGiven
+
 if TYPE_CHECKING:
     from .api import ResultsResponse
     from .._client import LayerLens, AsyncLayerLens
@@ -154,9 +156,12 @@ class Evaluation(BaseModel):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ResultsResponse]:
-        """Fetch results synchronously if a sync client is attached."""
+        """Fetch a page of results synchronously if a sync client is attached.
+
+        ``timeout`` is the client's unless given; ``None`` waits without a limit.
+        """
         from .._client import AsyncLayerLens
 
         if self._client is None:
@@ -169,15 +174,18 @@ class Evaluation(BaseModel):
     def get_all_results(
         self,
         *,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
-        """Fetch results synchronously if a sync client is attached."""
+        """Fetch every result synchronously if a sync client is attached.
+
+        ``timeout`` is the client's unless given, for each page; ``None`` waits without a limit.
+        """
         from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
         if isinstance(self._client, AsyncLayerLens):
-            raise RuntimeError("Use `await get_results_async()` with an async client")
+            raise RuntimeError("Use `await get_all_results_async()` with an async client")
 
         return self._client.results.get_all(evaluation=self, timeout=timeout)
 
@@ -186,9 +194,12 @@ class Evaluation(BaseModel):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ResultsResponse]:
-        """Fetch results asynchronously if an async client is attached."""
+        """Fetch a page of results asynchronously if an async client is attached.
+
+        ``timeout`` is the client's unless given; ``None`` waits without a limit.
+        """
         from .._client import AsyncLayerLens
 
         if self._client is None:
@@ -201,15 +212,18 @@ class Evaluation(BaseModel):
     async def get_all_results_async(
         self,
         *,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
-        """Fetch results asynchronously if an async client is attached."""
+        """Fetch every result asynchronously if an async client is attached.
+
+        ``timeout`` is the client's unless given, for each page; ``None`` waits without a limit.
+        """
         from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
         if not isinstance(self._client, AsyncLayerLens):
-            raise RuntimeError("Use `get_results()` with a sync client")
+            raise RuntimeError("Use `get_all_results()` with a sync client")
 
         return await self._client.results.get_all(evaluation=self, timeout=timeout)
 

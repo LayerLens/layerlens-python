@@ -10,6 +10,7 @@ from ._common import (
     EXIT_NOT_FINISHED,
     fail,
     confirm,
+    counted,
     progress,
     emit_json,
     env_client,
@@ -19,7 +20,7 @@ from ._common import (
     start_not_known,
     interrupted_start,
     idempotency_option,
-    sigterm_as_interrupt,
+    signals_as_interrupt,
 )
 from ..._command import LayerLensGroup, LayerLensCommand
 from ..._formatter import format_table
@@ -103,7 +104,7 @@ def generate(
     environment_id = envs.resolve(environment)
     key = idempotency_key or new_idempotency_key()
     try:
-        with sigterm_as_interrupt():
+        with signals_as_interrupt():
             job = envs.task_sets.generate(
                 environment_id, set_name, count=count, budget_usd=budget, prompt=prompt, target=target, model=model,
                 idempotency_key=key,
@@ -114,7 +115,7 @@ def generate(
         if not start_not_known(err):
             raise
         fail(lost_start(err, "job", key))
-    progress(f"Generating up to {count} tasks into {set_name!r} (job {job.id})")
+    progress(f"Generating up to {counted(count, 'task')} into {set_name!r} (job {job.id})")
     if wait:
         job = envs.jobs.wait(environment_id, job.id, timeout_seconds=timeout)
         if job.status != "success":
@@ -123,7 +124,8 @@ def generate(
                 EXIT_NOT_FINISHED,
             )
         written = (job.result or {}).get("written")
-        progress(f"Generation finished: {written if written is not None else 'an unknown number of'} tasks written")
+        what = "an unknown number of tasks" if written is None else counted(written, "task")
+        progress(f"Generation finished: {what} written")
     if json_output(ctx):
         emit_json(job)
     else:
@@ -142,4 +144,4 @@ def delete_tasks(ctx: click.Context, environment: str, set_name: str, yes: bool)
     if json_output(ctx):
         emit_json({"set_name": set_name, "deleted": deleted})
     else:
-        click.echo(f"Deleted {deleted} tasks of {set_name!r}.")
+        click.echo(f"Deleted {counted(deleted, 'task')} of {set_name!r}.")

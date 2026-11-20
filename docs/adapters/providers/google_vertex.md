@@ -55,16 +55,24 @@ provides credentials.
 ```python
 import vertexai
 from vertexai.generative_models import GenerativeModel
+from layerlens import LayerLens
+from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers import GoogleVertexProvider
 
+layerlens_client = LayerLens()
 vertexai.init(project="your-project-id", location="us-central1")
 model = GenerativeModel("gemini-2.5-pro")
 
 provider = GoogleVertexProvider()
 provider.connect(model)             # monkey-patches generate_content + _async
 
-response = model.generate_content("Hello!")
-print(response.text)
+# The adapter records into the trace a call runs in (here, my_agent's): outside a trace,
+# a call is recorded nowhere.
+@trace(layerlens_client)
+def my_agent(question: str) -> str:
+    return model.generate_content(question).text
+
+print(my_agent("Hello!"))
 ```
 
 `provider.connect(model)` captures the model id from `model_name` (stripping

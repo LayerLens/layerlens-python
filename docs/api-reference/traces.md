@@ -15,12 +15,14 @@ client = LayerLens()
 
 # Upload a trace file
 result = client.traces.upload("./traces.jsonl")
-print(f"Uploaded {len(result.trace_ids)} traces")
+if result is not None:  # None for an answer the SDK could not read
+    print(f"Uploaded {len(result.trace_ids)} traces")
 
 # List traces
 response = client.traces.get_many()
-for trace in response.traces:
-    print(f"  {trace.id}: {trace.filename}")
+if response is not None:  # None for an answer the SDK could not read
+    for trace in response.traces:
+        print(f"  {trace.id}: {trace.filename}")
 ```
 
 ### Using Async Client
@@ -33,11 +35,13 @@ async def main():
     client = AsyncLayerLens()
 
     result = await client.traces.upload("./traces.jsonl")
-    print(f"Uploaded {len(result.trace_ids)} traces")
+    if result is not None:
+        print(f"Uploaded {len(result.trace_ids)} traces")
 
     response = await client.traces.get_many()
-    for trace in response.traces:
-        print(f"  {trace.id}: {trace.filename}")
+    if response is not None:
+        for trace in response.traces:
+            print(f"  {trace.id}: {trace.filename}")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -47,12 +51,18 @@ if __name__ == "__main__":
 
 Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
-### `upload(file_path, timeout=None)`
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
+
+### `upload(file_path)`
 
 Uploads a JSON or JSONL trace file. This is a three-step process handled automatically:
 
 1. Requests a presigned upload URL from the API
-2. Uploads the file to S3 via the presigned URL
+2. Uploads the file to S3 via the presigned URL, retried as the client retries its calls (a 429
+   or a 5xx, or a refused or dropped connection, up to `max_retries` times; a timeout is not
+   retried)
 3. Creates trace records from the uploaded file
 
 #### Parameters
@@ -60,11 +70,11 @@ Uploads a JSON or JSONL trace file. This is a three-step process handled automat
 | Parameter   | Type                             | Required | Description                             |
 | ----------- | -------------------------------- | -------- | --------------------------------------- |
 | `file_path` | `str`                            | Yes      | Path to the JSON or JSONL file          |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout                |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `CreateTracesResponse` object if successful, `None` if the upload fails.
+Returns a `CreateTracesResponse` with the new traces' ids. An upload the API refuses raises its error, such as `BadRequestError` (400) for a file that holds no valid trace. An upload the storage refuses raises the SDK's status error too (`PermissionDeniedError` for a 403, `InternalServerError` once the retries of a 5xx run out); its message never quotes the presigned URL, whose query holds credentials.
 
 #### Constraints
 
@@ -83,7 +93,7 @@ if result:
 result = client.traces.upload("./single-trace.json")
 ```
 
-### `get(id, timeout=None)`
+### `get(id, strict=False)`
 
 Retrieves a single trace by its unique identifier.
 
@@ -92,22 +102,31 @@ Retrieves a single trace by its unique identifier.
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
 | `id`      | `str`                            | Yes      | The unique trace ID      |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `strict`  | `bool`                           | No       | Raise `LayerLensError`, not return `None`, for an answer that can't be read (default `False`) |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `Trace` object if found, `None` otherwise.
+Returns a `Trace`. Raises `NotFoundError` if no trace has this id. Returns `None` if the API's answer is empty or can't be read as a trace; with `strict=True` that raises `LayerLensError` instead.
 
 #### Example
 
 ```python
-trace = client.traces.get("trace-abc123")
-if trace:
-    print(f"Trace: {trace.filename}")
-    print(f"Data keys: {list(trace.data.keys())}")
+from layerlens import NotFoundError
+
+try:
+    trace = client.traces.get("trace-abc123")
+except NotFoundError:
+    print("No such trace")
+else:
+    if trace is None:  # the answer could not be read as a trace (strict=True raises instead)
+        print("Could not read the trace")
+    else:
+        print(f"Trace: {trace.filename}")
+        print(f"Data keys: {list(trace.data.keys())}")
 ```
 
-### `get_many(page=None, page_size=None, source=None, judge_id=None, status=None, time_range=None, search=None, tags=None, sort_by=None, sort_order=None, timeout=None)`
+### `get_many(strict=False, page=None, page_size=None, source=None, judge_id=None, status=None, time_range=None, search=None, tags=None, sort_by=None, sort_order=None)`
 
 Retrieves multiple traces with filtering, searching, and pagination.
 
@@ -115,8 +134,9 @@ Retrieves multiple traces with filtering, searching, and pagination.
 
 | Parameter    | Type                             | Required | Description                                         |
 | ------------ | -------------------------------- | -------- | --------------------------------------------------- |
+| `strict`     | `bool`                           | No       | Raise `LayerLensError`, not return `None`, for an answer that can't be read (default `False`) |
 | `page`       | `int \| None`                    | No       | Page number (1-based, defaults to 1)                |
-| `page_size`  | `int \| None`                    | No       | Number of traces per page (default: 100, max: 500)  |
+| `page_size`  | `int \| None`                    | No       | Number of traces per page (default and maximum: 100) |
 | `source`     | `str \| None`                    | No       | Filter by source (e.g., "upload")                   |
 | `judge_id`   | `str \| None`                    | No       | Filter by associated judge                          |
 | `status`     | `str \| None`                    | No       | Filter by evaluation status                         |
@@ -125,7 +145,7 @@ Retrieves multiple traces with filtering, searching, and pagination.
 | `tags`       | `Sequence[str] \| None`          | No       | Only traces that carry every one of these tags      |
 | `sort_by`    | `str \| None`                    | No       | Field to sort by (e.g., "created_at")               |
 | `sort_order` | `str \| None`                    | No       | Sort direction: "asc" or "desc"                     |
-| `timeout`    | `float \| httpx.Timeout \| None` | No       | Override request timeout                            |
+| `timeout`    | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -135,14 +155,15 @@ Returns a `TracesResponse` object containing:
 - `count`: Number of traces in this page
 - `total_count`: Total number of matching traces
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md). Returns `None` if the API's answer is empty or can't be read, a trace in it included; with `strict=True` that raises `LayerLensError` instead.
 
 #### Example
 
 ```python
-# Get all traces
+# Get all traces (None for an answer the SDK could not read; strict=True raises instead)
 response = client.traces.get_many()
-print(f"Total: {response.total_count}")
+if response is not None:
+    print(f"Total: {response.total_count}")
 
 # Filtered and sorted
 response = client.traces.get_many(
@@ -156,9 +177,13 @@ response = client.traces.get_many(
 # The traces of the environment runs labelled 3f2c1ab (`--label`, here a commit SHA): a trace
 # matches when it carries every tag
 response = client.traces.get_many(tags=["environment", "support-desk", "3f2c1ab"])
-for trace in response.traces:
-    print(trace.id, trace.tags)
+if response is not None:
+    for trace in response.traces:
+        print(trace.id, trace.tags)
 ```
+
+The traces of environment runs are listed only for an API key with Automation access: with a
+Standard key, the example above returns none of them, and raises nothing.
 
 `tags` is a list: one string raises `TypeError` rather than being read as its letters. An
 empty tag raises `ValueError` before anything is sent, since the API would ignore it and
@@ -166,7 +191,7 @@ list every trace. `trace.tags` holds a trace's tags. The SDK's tracing tags the 
 with `trace(..., tags=[...])`, `trace_context(..., tags=[...])` and `LAYERLENS_TRACE_TAGS`: see
 [Trace tags](../instrumentation/tags.md).
 
-### `delete(id, timeout=None)`
+### `delete(id)`
 
 Deletes a trace by its unique identifier.
 
@@ -175,21 +200,20 @@ Deletes a trace by its unique identifier.
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
 | `id`      | `str`                            | Yes      | The unique trace ID      |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns `True` if the trace was deleted, `False` otherwise.
+Returns `True` once the trace is deleted. Raises `NotFoundError` if no trace has this id, for example when it was already deleted.
 
 #### Example
 
 ```python
-deleted = client.traces.delete("trace-abc123")
-if deleted:
-    print("Trace deleted successfully")
+client.traces.delete("trace-abc123")
+print("Trace deleted")
 ```
 
-### `get_sources(timeout=None)`
+### `get_sources()`
 
 Retrieves the list of available trace sources for the current project.
 
@@ -197,7 +221,7 @@ Retrieves the list of available trace sources for the current project.
 
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -226,9 +250,9 @@ print(f"Available sources: {sources}")
 | `integration_id`  | `str \| None`     | Integration that created this trace  |
 | `tags`            | `List[str]`       | The trace's tags; empty when it has none. `get_many(tags=...)` filters by them |
 | `agent`           | `str \| None`     | The agent the API names for the trace, from what the trace declares; `None` when it names none |
-| `segments`        | `List[TraceSegment] \| None` | On `get` of a trace continued in another process: every part of it, first part first. `None` for a trace that is not continued |
-| `part`            | `int \| None`     | On `get` of a part: its place among `segments`, from 1 |
-| `parts`           | `int \| None`     | On `get` of a part: how many parts its trace has |
+| `segments`        | `List[TraceSegment] \| None` | On `get`: every part of the trace, first part first. `None` when not known (see below) |
+| `part`            | `int \| None`     | On `get`: this part's place among `segments`, from 1 |
+| `parts`           | `int \| None`     | On `get`: how many parts the trace has. More than 1 for a trace continued in another process; `None` when not known |
 | `segment_count`   | `int \| None`     | On `get_many`: how many parts the trace has, when it has more than one |
 
 A trace continued in another process with `trace_context(from_context=...)` is stored as one
@@ -237,9 +261,23 @@ trace per process, its parts. `get_many` lists it once, through its first part, 
 
 ```python
 first = client.traces.get(trace_id)
-for segment in first.segments or []:
+for segment in (first.segments or []) if first is not None else []:
     if segment.id != first.id:
         later = client.traces.get(segment.id)
+```
+
+A trace the SDK recorded in one process is a trace of one part: `get` gives `segments` with
+that part alone, and `part` and `parts` of `1`. `segments`, `part` and `parts` are `None` when
+that isn't known: for a trace uploaded without a `segment_id` (by an SDK release before 2.0.0,
+or a file you wrote), or read from an API older than layerlens-app#2888. `None` means unknown,
+not "not continued". `(trace.parts or 0) > 1` is true for a trace known to be continued in
+another process; when `parts` is `None`, it can't tell:
+
+```python
+trace = client.traces.get(trace_id)
+# get returns None for an answer it can't read; parts is None when not known
+if trace is not None and (trace.parts or 0) > 1:
+    print(f"continued: part {trace.part} of {trace.parts}")
 ```
 
 ### TraceSegment Object Properties

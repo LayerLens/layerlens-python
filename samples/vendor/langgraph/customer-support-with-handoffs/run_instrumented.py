@@ -55,9 +55,8 @@ class _StubClient:
 
 
 def _mask(value: Optional[str]) -> str:
-    if not value:
-        return "<unset>"
-    return value[:8] + "..." + value[-4:] if len(value) > 14 else "***"
+    """Whether a key is set: never any part of the key itself."""
+    return "<set>" if value else "<unset>"
 
 
 def build_real_client():
@@ -73,7 +72,11 @@ def build_real_client():
     try:
         from layerlens import LayerLens
 
-        return LayerLens(), None
+        client = LayerLens()
+        # Building the client makes no request: reading the organization checks the key and
+        # that LayerLens is reachable, so a wrong key or an outage falls back to capture-only.
+        client.organization_id
+        return client, None
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
 

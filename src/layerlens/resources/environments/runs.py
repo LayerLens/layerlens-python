@@ -140,12 +140,32 @@ class Runs:
         A poll that fails on a 429, a 5xx or a lost connection does not end the wait.
         Raises :class:`TimeoutError` when the run is still going after ``timeout_seconds``,
         or the polls kept failing until then.
+
+        Each request, the lookup of an environment by name included, is sent once with the client's
+        timeout cut to the time left (httpx applies it to connecting and to each wait for data), and
+        none is sent once ``timeout_seconds`` has passed. The wait aims a poll at 2 seconds before
+        the deadline, so that poll has time to answer; polls can also run inside those 2 seconds,
+        none with less than half a second left. A wait never polls sooner than a ``Retry-After``
+        asks. When the ``Retry-After`` reaches past the wait's deadline, the wait sleeps until the
+        deadline and then raises, with the 429 as the cause. A wait with no deadline
+        (``timeout_seconds=None``) reads a ``Retry-After`` longer than 5 minutes as 5 minutes.
+        ``timeout_seconds=0`` checks once. A client's first organization read, made once per client,
+        comes before the wait and is not counted in ``timeout_seconds``.
         """
-        environment_id = self._environments.resolve(environment)
+        # The client's first organization read, made once per client, comes before the deadline.
+        self._environments._client._organization_scope()
         policy = wait_policy(f"run {run_id}", timeout_seconds, poll_interval_seconds)
+        environment_id: Optional[str] = None
         while True:
             try:
-                run = self._read(environment_id, run_id, max_retries=POLL_RETRIES)
+                if environment_id is None:
+                    environment_id = self._environments._resolve(environment, policy=policy)
+                run = self._read(
+                    environment_id,
+                    run_id,
+                    max_retries=POLL_RETRIES,
+                    timeout=policy.poll_timeout(self._environments._client.timeout),
+                )
             except LayerLensError as err:
                 delay = policy.after_error(err)
             else:
@@ -327,11 +347,18 @@ class AsyncRuns(AsyncOrganizationScoped):
         timeout_seconds: Optional[float] = DEFAULT_WAIT_SECONDS,
         poll_interval_seconds: float = DEFAULT_POLL_SECONDS,
     ) -> RunResult:
-        environment_id = await self._environments.resolve(environment)
         policy = wait_policy(f"run {run_id}", timeout_seconds, poll_interval_seconds)
+        environment_id: Optional[str] = None
         while True:
             try:
-                run = await self._read(environment_id, run_id, max_retries=POLL_RETRIES)
+                if environment_id is None:
+                    environment_id = await self._environments._resolve(environment, policy=policy)
+                run = await self._read(
+                    environment_id,
+                    run_id,
+                    max_retries=POLL_RETRIES,
+                    timeout=policy.poll_timeout(self._environments._client.timeout),
+                )
             except LayerLensError as err:
                 delay = policy.after_error(err)
             else:

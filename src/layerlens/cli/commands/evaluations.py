@@ -24,7 +24,9 @@ def evaluations() -> None:
 
 
 @evaluations.command("run")
-@click.option("--dataset-id", required=True)
+@click.option(
+    "--dataset-id", required=True, help="The id the run gives the dataset; its items come from --dataset-file."
+)
 # Required: the run is local and reads its dataset from this file; there is no remote lookup.
 @click.option(
     "--dataset-file",
@@ -78,8 +80,12 @@ def run(
     run_obj = EvaluationRunner(store).run(dataset_id=ds.id, target=target_fn, scorers=scorer_map)
     payload = run_obj.model_dump_json(indent=2)
     if out:
-        with open(out, "w", encoding="utf-8") as fh:
-            fh.write(payload)
+        try:
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+        except OSError as err:
+            click.echo(f"Error: the run could not be written to {out}: {err.strerror or err}", err=True)
+            sys.exit(1)
     else:
         sys.stdout.write(payload + "\n")
 
@@ -195,7 +201,13 @@ def _field_path(loc: Tuple[Union[int, str], ...]) -> str:
 @evaluations.command("compare")
 @click.argument("baseline", type=click.Path(exists=True, dir_okay=False))
 @click.argument("candidate", type=click.Path(exists=True, dir_okay=False))
-@click.option("--score-tolerance", type=float, default=0.02)
+@click.option(
+    "--score-tolerance",
+    type=float,
+    default=0.02,
+    show_default=True,
+    help="How far a scorer's mean may drop before it counts as a regression.",
+)
 @click.pass_context
 def compare(ctx: click.Context, baseline: str, candidate: str, score_tolerance: float) -> None:
     """Compare two saved evaluation runs, and exit 1 if the candidate regressed.

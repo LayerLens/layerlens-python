@@ -8,7 +8,7 @@ import asyncio
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from adapters._shared import capture_events  # type: ignore[import-not-found]
+from adapters._shared import _build_client, capture_events  # type: ignore[import-not-found]
 
 from layerlens.instrument.adapters.frameworks.semantic_kernel import (
     SemanticKernelAdapter,
@@ -37,7 +37,13 @@ async def run() -> None:
         prompt="Reply in one word: what colour is grass?",
     )
 
-    SemanticKernelAdapter(None).connect(kernel)
+    # The adapter's client is the LayerLens client, which uploads the kernel's traces: without
+    # LayerLens credentials there is nothing to upload with.
+    client = _build_client()
+    if client is None:
+        print("LAYERLENS_API_KEY is not set: running the kernel without the adapter.")
+    else:
+        SemanticKernelAdapter(client).connect(kernel)
     with capture_events("semantic_kernel_planner"):
         result = await kernel.invoke(fn)
         print("reply:", result)

@@ -13,7 +13,7 @@ import logging
 import tempfile
 from typing import Any, List, Optional
 
-from layerlens import LayerLens
+from layerlens import LayerLens, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +263,10 @@ def get_default_model_id(client: LayerLens) -> str:
     )
 
 
+# The API refuses a judge name longer than this (400 "judge name must not exceed 64 characters").
+MAX_JUDGE_NAME_CHARS = 64
+
+
 def create_judge(
     client: LayerLens,
     *,
@@ -270,6 +274,7 @@ def create_judge(
     evaluation_goal: str,
     model_id: Optional[str] = None,
     namespace: Optional[str] = None,
+    created: Optional[List[str]] = None,
 ) -> Any:
     """Create a judge, automatically resolving model_id if not provided.
 
@@ -282,29 +287,57 @@ def create_judge(
             (``"<name> (<namespace>)"``). Judges are matched/reused by name, so
             two samples that both want e.g. ``"Relevance Judge"`` would otherwise
             silently cross-wire if a run is interrupted before cleanup. Passing
-            the sample's own namespace keeps every sample's judges distinct.
+            the sample's own namespace keeps every sample's judges distinct. The
+            whole name must fit in 64 characters.
+        created: Optional list the judge's id is appended to as soon as the judge
+            exists, so a ``finally`` block can delete every judge made before a
+            later step failed.
 
     Returns:
         A :class:`Judge` object.
+
+    Raises:
+        ValueError: The name, with its namespace, is longer than 64 characters.
     """
     if namespace:
         name = f"{name} ({namespace})"
+    if len(name) > MAX_JUDGE_NAME_CHARS:
+        raise ValueError(
+            f"judge name {name!r} has {len(name)} characters; the API allows {MAX_JUDGE_NAME_CHARS}"
+        )
     if model_id is None:
         model_id = get_default_model_id(client)
     try:
-        return client.judges.create(
+        judge = client.judges.create(
             name=name, evaluation_goal=evaluation_goal, model_id=model_id
         )
+        if created is not None:
+            created.append(judge.id)
+        return judge
     except Exception as exc:
         # Handle 409 Conflict (judge name already exists) by finding and returning the existing judge
         if "already exists" in str(exc) or "409" in str(exc):
             logger.info("Judge '%s' already exists, reusing.", name)
-            resp = client.judges.get_many()
-            if resp and resp.judges:
-                for j in resp.judges:
-                    if j.name == name:
-                        return j
+            existing = _find_judge(client, name)
+            if existing is not None:
+                if created is not None:
+                    created.append(existing.id)
+                return existing
         raise
+
+
+def _find_judge(client: LayerLens, name: str) -> Any:
+    """The project's judge named ``name``, or ``None``, reading every page of judges."""
+    page = 1
+    while True:
+        resp = client.judges.get_many(page=page, page_size=100)
+        judges = (resp.judges if resp else None) or []
+        for j in judges:
+            if j.name == name:
+                return j
+        if len(judges) < 100:
+            return None
+        page += 1
 
 
 def poll_evaluation_results(
@@ -323,14 +356,16 @@ def poll_evaluation_results(
     The actual LLM judge execution takes a variable amount of time (typically
     5-60 seconds depending on model and trace complexity). During this window:
 
-    - ``get_results()`` may raise a 404 ``NotFoundError`` (results row not
-      yet written to the database).
-    - ``get_results()`` may return an empty ``results=[]`` list (row exists
+    - ``get_results()`` returns ``None`` (no results row written yet).
+    - ``get_results()`` may return a result without a score (the row exists
       but execution is still in progress).
 
     Both cases are normal and expected. This helper retries with exponential
-    backoff until a non-empty result list appears or the attempt budget is
-    exhausted.
+    backoff until a scored result appears, the evaluation fails, or the attempt
+    budget is exhausted. A failed evaluation never gets results, so the helper
+    stops polling as soon as its status is ``failure`` and logs the API's
+    reason (``status_description``); an evaluation that no longer exists
+    (``NotFoundError``) stops it too. A 429 or a 5xx is polled through.
 
     Args:
         client: An initialized :class:`LayerLens` client.
@@ -342,7 +377,8 @@ def poll_evaluation_results(
 
     Returns:
         A list of :class:`TraceEvaluationResult` objects, or ``None``
-        if results were not available within the polling window.
+        if the evaluation failed or results were not available within the
+        polling window.
     """
     delay = initial_delay
     for attempt in range(1, max_attempts + 1):
@@ -350,10 +386,23 @@ def poll_evaluation_results(
             resp = client.trace_evaluations.get_results(evaluation_id)
             if resp and resp.score is not None:
                 return [resp]
-            # None or missing score -- evaluation accepted but execution still in progress
+            # None or missing score -- still running, or failed: read the status
+            evaluation = client.trace_evaluations.get(evaluation_id)
+            status = getattr(evaluation.status, "value", evaluation.status) if evaluation else None
+            if status == "failure":
+                logger.warning(
+                    "Trace evaluation %s failed: %s",
+                    evaluation_id,
+                    getattr(evaluation, "status_description", None) or "no reason given",
+                )
+                return None
+        except NotFoundError:
+            # The evaluation itself is gone (deleted, or never in this project): it
+            # will never have results, so stop polling. (No results yet is None, not this.)
+            logger.warning("Trace evaluation %s no longer exists.", evaluation_id)
+            return None
         except Exception:
-            # 404 NotFoundError is expected while the results row hasn't been
-            # created yet. Other transient errors (429, 502) are also retryable.
+            # A 429 or a 5xx: poll again.
             pass
 
         if attempt < max_attempts:

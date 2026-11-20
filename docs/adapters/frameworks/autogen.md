@@ -16,6 +16,7 @@ Pulls `autogen-agentchat>=0.4.0` (and `autogen-core` as a transitive dep).
 ```python
 import asyncio
 from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.conditions import MaxMessageTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 from layerlens.instrument.adapters.frameworks import AutoGenAdapter
 
@@ -23,7 +24,10 @@ adapter = AutoGenAdapter(client=layerlens_client)
 adapter.connect()                # attaches a logging.Handler to autogen_core.events
 
 async def run():
-    team = RoundRobinGroupChat([agent_a, agent_b])
+    # agent_a and agent_b are AssistantAgents. A round-robin team takes turns until its
+    # termination condition (or max_turns) stops it: without one, run() never returns
+    # and the agents keep calling the model.
+    team = RoundRobinGroupChat([agent_a, agent_b], termination_condition=MaxMessageTermination(5))
     await team.run(task="...")
 
 asyncio.run(run())
@@ -55,4 +59,4 @@ holds the collector and run state on the instance rather than via ContextVars.
 ## Compat
 
 - autogen-agentchat 0.4+ (autogen-core 0.4+)
-- Python 3.9+
+- Python 3.10+: on 3.9 the `autogen` extra installs nothing, as autogen-agentchat needs 3.10

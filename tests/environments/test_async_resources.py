@@ -240,3 +240,31 @@ def test_an_async_body_over_the_apis_limit_is_refused_before_it_is_sent(async_cl
     with pytest.raises(ValueError, match=r"the API takes at most 5.00 MiB \(5242880 bytes\)"):
         asyncio.run(async_client.environments.runs.start_external(ENV_ID, agent_name="a", tasks=tasks))
     assert api.requests == []
+
+
+class TestAsyncRevert:
+    def test_reverting_to_the_version_already_served_is_not_an_error(self, async_client, api: FakeAPI) -> None:
+        api.on("POST", f"/{ENV_ID}/revert", err(409, "version 3 is already the current version"))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=3, environment_version=3)}))
+        api.on("GET", f"/{ENV_ID}/build", ok({"status": "ready", "version": 3, "steps": []}))
+
+        ref = asyncio.run(async_client.environments.revert(ENV_ID, to_version=3))
+
+        assert ref.current_version == 3
+
+    def test_reverting_during_the_first_build_raises_the_apis_refusal(self, async_client, api: FakeAPI) -> None:
+        refusal = '"support-desk" is still being built; wait for that build to finish before changing it'
+        api.on("POST", f"/{ENV_ID}/revert", err(409, refusal))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=1, tool_count=0)}))
+        api.on("GET", f"/{ENV_ID}/build", ok({"status": "building", "steps": []}))
+
+        with pytest.raises(ConflictError, match="still being built"):
+            asyncio.run(async_client.environments.revert(ENV_ID, to_version=1))
+
+    def test_a_refusal_while_a_rebuild_runs_is_raised_whatever_its_words(self, async_client, api: FakeAPI) -> None:
+        api.on("POST", f"/{ENV_ID}/revert", err(409, "busy"))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment()}))
+        api.on("GET", f"/{ENV_ID}/build", ok({"status": "building", "steps": []}))
+
+        with pytest.raises(ConflictError, match="busy"):
+            asyncio.run(async_client.environments.revert(ENV_ID, to_version=1))

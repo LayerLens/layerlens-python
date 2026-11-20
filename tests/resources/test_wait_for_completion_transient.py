@@ -21,7 +21,7 @@ import pytest
 from layerlens import LayerLens, AsyncLayerLens, _polling
 from layerlens.models import Project, Evaluation, Organization, TraceEvaluationResultsResponse
 from layerlens._resource import SyncAPIResource, AsyncAPIResource
-from layerlens._exceptions import RateLimitError, AuthenticationError
+from layerlens._exceptions import RateLimitError, AuthenticationError, InternalServerError
 
 ORG = "691254ecd44a29f6926881a2"
 PROJECT = "691254eed44a29f6926881a3"
@@ -268,10 +268,11 @@ class TestEvaluationWait:
 
         assert isinstance(e.value.__cause__, RateLimitError)
         assert "the last poll failed" in str(e.value)
-        # It polled through the whole minute, never sooner than Retry-After asked, one
-        # request per poll, and raised at the deadline, not after it.
+        # It polled through the whole minute, never sooner than Retry-After asked, one request per
+        # poll. The last 429 came at 56 s asking for 7 s, past the deadline: the wait slept to the
+        # deadline and raised, with no poll at 58 s or at 60 s.
         assert clock.waits == [7.0] * 8 + [4.0]
-        assert api.count(EVALUATION_PATH) == len(clock.waits) + 1
+        assert api.count(EVALUATION_PATH) == len(clock.waits)
         assert clock.retry_pauses == []
         assert clock.now == 60.0
 
@@ -294,7 +295,9 @@ class TestEvaluationWait:
         with pytest.raises(TimeoutError, match=f"^Evaluation {EVALUATION_ID} did not complete within 60 seconds$"):
             wait_for_evaluation(client, interval_seconds=30, timeout_seconds=60)
 
-        assert clock.waits == [30.0, 30.0]
+        # Polls at 0 and 30 s, the last at 58 s so it has 2 s to answer; raised at 60 s.
+        assert clock.waits == [30.0, 28.0, 2.0]
+        assert clock.now == 60.0
 
 
 # --------------------------------------------------------------------------- #
@@ -303,6 +306,40 @@ class TestEvaluationWait:
 
 
 class TestTraceEvaluationWait:
+    def test_a_status_done_at_the_deadline_is_not_chained_to_an_older_failure(
+        self, client: Any, api: FakeAPI, clock: FakeClock
+    ) -> None:
+        # A 503, then the status read answers done as the deadline passes: the results read is
+        # not sent, and the TimeoutError is not chained to the 503 the status read has since answered.
+        def done_at_the_deadline(_request: httpx.Request) -> httpx.Response:
+            clock.now = 300.0
+            return ok(trace_evaluation("success"))
+
+        api.on(TRACE_EVALUATION_PATH, httpx.Response(503, json={"message": "unavailable"}), done_at_the_deadline)
+        api.on(RESULTS_PATH, ok(RESULTS))
+
+        with pytest.raises(TimeoutError) as e:
+            wait_for_trace_evaluation(client, interval_seconds=3, timeout_seconds=300)
+
+        assert e.value.__cause__ is None
+        assert "the last poll failed" not in str(e.value)
+        assert api.count(RESULTS_PATH) == 0
+
+    def test_a_results_read_that_keeps_failing_is_the_cause(self, client: Any, api: FakeAPI, clock: FakeClock) -> None:
+        api.on(
+            TRACE_EVALUATION_PATH,
+            httpx.Response(503, json={"message": "status unavailable"}),
+            ok(trace_evaluation("success")),
+        )
+        api.on(RESULTS_PATH, httpx.Response(502, json={"message": "results unavailable"}))
+
+        with pytest.raises(TimeoutError, match="the last poll failed") as e:
+            wait_for_trace_evaluation(client, interval_seconds=3, timeout_seconds=30)
+
+        assert isinstance(e.value.__cause__, InternalServerError)
+        assert e.value.__cause__.status_code == 502
+        assert api.count(TRACE_EVALUATION_PATH) == 2
+
     @pytest.mark.parametrize("reply, backoff", TRANSIENT)
     def test_a_transient_failure_mid_wait_is_ridden_out(
         self, client: Any, api: FakeAPI, clock: FakeClock, reply: Callable[[], Reply], backoff: List[float]

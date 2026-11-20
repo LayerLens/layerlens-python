@@ -22,13 +22,22 @@ Option B -- using the ``pre-commit`` framework (``.pre-commit-config.yaml``)::
           - id: layerlens-safety
             name: LayerLens Safety Gate
             entry: python samples/cicd/pre_commit_hook.py
-            language: python
-            additional_dependencies: ["layerlens"]
+            language: system
             pass_filenames: false
+
+``language: system`` runs the hook with the ``python`` on your PATH, in the
+environment where you installed ``layerlens`` from the LayerLens index (see
+Prerequisites); pre-commit installs nothing for it. Don't use ``language: python``
+with ``additional_dependencies: ["layerlens"]``: pre-commit installs those with
+pip from PyPI, where ``layerlens`` is an unrelated project, into the environment
+the hook runs in with your API key; and pip takes whichever index offers the higher
+version, even given the LayerLens index too.
 
 Prerequisites
 -------------
-* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens>=2.0.0"``
+  (uv takes ``layerlens`` only from the LayerLens index, as
+  ``github_actions_gate.yml`` does)
 * Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
@@ -46,9 +55,11 @@ import sys
 import logging
 import subprocess
 
-from layerlens import LayerLens
+from layerlens import LayerLens, NotFoundError, PermissionDeniedError
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Installed as a symlink in .git/hooks (Option A), __file__ is the link: resolve it to find
+# samples/_helpers.py next to the real file.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 from _helpers import poll_evaluation_results
 
 # ---------------------------------------------------------------------------
@@ -116,6 +127,9 @@ def main() -> None:
     # ------------------------------------------------------------------
     try:
         client = LayerLens()
+        # Building the client makes no request: reading the organization checks
+        # the key and that LayerLens is reachable.
+        client.organization_id
     except Exception as exc:
         logger.warning("LayerLens client init failed (%s) -- allowing commit.", exc)
         sys.exit(0)
@@ -161,10 +175,16 @@ def main() -> None:
     # ------------------------------------------------------------------
     eval_ids: list[str] = []
     for trace in traces:
-        te = client.trace_evaluations.create(
-            trace_id=trace.id,
-            judge_id=safety_judge.id,
-        )
+        try:
+            te = client.trace_evaluations.create(
+                trace_id=trace.id,
+                judge_id=safety_judge.id,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            # A trace this key cannot evaluate: one deleted since the list, or an
+            # environment run's trace, which needs an Automation key: skip it.
+            logger.info("Skipping trace %s, which this key cannot evaluate: %s", trace.id, exc)
+            continue
         if te:
             eval_ids.append(te.id)
 
@@ -179,6 +199,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     passed = 0
     failed = 0
+    no_verdict = 0
 
     for eval_id in eval_ids:
         results = poll_evaluation_results(client, eval_id)
@@ -189,13 +210,18 @@ def main() -> None:
                 else:
                     failed += 1
         else:
-            failed += 1
+            # The evaluation failed or did not finish (the helper logged why): it gave
+            # no verdict, so it says nothing about the staged changes.
+            no_verdict += 1
 
     # ------------------------------------------------------------------
     # Gate decision
     # ------------------------------------------------------------------
     total = passed + failed
-    pass_rate = passed / total if total > 0 else 0.0
+    if total == 0:
+        logger.warning("No evaluation gave a verdict (%d without one) -- allowing commit.", no_verdict)
+        sys.exit(0)
+    pass_rate = passed / total
 
     print()
     print("-" * 50)
@@ -204,6 +230,8 @@ def main() -> None:
     print(f"  Traces   : {len(traces)}")
     print(f"  Judge    : {safety_judge.name}")
     print(f"  Results  : {total} ({passed} passed, {failed} failed)")
+    if no_verdict:
+        print(f"  No verdict: {no_verdict} (not counted)")
     print(f"  Pass rate: {pass_rate:.1%}")
     print(f"  Threshold: {SAFETY_THRESHOLD:.1%}")
     print("-" * 50)

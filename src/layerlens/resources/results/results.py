@@ -8,12 +8,12 @@ import httpx
 from ..._wire import json_object, parse_model
 from ...models import Result, Evaluation, ResultsResponse
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 from ..._exceptions import LayerLensError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 class Results(SyncAPIResource):
@@ -23,7 +23,7 @@ class Results(SyncAPIResource):
         evaluation: Evaluation,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> ResultsResponse | None:
         """
         Get evaluation results with optional pagination.
@@ -40,7 +40,9 @@ class Results(SyncAPIResource):
             - results: List of Result objects for the current page
             - metrics: Contains total_count and score ranges
             - pagination: Calculated pagination info
-            or None if the request fails
+
+        Raises:
+            NotFoundError: no evaluation has this id.
         """
         return self.get_by_id(evaluation_id=evaluation.id, page=page, page_size=page_size, timeout=timeout)
 
@@ -50,7 +52,7 @@ class Results(SyncAPIResource):
         evaluation_id: str,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ResultsResponse]:
         """
         Get evaluation results with optional pagination.
@@ -123,7 +125,7 @@ class Results(SyncAPIResource):
         self,
         *,
         evaluation: Evaluation,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
         """
         Fetch all results for the given evaluation by iterating over all pages.
@@ -141,7 +143,7 @@ class Results(SyncAPIResource):
         self,
         *,
         evaluation_id: str,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
         """
         Fetch all results for the given evaluation by iterating over all pages.
@@ -215,7 +217,7 @@ class AsyncResults(AsyncAPIResource):
         evaluation: Evaluation,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> ResultsResponse | None:
         """
         Get evaluation results with optional pagination.
@@ -232,7 +234,9 @@ class AsyncResults(AsyncAPIResource):
             - results: List of Result objects for the current page
             - metrics: Contains total_count and score ranges
             - pagination: Calculated pagination info (total_count, page_size, total_pages)
-            or None if the request fails
+
+        Raises:
+            NotFoundError: no evaluation has this id.
         """
         return await self.get_by_id(evaluation_id=evaluation.id, page=page, page_size=page_size, timeout=timeout)
 
@@ -242,7 +246,7 @@ class AsyncResults(AsyncAPIResource):
         evaluation_id: str,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ResultsResponse]:
         """
         Get evaluation results with optional pagination.
@@ -309,7 +313,7 @@ class AsyncResults(AsyncAPIResource):
         self,
         *,
         evaluation: Evaluation,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
         """
         Fetch all results for the given evaluation by iterating over all pages.
@@ -327,7 +331,7 @@ class AsyncResults(AsyncAPIResource):
         self,
         *,
         evaluation_id: str,
-        timeout: Optional[float | httpx.Timeout] = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
         """
         Fetch all results for the given evaluation by iterating over all pages.

@@ -6,13 +6,14 @@ This guide covers common authentication-related issues when using the Layerlens 
 
 ### Invalid or Missing API Key
 
-**Error**: `AuthenticationError: Invalid API key`
+**Error**: `AuthenticationError` (401) or `PermissionDeniedError: Error code: 403 - {'message': 'Forbidden'}`
 
 **Symptoms**:
 
-- 401 Unauthorized responses
-- "Invalid API key" error messages
-- Authentication fails immediately
+- The first call fails, or reading `client.organization_id` does. Building the client makes no request, so it doesn't fail there.
+- A bare `403 Forbidden`, with no sentence, comes from API Gateway, which refused the key before LayerLens saw the request.
+
+**Cause**: the key is wrong, disabled or deleted. Check that it is enabled in **Manage organization → API keys**.
 
 ### Missing Required Configuration
 

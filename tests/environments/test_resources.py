@@ -255,10 +255,68 @@ class TestWaitUntilReady:
         assert len(api.requests) == 1
 
 
+ALREADY = "version 3 is already the current version"
+STILL_BUILDING = '"support-desk" is still being built; wait for that build to finish before changing it'
+GENERATING = '"support-desk" is generating tasks from its current version; wait for that to finish before changing it'
+
+
 class TestRevertAndDelete:
-    def test_reverting_to_the_version_already_served_is_not_an_error(self, client, api: FakeAPI) -> None:
-        api.on("POST", f"/{ENV_ID}/revert", err(409, "version 3 is already what this environment serves"))
-        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=3)}))
+    @pytest.mark.parametrize("sentence", [ALREADY, "version 3 is already what this environment serves"])
+    def test_reverting_to_the_version_already_served_is_not_an_error(self, client, api: FakeAPI, sentence: str) -> None:
+        api.on("POST", f"/{ENV_ID}/revert", err(409, sentence))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=3, environment_version=3)}))
+        api.on("GET", f"/{ENV_ID}/build", ok(building(status="ready", version=3)))
+        assert client.environments.revert(ENV_ID, to_version=3).current_version == 3
+
+    def test_reverting_during_the_first_build_raises_the_apis_refusal(self, client, api: FakeAPI) -> None:
+        # R6 F4: the pointer is already 1 while the first build runs, and nothing is served yet.
+        api.on("POST", f"/{ENV_ID}/revert", err(409, STILL_BUILDING))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=1, tool_count=0)}))
+        api.on("GET", f"/{ENV_ID}/build", ok(building()))
+        with pytest.raises(ConflictError, match="still being built"):
+            client.environments.revert(ENV_ID, to_version=1)
+
+    def test_reverting_while_tasks_are_generated_raises_the_apis_refusal(self, client, api: FakeAPI) -> None:
+        # The version asked for is served, but the API refused: the revert did not happen.
+        api.on("POST", f"/{ENV_ID}/revert", err(409, GENERATING))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment()}))
+        api.on("GET", f"/{ENV_ID}/build", ok(building(status="ready", version=1)))
+        with pytest.raises(ConflictError, match="generating tasks"):
+            client.environments.revert(ENV_ID, to_version=1)
+
+    def test_a_refusal_while_a_rebuild_runs_is_raised_whatever_its_words(self, client, api: FakeAPI) -> None:
+        # Version 1 is served with its tools, but a build is running: never "already done".
+        api.on("POST", f"/{ENV_ID}/revert", err(409, "busy"))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment()}))
+        api.on("GET", f"/{ENV_ID}/build", ok(building()))
+        with pytest.raises(ConflictError, match="busy"):
+            client.environments.revert(ENV_ID, to_version=1)
+
+    def test_a_version_without_tools_is_not_served(self, client, api: FakeAPI) -> None:
+        api.on("POST", f"/{ENV_ID}/revert", err(409, ALREADY))
+        api.on(
+            "GET",
+            f"/{ENV_ID}",
+            ok({"environment": environment(current_version=3, environment_version=3, tool_count=0)}),
+        )
+        api.on("GET", f"/{ENV_ID}/build", ok(building(status="failed", refused_because="no tools")))
+        with pytest.raises(ConflictError):
+            client.environments.revert(ENV_ID, to_version=3)
+
+    def test_a_failed_rebuild_leaves_the_version_served_before_it(self, client, api: FakeAPI) -> None:
+        api.on("POST", f"/{ENV_ID}/revert", err(409, ALREADY))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=3, environment_version=3)}))
+        api.on("GET", f"/{ENV_ID}/build", ok(building(status="failed", refused_because="the generator failed")))
+        assert client.environments.revert(ENV_ID, to_version=3).current_version == 3
+
+    def test_an_environment_with_no_build_is_judged_by_what_it_serves(self, client, api: FakeAPI) -> None:
+        # An OpenAPI spec import has no build: GET /build answers 404.
+        api.on("POST", f"/{ENV_ID}/revert", err(409, ALREADY))
+        spec = environment(type="spec", current_version=3, environment_version=3)
+        api.on("GET", f"/{ENV_ID}", ok({"environment": spec}))
+        api.on(
+            "GET", f"/{ENV_ID}/build", err(404, '"support-desk" was imported from an OpenAPI spec, so it has no build')
+        )
         assert client.environments.revert(ENV_ID, to_version=3).current_version == 3
 
     def test_reverting_to_a_version_that_does_not_exist_raises(self, client, api: FakeAPI) -> None:

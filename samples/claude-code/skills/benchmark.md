@@ -17,7 +17,7 @@ models = client.models.get(
     type="public",          # "public" or "custom"
     name="gpt-4o",          # filter by name
     key="gpt-4o",           # filter by key
-    companies=["openai"],   # filter by company
+    companies=["OpenAI"],   # filter by company, as the catalog spells it (case-sensitive)
     regions=["us"],         # filter by region
     licenses=["proprietary"], # filter by license
 )

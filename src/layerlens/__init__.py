@@ -25,6 +25,7 @@ from .models import (
     PublicBenchmarksListResponse,
 )
 from ._client import Client, LayerLens, AsyncClient, AsyncLayerLens
+from ._version import __version__ as __version__
 from ._exceptions import (
     APIError,
     ConflictError,
@@ -37,6 +38,7 @@ from ._exceptions import (
     APIConnectionError,
     AuthenticationError,
     InternalServerError,
+    PaymentRequiredError,
     EnvironmentBuildError,
     PermissionDeniedError,
     EnvironmentConflictError,
@@ -76,6 +78,7 @@ __all__ = [
     "NotFoundError",
     "OptimizationBudget",
     "OptimizationRunStatus",
+    "PaymentRequiredError",
     "PermissionDeniedError",
     "PublicBenchmarkDetail",
     "PublicBenchmarksListResponse",

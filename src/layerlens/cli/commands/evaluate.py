@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 
 import click
 
-from .._client import get_client, handle_errors, resolve_model, resolve_benchmark
-from .._output import echo_empty, echo_status, exit_unreadable
+from .._client import get_client, handle_errors, resolve_model, api_error_text, resolve_benchmark
+from .._output import EXIT_EVALUATION_NOT_SUCCESSFUL, echo_empty, echo_status, exit_unreadable
 from .._command import LayerLensGroup
 from .._formatter import to_dict, format_value, format_output
-from ..._exceptions import APIStatusError
+from ..._exceptions import NotFoundError
 from .._completions import complete_model, complete_benchmark, complete_evaluation
 
 EVALUATION_COLUMNS = [
@@ -170,12 +170,11 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
     client = get_client(ctx)
     try:
         evaluation = client.evaluations.get_by_id(id)
-    except APIStatusError as e:
-        # This endpoint is for benchmark evaluations. A common mistake is to
-        # pass an ID from `judge test` (a trace evaluation), which lives on a
-        # different resource and makes the backend error out. Surface a clean,
-        # actionable message instead of a raw 500/404.
-        click.echo(f"Error: could not fetch evaluation {id} (HTTP {e.status_code}).", err=True)
+    except NotFoundError as e:
+        # No benchmark evaluation has this id. A common mistake is an id from `judge test`, a
+        # trace evaluation, which lives on another resource: say where to read it. Any other
+        # error is the API's sentence alone (handle_errors), as every command prints it.
+        click.echo(f"Error: {api_error_text(e)}", err=True)
         click.echo(
             f"If this ID came from `layerlens judge test`, it is a trace evaluation — "
             f"use `layerlens judge result {id}` instead.",
@@ -205,7 +204,12 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
     shell_complete=complete_benchmark,
     help="Benchmark ID, key, or name.",
 )
-@click.option("--wait", is_flag=True, default=False, help="Wait for evaluation to complete.")
+@click.option(
+    "--wait",
+    is_flag=True,
+    default=False,
+    help="Wait for the evaluation to finish; exit 12 if it ends in anything but success.",
+)
 @click.pass_context
 @handle_errors
 def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: bool) -> None:
@@ -214,6 +218,9 @@ def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: b
     The --model and --benchmark options accept an ID, key, or name. An ID can name
     any model or benchmark in the catalog; a key or a name is looked up among the
     project's own.
+
+    With --wait it exits 12 when the evaluation ends in any status but success
+    (failure, cancelled, timeout, ...), after printing it as usual; 1 is an error.
 
     \b
     Examples:
@@ -261,3 +268,6 @@ def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: b
         echo_status(ctx, f"Evaluation finished: {format_value(evaluation.status)}")
 
     click.echo(_shown(evaluation, ctx.obj["output_format"]))
+    if wait and not evaluation.is_success:
+        # It ran and did not succeed: a CI step that waited on it must fail (M2).
+        sys.exit(EXIT_EVALUATION_NOT_SUCCESSFUL)

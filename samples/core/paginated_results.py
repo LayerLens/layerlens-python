@@ -28,11 +28,18 @@ Usage
 
 from __future__ import annotations
 
+import sys
+
 from layerlens import LayerLens
 
 
 def main() -> None:
-    client = LayerLens()
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     # ── Get a completed evaluation to work with ──────────────────────
     models = client.models.get()
@@ -55,11 +62,15 @@ def main() -> None:
         return
 
     print(f"Created evaluation {evaluation.id}, waiting for completion...")
-    evaluation = client.evaluations.wait_for_completion(
-        evaluation,
-        interval_seconds=10,
-        timeout_seconds=600,
-    )
+    try:
+        evaluation = client.evaluations.wait_for_completion(
+            evaluation,
+            interval_seconds=10,
+            timeout_seconds=600,
+        )
+    except TimeoutError as exc:
+        print(f"{exc}; evaluation {evaluation.id} goes on running: run this sample again once it has finished")
+        sys.exit(1)
     print(f"Evaluation {evaluation.id} finished with status={evaluation.status}")
 
     if not evaluation.is_success:

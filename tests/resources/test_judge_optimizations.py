@@ -9,7 +9,7 @@ from layerlens.models import (
     ApplyJudgeOptimizationResultResponse,
     EstimateJudgeOptimizationCostResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens.resources.judge_optimizations.judge_optimizations import (
     JudgeOptimizations,
 )
@@ -128,7 +128,7 @@ class TestJudgeOptimizations:
         resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/judge-optimizations/estimate",
             body={"judge_id": "judge-789", "budget": "heavy"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -185,7 +185,7 @@ class TestJudgeOptimizations:
         resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/judge-optimizations",
             body={"judge_id": "judge-789", "budget": "light"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -230,7 +230,7 @@ class TestJudgeOptimizations:
 
         resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/judge-optimizations/run-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -277,7 +277,7 @@ class TestJudgeOptimizations:
                 "page_size": "10",
                 "judge_id": "judge-789",
             },
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -347,7 +347,7 @@ class TestJudgeOptimizations:
         resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/judge-optimizations/run-456/apply",
             body={},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 

@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.8 or higher; some extras need 3.9 or 3.10 (see [Python versions](#python-versions))
 - [uv](https://docs.astral.sh/uv/) (`pip install uv`), or pip (see [With pip](#with-pip))
 
 `layerlens` is hosted on the LayerLens package index during early access. The
@@ -24,6 +24,15 @@ uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 uv takes each package from the first index that has it, so `layerlens` comes only
 from the LayerLens index and its dependencies from PyPI. Add an extra the same way,
 for example `"layerlens[cli]"` for the command-line tool.
+
+## Python versions
+
+The SDK and its CLI install on Python 3.8 and later. Some extras need a newer Python:
+
+| Python | Extras |
+| --- | --- |
+| 3.9 or later | `litellm`, `providers-litellm`, `all-providers`, `langgraph`, `all-frameworks`, `pydantic-ai`, `openai-agents`, `instructor`: they fail to install on 3.8. `pydantic-ai` resolves pydantic-ai 0.8.1 on 3.9 |
+| 3.10 or later | `crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `all-protocols`, `dspy`, `marvin`, `mirascope`: on 3.8 and 3.9 they install nothing, and their adapters stay unusable |
 
 ## Verify Installation
 
@@ -49,11 +58,14 @@ To upgrade to the latest version:
 uv pip install --upgrade --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
+Upgrading from 1.11.0 or earlier to 2.0.0? Read [Migrating from Stratix](../migrating-from-stratix.md) first: a few things change, such as `layerlens ci report` needing a selector.
+
 ## With pip
 
 pip merges every index it is given and installs whichever `layerlens` has the
-higher version, so giving pip `--extra-index-url` for `layerlens` would install a
-higher-versioned release of the unrelated PyPI project instead of this SDK. `--index-url` on its own doesn't work either: the LayerLens index hosts
+higher version. Today that is this SDK, as the unrelated PyPI project is at 0.1.x, but
+a later release of that project with a higher version would replace it, so don't give
+pip `--extra-index-url` for `layerlens`. `--index-url` on its own doesn't work either: the LayerLens index hosts
 only `layerlens`, so pip can't find its dependencies.
 
 Install `layerlens` itself from the LayerLens index, then its dependencies:

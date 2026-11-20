@@ -11,7 +11,7 @@ import functools
 import threading
 import traceback
 from types import FrameType
-from typing import Any, List, Callable, Iterator, NoReturn, Optional
+from typing import Any, List, Mapping, Callable, Iterator, NoReturn, Optional
 from contextlib import contextmanager
 
 import click
@@ -66,9 +66,38 @@ def confirm(ctx: click.Context, yes: bool, question: str) -> None:
     click.confirm(question, abort=True, err=True)
 
 
+def run_id_given(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
+    """A run id argument's callback: an empty one is a usage error (exit 2) that names it.
+
+    A CI step's ``RUN_ID=$(... | jq -r ...)`` is empty when the step before it failed without
+    pipefail; sent as is, the empty id reached the API and came back as "404 page not found".
+    """
+    if not value.strip():
+        raise click.BadParameter("it is empty; pass a run's id (an earlier step that sets it may have failed)")
+    return value
+
+
+def _put_back(previous: Mapping[signal.Signals, Any]) -> None:
+    """Put back the SIGINT and SIGTERM handlers a block replaced.
+
+    ``signal.signal()`` returns None for a handler installed outside Python (by an app that embeds
+    it, say), and can't install None: that one is not put back, and the block's handler stays.
+    """
+    for number, handler in previous.items():
+        if handler is not None:
+            signal.signal(number, handler)
+
+
 @contextmanager
-def sigterm_as_interrupt() -> Iterator[None]:
-    """A CI runner stops a job with SIGTERM: treat it as Ctrl-C, so the run is cancelled."""
+def signals_as_interrupt() -> Iterator[None]:
+    """SIGINT and SIGTERM are Ctrl-C here, so the run is cancelled.
+
+    A CI runner stops a job with SIGINT, then SIGTERM (7.5 s later on GitHub). Python makes
+    SIGINT a ``KeyboardInterrupt`` only when it was not ignored as the process started, and a
+    background job of a non-interactive shell (a CI step's ``layerlens ... &`` with a trap that
+    forwards the signal) starts with it ignored: the forwarded ``kill -INT`` did nothing, and the
+    run was left open. Both signals are taken here, whatever they were before.
+    """
     if threading.current_thread() is not threading.main_thread():
         yield
         return
@@ -76,11 +105,11 @@ def sigterm_as_interrupt() -> Iterator[None]:
     def interrupt(signum: int, frame: Optional[FrameType]) -> None:  # noqa: ARG001
         raise KeyboardInterrupt
 
-    previous = signal.signal(signal.SIGTERM, interrupt)
+    previous = {number: signal.signal(number, interrupt) for number in (signal.SIGINT, signal.SIGTERM)}
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        _put_back(previous)
 
 
 @contextmanager
@@ -93,8 +122,7 @@ def interrupts_held_off() -> Iterator[None]:
     try:
         yield
     finally:
-        for number, handler in previous.items():
-            signal.signal(number, handler)
+        _put_back(previous)
 
 
 def fail(message: str, code: int = EXIT_ERROR) -> NoReturn:
@@ -128,6 +156,11 @@ def env_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
             fail(f"unexpected error: {err}")
 
     return wrapper
+
+
+def counted(n: int, noun: str) -> str:
+    """``1 task``, ``2 tasks``, ``0 tasks``: a count with its noun, singular for one."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
 def json_output(ctx: click.Context) -> bool:

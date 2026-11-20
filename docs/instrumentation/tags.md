@@ -45,7 +45,8 @@ layerlens trace list --tag "ci-$GITHUB_RUN_ID"
 
 A job exits as soon as its work is done, and by default the SDK waits only 5 seconds for the
 traces still uploading: at a second or two each, a job that records more than a few loses the
-rest. `LAYERLENS_EXIT_TIMEOUT` lets it wait until they are sent (see
+rest. `LAYERLENS_EXIT_TIMEOUT` lets it wait until they are sent; or end the script with
+`layerlens.instrument.flush(timeout=120)`, which returns whether every trace was sent (see
 [Uploading](../api-reference/instrumentation.md#uploading)).
 
 The value is a comma-separated list, or a JSON array of strings for a tag that holds a comma:
@@ -76,7 +77,8 @@ traces of the service it calls.
 
 - Each tag is trimmed, as the API's tag filter trims what it is asked for. Blank tags are dropped.
 - A tag holds at most 128 bytes of UTF-8, and a trace at most 32 tags: the limits LayerLens
-  applies to tags sent over OpenTelemetry too. A longer tag is dropped rather than cut, since a
+  applies to tags sent over OpenTelemetry too (which LayerLens stores only for a registered
+  [OpenTelemetry integration](README.md#sending-opentelemetry-spans)). A longer tag is dropped rather than cut, since a
   cut tag is a value nobody chose; past 32, the rest are dropped. Each logs a warning on the
   `layerlens.instrument._tags` logger, once. A run's `--label` (at most 128 bytes) always fits.
 - A tag with a control or format character, such as a newline, a tab, a right-to-left override

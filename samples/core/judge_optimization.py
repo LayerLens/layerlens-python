@@ -11,7 +11,7 @@ Demonstrates the judge optimization workflow using the SDK:
   4. Poll for optimization completion.
   5. List optimization runs.
   6. Apply optimization results.
-  7. Clean up.
+  7. Clean up the judge it created.
 
 This sample demonstrates SDK features that correspond to the
 judge_optimizations.py example in the existing SDK examples.
@@ -39,7 +39,7 @@ import logging
 import argparse
 
 import layerlens
-from layerlens import LayerLens
+from layerlens import LayerLens, NotFoundError
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge
@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--budget",
-        choices=["low", "medium", "high"],
+        choices=["light", "medium", "heavy"],
         default="medium",
         help="Optimization budget (default: medium).",
     )
@@ -85,6 +85,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)
@@ -96,10 +97,15 @@ def main() -> None:
     )
 
     # --- Get or create judge ---
+    created_judge_id = None
     if args.judge_id:
-        judge = client.judges.get(args.judge_id)
-        if not judge:
+        try:
+            judge = client.judges.get(args.judge_id)
+        except NotFoundError:
             logger.error("Judge %s not found", args.judge_id)
+            sys.exit(1)
+        if judge is None:
+            logger.error("Judge %s could not be read", args.judge_id)
             sys.exit(1)
         logger.info("Using existing judge: %s (%s)", judge.name, judge.id)
         judge_id = judge.id
@@ -120,8 +126,24 @@ def main() -> None:
             logger.error("Failed to create judge")
             sys.exit(1)
         judge_id = judge.id
+        created_judge_id = judge_id
         logger.info("Created judge: %s (%s)", judge.name, judge_id)
 
+    try:
+        run_optimization(client, args, judge_id)
+    finally:
+        # --- Step 6: Clean up the judge this sample created ---
+        if created_judge_id:
+            try:
+                client.judges.delete(created_judge_id)
+                logger.info("Deleted judge %s", created_judge_id)
+            except Exception as exc:
+                logger.warning("Could not delete judge %s: %s", created_judge_id, exc)
+
+    logger.info("Sample complete.")
+
+
+def run_optimization(client: LayerLens, args: argparse.Namespace, judge_id: str) -> None:
     # --- Step 1: Estimate cost ---
     logger.info("=" * 60)
     logger.info("Step 1: Estimate optimization cost")
@@ -227,7 +249,7 @@ def main() -> None:
     if (
         not args.skip_apply
         and run_status
-        and getattr(run_status, "status", "") == "completed"
+        and getattr(run_status, "status", "") == "success"
     ):
         logger.info("=" * 60)
         logger.info("Step 5: Apply optimization results")
@@ -247,8 +269,6 @@ def main() -> None:
             logger.warning("Failed to apply optimization results")
     else:
         logger.info("Skipping apply step")
-
-    logger.info("Sample complete.")
 
 
 if __name__ == "__main__":

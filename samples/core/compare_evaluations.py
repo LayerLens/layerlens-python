@@ -33,7 +33,7 @@ import sys
 import logging
 import argparse
 
-from layerlens import LayerLens
+from layerlens import LayerLens, BadRequestError
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -69,6 +69,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)
@@ -85,7 +86,7 @@ def main() -> None:
     logger.info("=" * 60)
 
     evals_resp = client.evaluations.get_many(
-        sort_by="submittedAt",
+        sort_by="submitted_at",
         order="desc",
         page_size=10,
     )
@@ -98,7 +99,7 @@ def main() -> None:
     for e in evals_resp.evaluations[:5]:
         accuracy = getattr(e, "accuracy", None)
         accuracy_str = (
-            f"{accuracy:.2%}" if isinstance(accuracy, (int, float)) else "N/A"
+            f"{accuracy:.2f}%" if isinstance(accuracy, (int, float)) else "N/A"  # 0 to 100
         )
         logger.info("  - %s: status=%s accuracy=%s", e.id, e.status, accuracy_str)
 
@@ -110,22 +111,33 @@ def main() -> None:
     if args.eval_id_1 and args.eval_id_2:
         eval_id_1 = args.eval_id_1
         eval_id_2 = args.eval_id_2
-    elif len(evals_resp.evaluations) >= 2:
-        eval_id_1 = str(evals_resp.evaluations[0].id)
-        eval_id_2 = str(evals_resp.evaluations[1].id)
-        logger.info("Using two most recent evaluations for comparison")
     else:
-        logger.error(
-            "Need at least 2 evaluations. Only found %d.", len(evals_resp.evaluations)
-        )
-        sys.exit(1)
+        # Two evaluations compare only on the same benchmark: take the two most recent that share one.
+        by_benchmark: dict[str, list[str]] = {}
+        for e in evals_resp.evaluations:
+            by_benchmark.setdefault(e.benchmark_id, []).append(str(e.id))
+        pair = next((ids[:2] for ids in by_benchmark.values() if len(ids) >= 2), None)
+        if pair is None:
+            logger.error(
+                "Need 2 evaluations on the same benchmark among the %d most recent; "
+                "pass --eval-id-1 and --eval-id-2.",
+                len(evals_resp.evaluations),
+            )
+            sys.exit(1)
+        eval_id_1, eval_id_2 = pair
+        logger.info("Using the two most recent evaluations on one benchmark")
 
     logger.info("Comparing: %s vs %s", eval_id_1, eval_id_2)
 
-    comparison = client.public.comparisons.compare(
-        evaluation_id_1=eval_id_1,
-        evaluation_id_2=eval_id_2,
-    )
+    try:
+        comparison = client.public.comparisons.compare(
+            evaluation_id_1=eval_id_1,
+            evaluation_id_2=eval_id_2,
+        )
+    except BadRequestError as exc:
+        # For example "Evaluations must be on the same benchmark to be compared".
+        logger.error("LayerLens refused the comparison: %s", exc)
+        sys.exit(1)
 
     if comparison:
         logger.info("Comparison results:")

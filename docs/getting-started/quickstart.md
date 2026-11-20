@@ -100,7 +100,7 @@ for model in models.models:
 
 # List public benchmarks
 benchmarks = client.public.benchmarks.get()
-for bm in benchmarks.benchmarks:
+for bm in benchmarks.datasets:
     print(f"{bm.key}: {bm.name}")
 ```
 

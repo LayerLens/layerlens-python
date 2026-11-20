@@ -16,9 +16,11 @@ import click
 
 from ...models import RunResult, Evaluation, TraceEvaluation, EvaluationStatus, TraceEvaluationResultsResponse
 from .._client import get_client, handle_errors, api_error_text
+from .._notice import notice
 from .._output import echo_status
 from ..._client import LayerLens
 from .._command import LayerLensGroup
+from ..._constants import API_MAX_PAGE_SIZE
 from ..._exceptions import APIStatusError, LayerLensError, AuthenticationError
 from ...models._run_reports import _cell, _code
 
@@ -160,7 +162,7 @@ def ci_report(
       layerlens ci report --latest 10
     """
     if limit is not None:
-        click.echo("warning: --limit is deprecated; use --latest N", err=True)
+        notice("--limit is deprecated; use --latest N")
         latest = latest or limit
     if not (evaluation_ids or trace_evaluation_ids or env_runs or latest):
         raise click.UsageError(
@@ -237,12 +239,9 @@ def _fetch(
 ) -> Report:
     evaluations = [_read(f"evaluation {id}", partial(client.evaluations.get_by_id, id)) for id in evaluation_ids]
     if latest:
-        page = _read(
-            "the project's latest evaluations",
-            lambda: client.evaluations.get_many(page_size=latest, sort_by="submitted_at", order="desc"),
-        )
+        recent = _read("the project's latest evaluations", lambda: _latest_evaluations(client, latest))
         named = {e.id for e in evaluations}
-        evaluations.extend(e for e in page.evaluations if e.id not in named)
+        evaluations.extend(e for e in recent if e.id not in named)
 
     trace_evaluations = [_trace_evaluation(client, id) for id in trace_evaluation_ids]
 
@@ -254,6 +253,24 @@ def _fetch(
         for r in env_runs
     ]
     return Report(datetime.now(timezone.utc), evaluations, trace_evaluations, environment_runs, latest=bool(latest))
+
+
+def _latest_evaluations(client: LayerLens, latest: int) -> Optional[List[Evaluation]]:
+    """The project's ``latest`` most recent benchmark evaluations, or None for a page it cannot read.
+
+    The API serves at most 100 a page, so ``--latest 300`` reads three pages of 100.
+    """
+    size = min(latest, API_MAX_PAGE_SIZE)
+    found: List[Evaluation] = []
+    page = 1
+    while True:
+        response = client.evaluations.get_many(page=page, page_size=size, sort_by="submitted_at", order="desc")
+        if response is None:
+            return None
+        found.extend(response.evaluations)
+        if len(found) >= latest or len(response.evaluations) < size or page >= response.pagination.total_pages:
+            return found[:latest]
+        page += 1
 
 
 def _get_run(client: LayerLens, run: EnvRun) -> RunResult:

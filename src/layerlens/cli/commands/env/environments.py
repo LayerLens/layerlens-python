@@ -8,6 +8,7 @@ from ._common import (
     DURATION,
     DEFAULT_TIMEOUT,
     confirm,
+    counted,
     progress,
     emit_json,
     env_client,
@@ -50,7 +51,10 @@ def _title(title: str, built_by_agent: bool) -> str:
 @click.command("list", cls=LayerLensCommand)
 @click.option("--search", default=None, help="Only environments whose name contains this.")
 @click.option(
-    "--hide-members", is_flag=True, default=False, help="Leave out environments that are members of a composite."
+    "--hide-members",
+    is_flag=True,
+    default=False,
+    help="Kept for compatibility: an API key's list already leaves out a composite's apps, so this changes nothing.",
 )
 @env_errors
 def list_environments(ctx: click.Context, search: Optional[str], hide_members: bool) -> None:
@@ -59,7 +63,7 @@ def list_environments(ctx: click.Context, search: Optional[str], hide_members: b
     \b
     Examples:
       layerlens env list
-      layerlens env list --search support --hide-members
+      layerlens env list --search support
     """
     environments = env_client(ctx).environments.list(search=search, hide_members=hide_members)
     if json_output(ctx):
@@ -179,7 +183,7 @@ def create(
     progress(f"{verb} {created.name} ({created.id})" + (", building" if building else ""))
     if wait:
         ready = envs.wait_until_ready(created.id, timeout_seconds=timeout)
-        progress(f"{ready.name} is ready: version {ready.environment_version}, {ready.tool_count} tools")
+        progress(f"{ready.name} is ready: version {ready.environment_version}, {counted(ready.tool_count, 'tool')}")
         if json_output(ctx):
             # The create reply's build still reads "pending": print the environment and the build
             # as the wait left them, under the reply's own keys.
@@ -242,7 +246,7 @@ def wait(ctx: click.Context, environment: str, timeout: float) -> None:
     if json_output(ctx):
         emit_json(ready)
     else:
-        click.echo(f"{ready.name} is ready: version {ready.environment_version}, {ready.tool_count} tools")
+        click.echo(f"{ready.name} is ready: version {ready.environment_version}, {counted(ready.tool_count, 'tool')}")
 
 
 @click.command("tools", cls=LayerLensCommand)

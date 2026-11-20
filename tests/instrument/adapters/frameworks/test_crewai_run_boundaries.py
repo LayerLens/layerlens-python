@@ -722,6 +722,36 @@ class TestLineageEviction:
 # ---------------------------------------------------------------------------
 
 
+class TestHandlersOutOfOrder:
+    @pytest.mark.skipif(not _NESTED_EXECUTOR_FLOW, reason="the AgentExecutor flow arrives in crewai 1.14.7")
+    def test_the_executor_flow_hangs_under_its_agent_when_the_agent_start_is_handled_late(self, mock_client):
+        """crewai runs handlers on a pool of 10 threads, so the AgentExecutor flow's
+        FlowStartedEvent can be handled before its agent's AgentExecutionStartedEvent has
+        recorded the agent's span. The flow then hung under the task (CI saw it once, in
+        TestConcurrentKickoffs). Holding the agent-start handler back makes that order
+        certain: the flow's handler waits for the agent's span."""
+        traces = _collect_traces(mock_client)
+        adapter = CrewAIAdapter(mock_client, capture_config=CaptureConfig.full())
+        handle_agent_start = adapter._on_agent_execution_started
+
+        def handled_late(source: Any, event: Any) -> None:
+            threading.Event().wait(0.3)
+            handle_agent_start(source, event)
+
+        adapter._on_agent_execution_started = handled_late  # type: ignore[method-assign]
+        with crewai_event_bus.scoped_handlers():
+            adapter.connect()
+            _crew("alpha", _llm()).kickoff()
+            crewai_event_bus.flush(timeout=10.0)
+            adapter.disconnect()
+
+        (trace,) = traces
+        events = trace["events"]
+        agent_span = _one(events, "agent.input", agent_role="alpha")["span_id"]
+        assert _one(events, "agent.input", flow_name="AgentExecutor")["parent_span_id"] == agent_span
+        _assert_one_connected_tree(trace, _one(events, "agent.input", crew_name="alpha-crew")["span_id"])
+
+
 class TestConcurrentKickoffs:
     def test_overlapping_kickoffs_each_upload_one_complete_trace(self, mock_client):
         """Two real kickoffs whose lifetimes overlap: both LLM calls wait for each

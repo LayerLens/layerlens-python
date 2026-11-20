@@ -97,6 +97,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -166,6 +167,10 @@ def main() -> None:
                     score = r.score
                     passed = r.passed
                     reasoning = r.reasoning
+                if not results:
+                    # The evaluation failed or did not finish (the helper logged why): no verdict to show.
+                    print(f"  {label}: no verdict (the evaluation failed or did not finish)")
+                    continue
                 verdict = "pass" if passed else "fail"
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(

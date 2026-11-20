@@ -222,8 +222,13 @@ def export_trace(ctx: click.Context, id: str, output_file: str | None) -> None:
     json_str = json.dumps(to_dict(trace), indent=2, default=str)
 
     if output_file:
-        with open(output_file, "w") as f:
-            f.write(json_str)
+        try:
+            with open(output_file, "w") as f:
+                f.write(json_str)
+        except OSError as err:
+            # A folder that is not there is the user's to fix: a sentence, not "Unexpected error".
+            click.echo(f"Error: the trace could not be written to {output_file}: {err.strerror or err}", err=True)
+            sys.exit(1)
         echo_status(ctx, f"Trace exported to {output_file}")
     else:
         click.echo(json_str)

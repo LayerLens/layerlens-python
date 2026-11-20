@@ -15,12 +15,13 @@ from ...models import (
     TraceWithEvaluations,
 )
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
-from ..._exceptions import LayerLensError
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven, timeout_or
+from ..._presigned import put_presigned, put_presigned_async
+from ..._exceptions import LayerLensError, APIResponseValidationError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -73,13 +74,15 @@ class Traces(SyncAPIResource):
         self,
         file_path: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateTracesResponse]:
         """Upload a JSON or JSONL trace file.
 
         Three-step flow:
         1. Request a presigned upload URL from the API
-        2. Upload the file to S3 via the presigned URL
+        2. Upload the file to S3 via the presigned URL, retried as the client retries its calls
+           (a 429 or 5xx, or a dropped connection); a refused upload raises the SDK's status error,
+           which never quotes the presigned URL's credentials
         3. Create trace records from the uploaded file
         """
         file_path = os.path.abspath(file_path)
@@ -108,13 +111,15 @@ class Traces(SyncAPIResource):
 
         # Step 2: Upload file to S3
         with open(file_path, "rb") as f:
-            put_resp = httpx.put(
-                upload_url,
-                content=f.read(),
-                headers={"Content-Type": content_type},
-                timeout=(timeout if isinstance(timeout, httpx.Timeout) else httpx.Timeout(timeout)),
-            )
-            put_resp.raise_for_status()
+            content = f.read()
+        put_presigned(
+            upload_url,
+            content,
+            content_type=content_type,
+            timeout=timeout_or(timeout, self._client.timeout),
+            client=self._client,
+            what="trace file",
+        )
 
         # Step 3: Create trace records
         raw_create = self._post(
@@ -138,7 +143,7 @@ class Traces(SyncAPIResource):
         id: str,
         *,
         strict: bool = False,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Trace]:
         """Fetch a trace by id.
 
@@ -146,11 +151,16 @@ class Traces(SyncAPIResource):
         to raise ``LayerLensError`` on that contract drift instead of swallowing
         it (a genuine 404 already raises ``NotFoundError`` from the client).
         """
-        resp = self._get(
-            f"{self._base_url()}/{id}",
-            timeout=timeout,
-            cast_to=dict,
-        )
+        try:
+            resp = self._get(
+                f"{self._base_url()}/{id}",
+                timeout=timeout,
+                cast_to=dict,
+            )
+        except APIResponseValidationError:
+            if strict:
+                raise
+            return None
         data = _unwrap(resp)
         if isinstance(data, dict):
             try:
@@ -177,12 +187,15 @@ class Traces(SyncAPIResource):
         tags: Optional[Sequence[str]] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[TracesResponse]:
         """A page of the project's traces, filtered.
 
         ``tags`` keeps the traces that carry every one of them, for example the
         ``environment`` tag, the environment's name and the run's label of an environment run.
+
+        Returns ``None`` when the API's answer is empty or can't be read, a trace in it included;
+        with ``strict=True`` that raises :class:`LayerLensError` instead.
         """
         tag_values = _tag_values(tags) if tags is not None else None
         params: Dict[str, Any] = {}
@@ -210,12 +223,18 @@ class Traces(SyncAPIResource):
         if sort_order is not None:
             params["sort_order"] = sort_order
 
-        resp = self._get(
-            self._base_url(),
-            params=params,
-            timeout=timeout,
-            cast_to=dict,
-        )
+        try:
+            resp = self._get(
+                self._base_url(),
+                params=params,
+                timeout=timeout,
+                cast_to=dict,
+            )
+        except APIResponseValidationError:
+            # Not a JSON object (an array, or no JSON at all): an answer that can't be read.
+            if strict:
+                raise
+            return None
         if not resp or not isinstance(resp, dict):
             if strict:
                 raise LayerLensError("traces.get_many returned an empty or non-object response")
@@ -227,13 +246,14 @@ class Traces(SyncAPIResource):
                 raise LayerLensError("traces.get_many response payload was not an object")
             return None
 
-        traces = [
-            t if isinstance(t, TraceWithEvaluations) else TraceWithEvaluations(**t) for t in data.get("traces", [])
-        ]
-        count: int = data.get("count", len(traces))
-        total_count: int = data.get("total_count", count)
-
         try:
+            # Inside the try: an item that can't be read raised pydantic's ValidationError, which
+            # neither the None nor the strict LayerLensError the docs give for it.
+            traces = [
+                t if isinstance(t, TraceWithEvaluations) else TraceWithEvaluations(**t) for t in data.get("traces", [])
+            ]
+            count: int = data.get("count", len(traces))
+            total_count: int = data.get("total_count", count)
             return TracesResponse(traces=traces, count=count, total_count=total_count)
         except Exception as err:
             if strict:
@@ -244,8 +264,13 @@ class Traces(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
+        """Delete a trace: True once deleted.
+
+        Raises :class:`NotFoundError` when the project has no trace with this id, as a second delete
+        of the same trace does.
+        """
         resp = self._delete(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -255,7 +280,7 @@ class Traces(SyncAPIResource):
     def get_sources(
         self,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[str]:
         resp = self._get(
             f"{self._base_url()}/sources",
@@ -276,7 +301,7 @@ class AsyncTraces(AsyncAPIResource):
         self,
         file_path: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateTracesResponse]:
         """Upload a JSON or JSONL trace file.
 
@@ -310,15 +335,16 @@ class AsyncTraces(AsyncAPIResource):
         ensure_safe_upload_url(upload_url, getattr(self._client, "trusted_upload_hosts", None))
 
         # Step 2: Upload file to S3
-        async with httpx.AsyncClient() as upload_client:
-            with open(file_path, "rb") as f:
-                put_resp = await upload_client.put(
-                    upload_url,
-                    content=f.read(),
-                    headers={"Content-Type": content_type},
-                    timeout=(timeout if isinstance(timeout, httpx.Timeout) else httpx.Timeout(timeout)),
-                )
-                put_resp.raise_for_status()
+        with open(file_path, "rb") as f:
+            content = f.read()
+        await put_presigned_async(
+            upload_url,
+            content,
+            content_type=content_type,
+            timeout=timeout_or(timeout, self._client.timeout),
+            client=self._client,
+            what="trace file",
+        )
 
         # Step 3: Create trace records
         raw_create = await self._post(
@@ -342,15 +368,20 @@ class AsyncTraces(AsyncAPIResource):
         id: str,
         *,
         strict: bool = False,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Trace]:
         """Async variant of :meth:`Traces.get`; ``strict=True`` raises
         ``LayerLensError`` on contract drift instead of returning ``None``."""
-        resp = await self._get(
-            f"{self._base_url()}/{id}",
-            timeout=timeout,
-            cast_to=dict,
-        )
+        try:
+            resp = await self._get(
+                f"{self._base_url()}/{id}",
+                timeout=timeout,
+                cast_to=dict,
+            )
+        except APIResponseValidationError:
+            if strict:
+                raise
+            return None
         data = _unwrap(resp)
         if isinstance(data, dict):
             try:
@@ -377,12 +408,15 @@ class AsyncTraces(AsyncAPIResource):
         tags: Optional[Sequence[str]] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[TracesResponse]:
         """A page of the project's traces, filtered.
 
         ``tags`` keeps the traces that carry every one of them, for example the
         ``environment`` tag, the environment's name and the run's label of an environment run.
+
+        Returns ``None`` when the API's answer is empty or can't be read, a trace in it included;
+        with ``strict=True`` that raises :class:`LayerLensError` instead.
         """
         tag_values = _tag_values(tags) if tags is not None else None
         params: Dict[str, Any] = {}
@@ -410,12 +444,18 @@ class AsyncTraces(AsyncAPIResource):
         if sort_order is not None:
             params["sort_order"] = sort_order
 
-        resp = await self._get(
-            self._base_url(),
-            params=params,
-            timeout=timeout,
-            cast_to=dict,
-        )
+        try:
+            resp = await self._get(
+                self._base_url(),
+                params=params,
+                timeout=timeout,
+                cast_to=dict,
+            )
+        except APIResponseValidationError:
+            # Not a JSON object (an array, or no JSON at all): an answer that can't be read.
+            if strict:
+                raise
+            return None
         if not resp or not isinstance(resp, dict):
             if strict:
                 raise LayerLensError("traces.get_many returned an empty or non-object response")
@@ -427,13 +467,14 @@ class AsyncTraces(AsyncAPIResource):
                 raise LayerLensError("traces.get_many response payload was not an object")
             return None
 
-        traces = [
-            t if isinstance(t, TraceWithEvaluations) else TraceWithEvaluations(**t) for t in data.get("traces", [])
-        ]
-        count: int = data.get("count", len(traces))
-        total_count: int = data.get("total_count", count)
-
         try:
+            # Inside the try: an item that can't be read raised pydantic's ValidationError, which
+            # neither the None nor the strict LayerLensError the docs give for it.
+            traces = [
+                t if isinstance(t, TraceWithEvaluations) else TraceWithEvaluations(**t) for t in data.get("traces", [])
+            ]
+            count: int = data.get("count", len(traces))
+            total_count: int = data.get("total_count", count)
             return TracesResponse(traces=traces, count=count, total_count=total_count)
         except Exception as err:
             if strict:
@@ -444,8 +485,13 @@ class AsyncTraces(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
+        """Delete a trace: True once deleted.
+
+        Raises :class:`NotFoundError` when the project has no trace with this id, as a second delete
+        of the same trace does.
+        """
         resp = await self._delete(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -455,7 +501,7 @@ class AsyncTraces(AsyncAPIResource):
     async def get_sources(
         self,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[str]:
         resp = await self._get(
             f"{self._base_url()}/sources",

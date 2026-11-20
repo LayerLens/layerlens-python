@@ -15,21 +15,21 @@ client = LayerLens()
 # Step 1: Estimate optimization cost before committing
 estimate = client.judge_optimizations.estimate(
     judge_id="judge_id_here",   # the judge to optimize
-    budget="medium",            # "low", "medium", or "high"
+    budget="medium",            # "light", "medium", or "heavy"
 )
 # Returns cost estimate details
 
 # Step 2: Create an optimization run
 run = client.judge_optimizations.create(
     judge_id="judge_id_here",   # the judge to optimize
-    budget="medium",            # "low", "medium", or "high"
+    budget="medium",            # "light", "medium", or "heavy"
 )
 # Returns JudgeOptimization with .id, .status
 
 # Step 3: Poll for completion
 run_status = client.judge_optimizations.get("optimization_run_id")
 # Returns JudgeOptimization with .id, .status
-# Status values: "pending", "running", "completed", "failed", "cancelled"
+# Status values: "pending", "in_progress", "success", "failure"
 
 # Step 4: List all optimization runs for a judge
 response = client.judge_optimizations.get_many(judge_id="judge_id_here")
@@ -47,9 +47,9 @@ When the user asks to optimize a judge:
 1. **Identify the judge**: Get the judge ID. If the user does not have one, list judges with `client.judges.get_many()` and help them pick one. The judge should have completed trace evaluations for optimization to work well.
 
 2. **Choose a budget**: Ask the user to pick a budget level:
-   - `"low"` -- faster, cheaper, smaller improvement
+   - `"light"` -- faster, cheaper, smaller improvement
    - `"medium"` -- balanced (recommended default)
-   - `"high"` -- most thorough, higher cost, best results
+   - `"heavy"` -- most thorough, higher cost, best results
 
 3. **Estimate cost**: Run `client.judge_optimizations.estimate(judge_id=..., budget=...)` and show the estimate to the user before proceeding.
 

@@ -92,3 +92,15 @@ def test_the_async_client_reads_the_same(reply: Dict[str, Any]) -> None:
 def test_a_reply_without_cost_available_says_it_by_its_price(reply: Dict[str, Any], available: bool) -> None:
     estimate = _client(reply, []).trace_evaluations.estimate_cost(trace_ids=["t1"], judge_id="j1")
     assert estimate is not None and estimate.cost_available is available
+
+
+def test_an_unpriced_estimate_is_falsy_so_the_1_11_guard_never_formats_a_missing_price() -> None:
+    """R2 F1: 1.11.0's docs guard the format with `if estimate:`; 1.11.0 always returned None."""
+    unpriced = _client(UNPRICED, []).trace_evaluations.estimate_cost(trace_ids=["a"], judge_id="j1")
+    priced = _client(PRICED, []).trace_evaluations.estimate_cost(trace_ids=["a"], judge_id="j1")
+
+    printed = [f"Estimated cost: ${e.estimated_cost:.4f}" for e in (unpriced, priced) if e]
+
+    assert unpriced is not None and not unpriced
+    assert priced is not None and priced
+    assert printed == ["Estimated cost: $0.0012"]

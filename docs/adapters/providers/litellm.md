@@ -19,16 +19,25 @@ Pulls the `litellm` package.
 
 ```python
 import litellm
+from layerlens import LayerLens
+from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers import LiteLLMProvider
 
+layerlens_client = LayerLens()
 provider = LiteLLMProvider()
 provider.connect()   # patches litellm.completion / litellm.acompletion
 
-resp = litellm.completion(
-    model="gpt-4o-mini",   # or "claude-3-5-sonnet", "bedrock/anthropic.claude-3-..."
-    messages=[{"role": "user", "content": "Hi"}],
-)
-print(resp.choices[0].message.content)
+# The adapter records into the trace a call runs in (here, my_agent's): outside a trace,
+# a call is recorded nowhere.
+@trace(layerlens_client)
+def my_agent(question: str) -> str:
+    resp = litellm.completion(
+        model="gpt-4o-mini",   # or "claude-3-5-sonnet", "bedrock/anthropic.claude-3-..."
+        messages=[{"role": "user", "content": question}],
+    )
+    return resp.choices[0].message.content
+
+print(my_agent("Hi"))
 ```
 
 `connect()` takes no target — it patches the imported `litellm` module

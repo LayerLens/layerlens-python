@@ -32,10 +32,16 @@ def replay() -> None:
 
 
 @replay.command("run")
-@click.option("--trace-id", required=True)
-@click.option("--trace-file", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--trace-id", required=True, help="The trace to replay: a stored trace's id, or the one --trace-file holds."
+)
+@click.option(
+    "--trace-file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Replay the trace in this JSON file (as `layerlens trace export` writes it) instead of reading it.",
+)
 @click.option("--replay-fn", default=None, help="Callable 'module:attr' that replays a trace.")
-@click.option("--model-override", default=None)
+@click.option("--model-override", default=None, help="Replay with this model instead of the trace's.")
 @click.option("--input-override", multiple=True, help="KEY=VALUE (repeatable).")
 @click.option("--prompt-override", multiple=True, help="KEY=VALUE (repeatable).")
 @click.pass_context

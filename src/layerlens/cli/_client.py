@@ -4,23 +4,34 @@ import re
 import sys
 import functools
 import traceback as tb
-from typing import Any, Callable
+from typing import Any, Tuple, Callable
 
 import click
 
-from .._env import API_KEY_ENV, BASE_URL_ENV, EnvValue, find_api_key, find_base_url
+from .._env import (
+    API_KEY_ENV,
+    BASE_URL_ENV,
+    LEGACY_API_KEY_ENVS,
+    LEGACY_BASE_URL_ENVS,
+    EnvValue,
+    find_api_key,
+    find_base_url,
+    ignored_legacy,
+    ignored_message,
+)
+from ._notice import notice
 from .._client import LayerLens
 from .._exceptions import NotFoundError, APIStatusError, LayerLensError, AuthenticationError
 
 
-def _env_notice(found: EnvValue, canonical: str) -> None:
-    """Tell the user to rename a legacy variable (LAY-4220). stderr only."""
+def _env_notice(found: EnvValue, canonical: str, legacy: Tuple[str, ...]) -> None:
+    """Tell the user to rename a legacy variable (LAY-4220), or that the canonical one overrides
+    a legacy one set to another value (R1 F2); on a terminal only (see ``_notice``)."""
     if found.source != canonical:
-        click.echo(
-            f"warning: {found.source} is deprecated and will be removed in a future major release; "
-            f"rename it to {canonical}",
-            err=True,
-        )
+        notice(f"{found.source} is deprecated and will be removed in a future major release; rename it to {canonical}")
+        return
+    for name in ignored_legacy(canonical, legacy):
+        notice(ignored_message(name, canonical))
 
 
 def resolve_api_key(ctx: click.Context) -> EnvValue | None:
@@ -39,10 +50,13 @@ def resolve_api_key(ctx: click.Context) -> EnvValue | None:
             raise click.UsageError("pass --api-key or --api-key-file, not both")
         return EnvValue(_read_key_file(key_file), "--api-key-file")
     if api_key:
-        return EnvValue(api_key, ctx.obj.get("api_key_source", "--api-key"))
+        given = EnvValue(api_key, ctx.obj.get("api_key_source", "--api-key"))
+        if given.source == API_KEY_ENV:
+            _env_notice(given, API_KEY_ENV, LEGACY_API_KEY_ENVS)
+        return given
     found = find_api_key()
     if found is not None:
-        _env_notice(found, API_KEY_ENV)
+        _env_notice(found, API_KEY_ENV, LEGACY_API_KEY_ENVS)
     return found
 
 
@@ -71,7 +85,7 @@ def resolve_base_url(ctx: click.Context) -> str | None:
     found = find_base_url()
     if found is None:
         return None
-    _env_notice(found, BASE_URL_ENV)
+    _env_notice(found, BASE_URL_ENV, LEGACY_BASE_URL_ENVS)
     return found.value
 
 
@@ -146,11 +160,9 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
         except AuthenticationError:
             click.echo("Error: Invalid or missing API key.", err=True)
             sys.exit(1)
-        except NotFoundError as e:
-            click.echo(f"Error: Resource not found. {e}", err=True)
-            sys.exit(1)
         except APIStatusError as e:
-            # The API's own sentence, as the env commands print it, not the exception's repr.
+            # The API's own sentence, as the env commands print it, not the exception's repr:
+            # a 404 too, which printed the raw envelope after "Resource not found." (R4 F8).
             click.echo(f"Error: {api_error_text(e)}", err=True)
             sys.exit(1)
         except LayerLensError as e:

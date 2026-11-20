@@ -16,7 +16,7 @@ from layerlens.models import (
     EvaluationsResponse,
     CreateEvaluationsResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens._exceptions import APIResponseValidationError
 from layerlens.resources.evaluations.evaluations import Evaluations
 from layerlens.resources.public_evaluations.public_evaluations import (
@@ -141,7 +141,7 @@ class TestEvaluations:
                     "is_custom_dataset": False,
                 }
             ],
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=CreateEvaluationsResponse,
         )
 
@@ -289,13 +289,13 @@ class TestEvaluations:
         evaluations_resource,
         mock_evaluations_response,
     ):
-        """create method uses DEFAULT_TIMEOUT when no timeout specified."""
+        """create leaves the timeout to the client (NOT_GIVEN) when none is given (R1 F1)."""
         evaluations_resource._post.return_value = mock_evaluations_response
 
         evaluations_resource.create(model=mock_model, benchmark=mock_benchmark)
 
         call_args = evaluations_resource._post.call_args
-        assert call_args.kwargs["timeout"] is DEFAULT_TIMEOUT
+        assert call_args.kwargs["timeout"] is NOT_GIVEN
 
     def test_create_evaluation_with_none_timeout(
         self,
@@ -328,7 +328,7 @@ class TestEvaluations:
                 "page": "1",
                 "page_size": "100",
             },
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
         )
         assert result.evaluations[0]._client is mock_client
 
@@ -888,7 +888,7 @@ class TestPublicEvaluationsResource:
 
         public_evaluations._get.assert_called_once_with(
             "/evaluations/eval-pub-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=Evaluation,
         )
 

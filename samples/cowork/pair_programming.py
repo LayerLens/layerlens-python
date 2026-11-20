@@ -111,9 +111,11 @@ def run_test_suite(
 
         # Fetch detailed results
         eval_results = poll_evaluation_results(client, evaluation.id)
-        score = 0.0
-        if eval_results:
-            score = eval_results[0].score
+        if not eval_results:
+            # The evaluation failed or did not finish (the helper logged why): no score to compare.
+            print(f"[RubricTester] {case['label']}: no verdict (the evaluation failed or did not finish)")
+            continue
+        score = eval_results[0].score
 
         results.append(
             {
@@ -150,6 +152,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -192,6 +195,7 @@ def main() -> None:
         ),
     ]
 
+    alignment_rate = None  # stays None when no case gets a verdict
     try:
         for round_num in range(1, MAX_REFINEMENT_ROUNDS + 2):
             print(f"--- Round {round_num} ---\n")
@@ -216,8 +220,14 @@ def main() -> None:
                     f"score={r['score']:.2f} (expected={r['expected_quality']})"
                 )
 
+            if not results:
+                # No case got a verdict (each evaluation failed or did not finish): there is
+                # nothing to align, so the judge's goal is left as it is.
+                print("\n[RubricTester] No verdict for any case: the judge is not changed.\n")
+                break
+
             is_aligned, alignment_rate = check_alignment(results)
-            print(f"\n[RubricTester] Alignment rate: {alignment_rate:.0%}")
+            print(f"\n[RubricTester] Alignment rate: {alignment_rate:.0%} (over {len(results)} case(s) with a verdict)")
 
             if is_aligned:
                 print("[RubricTester] Judge meets quality threshold. Done.\n")
@@ -244,7 +254,10 @@ def main() -> None:
         final_judge = client.judges.get(judge_id)
         print(f"  Judge ID: {judge_id}")
         print(f"  Judge name: {final_judge.name}")
-        print(f"  Final alignment rate: {alignment_rate:.0%}")
+        if alignment_rate is None:
+            print("  Final alignment rate: no verdict (no evaluation finished)")
+        else:
+            print(f"  Final alignment rate: {alignment_rate:.0%}")
         print(f"  Refinement rounds: {round_num}")
         print(f"  Test cases used: {len(TEST_CASES)}")
         print(f"  Threshold: {QUALITY_THRESHOLD}")

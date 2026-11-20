@@ -130,6 +130,7 @@ def main() -> None:
     # --- Initialize client ---
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)
@@ -166,11 +167,16 @@ def main() -> None:
     logger.info("Step 3: Wait for completion (timeout=%ds)", args.timeout)
     logger.info("=" * 60)
 
-    evaluation = client.evaluations.wait_for_completion(
-        evaluation,
-        interval_seconds=10,
-        timeout_seconds=args.timeout,
-    )
+    try:
+        evaluation = client.evaluations.wait_for_completion(
+            evaluation,
+            interval_seconds=10,
+            timeout_seconds=args.timeout,
+        )
+    except TimeoutError as exc:
+        # The evaluation goes on running on LayerLens: read it later by its id.
+        logger.error("  %s; evaluation %s goes on running: read it later by its id", exc, evaluation.id)
+        sys.exit(1)
     logger.info("  Final status: %s", evaluation.status)
 
     # --- Step 4: Retrieve results ---

@@ -24,11 +24,18 @@ Usage
 
 from __future__ import annotations
 
+import sys
+
 from layerlens import LayerLens
 
 
 def main() -> None:
-    client = LayerLens()
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     # ── Create a custom model ─────────────────────────────────────────
     #

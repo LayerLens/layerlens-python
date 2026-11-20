@@ -88,6 +88,18 @@ my_agent (root span)
 | **Provider adapter** | Wraps an LLM SDK so each call records `model.invoke` and `cost.record` |
 | **Framework adapter** | Turns a framework's callbacks or hooks into a trace's events |
 
+## Sending OpenTelemetry Spans
+
+An application already instrumented with OpenTelemetry can export its spans to LayerLens's OTLP
+endpoint instead of using `layerlens.instrument`. LayerLens stores them only for a registered
+OpenTelemetry integration: in the LayerLens app, under the organization's **Integrations**,
+register a source of type **OTel Endpoint**. Its **Application name** must match the spans'
+`service.name`, its **Environment** their `deployment.environment.name` (or
+`deployment.environment`), and its **API key** the key the exporter sends in the `X-API-Key`
+header. Spans that match no integration are dropped, although the endpoint answers 200 and the
+exporter reports success, so register the integration before you point an exporter at
+LayerLens.
+
 ## No-Op Safety
 
 All instrumentation is no-op safe:

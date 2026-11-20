@@ -176,7 +176,7 @@ class TestApiKeyEnvironment:
         assert warning.filename == __file__
 
     @pytest.mark.parametrize("client_cls", [LayerLens, PublicClient])
-    def test_canonical_variable_wins_over_legacy_silently(
+    def test_canonical_variable_wins_over_legacy_without_a_deprecation_warning(
         self, client_cls: Any, clean_env: pytest.MonkeyPatch, no_org_fetch: None
     ) -> None:
         _ = no_org_fetch
@@ -268,7 +268,7 @@ class TestBaseUrlEnvironment:
         assert "LAYERLENS_BASE_URL" in str(warning.message)
         assert warning.filename == __file__
 
-    def test_canonical_variable_wins_over_legacy_silently(
+    def test_canonical_variable_wins_over_legacy_without_a_deprecation_warning(
         self, clean_env: pytest.MonkeyPatch, no_org_fetch: None
     ) -> None:
         _ = no_org_fetch
@@ -289,6 +289,105 @@ class TestBaseUrlEnvironment:
         assert str(client.base_url).rstrip("/") == "https://api.layerlens.ai/api/v1"
 
 
+@pytest.fixture
+def fresh_process() -> Iterator[None]:
+    """No legacy variable has been named in a warning yet, as at the start of a process."""
+    from layerlens import _env
+
+    _env._warned_ignored.clear()
+    yield
+    _env._warned_ignored.clear()
+
+
+def _ignored(records: Any) -> list[warnings.WarningMessage]:
+    return [r for r in records if r.category is UserWarning and "is set but ignored" in str(r.message)]
+
+
+class TestCanonicalAndLegacyBothSet:
+    """R1 F2: 1.11.0 read LAYERLENS_STRATIX_API_KEY; 2.0.0 reads LAYERLENS_API_KEY first. A job
+    that sets both to different values switches keys on upgrade, and must be told."""
+
+    @pytest.mark.parametrize("client_cls", [LayerLens, AsyncLayerLens, PublicClient, AsyncPublicClient])
+    @pytest.mark.parametrize("legacy", ["LAYERLENS_STRATIX_API_KEY", "LAYERLENS_ATLAS_API_KEY"])
+    def test_a_legacy_key_the_canonical_one_overrides_is_named_in_a_user_warning(
+        self, client_cls: Any, legacy: str, clean_env: pytest.MonkeyPatch, no_org_fetch: None, fresh_process: None
+    ) -> None:
+        _ = (no_org_fetch, fresh_process)
+        clean_env.setenv("LAYERLENS_API_KEY", "new-key")
+        clean_env.setenv(legacy, "old-key")
+
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            client = client_cls()
+
+        assert client.api_key == "new-key"
+        (warning,) = _ignored(records)
+        assert str(warning.message) == (
+            f"{legacy} is set but ignored: LAYERLENS_API_KEY is set and wins. Unset one of them."
+        )
+        assert warning.filename == __file__
+        assert _deprecations(records) == []
+
+    @pytest.mark.parametrize("legacy", ["LAYERLENS_STRATIX_BASE_URL", "LAYERLENS_ATLAS_BASE_URL"])
+    def test_a_legacy_base_url_the_canonical_one_overrides_is_named_in_a_user_warning(
+        self, legacy: str, clean_env: pytest.MonkeyPatch, no_org_fetch: None, fresh_process: None
+    ) -> None:
+        _ = (no_org_fetch, fresh_process)
+        clean_env.setenv("LAYERLENS_BASE_URL", "https://new.example.com/api/v1")
+        clean_env.setenv(legacy, "https://old.example.com/api/v1")
+
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            client = LayerLens(api_key="k")
+
+        assert str(client.base_url).rstrip("/") == "https://new.example.com/api/v1"
+        (warning,) = _ignored(records)
+        assert str(warning.message) == (
+            f"{legacy} is set but ignored: LAYERLENS_BASE_URL is set and wins. Unset one of them."
+        )
+
+    def test_the_warning_is_given_once_per_process(
+        self, clean_env: pytest.MonkeyPatch, no_org_fetch: None, fresh_process: None
+    ) -> None:
+        _ = (no_org_fetch, fresh_process)
+        clean_env.setenv("LAYERLENS_API_KEY", "new-key")
+        clean_env.setenv("LAYERLENS_STRATIX_API_KEY", "old-key")
+
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            LayerLens()
+            LayerLens()
+            AsyncLayerLens()
+
+        assert len(_ignored(records)) == 1
+
+    def test_both_set_to_the_same_value_is_not_worth_a_warning(
+        self, clean_env: pytest.MonkeyPatch, no_org_fetch: None, fresh_process: None
+    ) -> None:
+        _ = (no_org_fetch, fresh_process)
+        clean_env.setenv("LAYERLENS_API_KEY", "same-key")
+        clean_env.setenv("LAYERLENS_STRATIX_API_KEY", "same-key")
+
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            LayerLens()
+
+        assert _ignored(records) == []
+
+    def test_an_explicit_key_reads_no_variable_and_warns_of_none(
+        self, clean_env: pytest.MonkeyPatch, no_org_fetch: None, fresh_process: None
+    ) -> None:
+        _ = (no_org_fetch, fresh_process)
+        clean_env.setenv("LAYERLENS_API_KEY", "new-key")
+        clean_env.setenv("LAYERLENS_STRATIX_API_KEY", "old-key")
+
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            LayerLens(api_key="explicit", base_url="https://explicit.example.com/api/v1")
+
+        assert _ignored(records) == []
+
+
 class TestAguiMapper:
     def test_canonical_mapper_returns_layerlens_event(self) -> None:
         from layerlens.instrument.adapters.protocols.agui import map_agui_to_layerlens
@@ -304,6 +403,9 @@ class TestAguiMapper:
         [
             "layerlens.instrument.adapters.protocols.agui",
             "layerlens.instrument.adapters.protocols.agui.event_mapper",
+            # 1.11.0 imported it into these two, so code could import it from them (R3 F6).
+            "layerlens.instrument.adapters.protocols.agui.adapter",
+            "layerlens.instrument.adapters.protocols.agui.middleware",
         ],
     )
     def test_legacy_mapper_warns_and_keeps_its_old_shape(self, module_name: str) -> None:
@@ -316,3 +418,11 @@ class TestAguiMapper:
         (warning,) = _deprecations(records)
         assert "map_agui_to_layerlens" in str(warning.message)
         assert warning.filename == __file__
+
+
+def test_emit_llm_events_is_importable_from_the_anthropic_provider_as_in_1_11() -> None:
+    """R3 F6: 1.11.0's providers/anthropic.py imported it, so `from … import emit_llm_events` worked."""
+    from layerlens.instrument.adapters.providers.anthropic import emit_llm_events
+    from layerlens.instrument.adapters.providers._emit_helpers import emit_llm_events as the_helper
+
+    assert emit_llm_events is the_helper

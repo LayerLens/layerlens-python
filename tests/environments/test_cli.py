@@ -227,6 +227,37 @@ class TestEnvironmentCommands:
         assert result.stdout.splitlines()[0].split() == ["Tool", "Real", "path", "Summary"]
         assert "GET /v1/customers/{customer}" in result.stdout
 
+    def test_revert_during_the_first_build_exits_1_with_the_apis_sentence(
+        self, runner: CliRunner, api: FakeAPI
+    ) -> None:
+        # R6 F4: it printed "support-desk now serves version 1." while nothing was served yet.
+        refusal = '"support-desk" is still being built; wait for that build to finish before changing it'
+        api.on("POST", f"/{ENV_ID}/revert", err(409, refusal))
+        api.on("GET", f"/{ENV_ID}", ok({"environment": environment(current_version=1, tool_count=0)}))
+        api.on("GET", f"/{ENV_ID}/build", ok({"status": "building", "steps": []}))
+
+        result = invoke(runner, "env", "revert", ENV_ID, "--to-version", "1")
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert f"Error: {refusal} (HTTP 409)" in result.stderr
+
+    @pytest.mark.parametrize(("deleted", "said"), [(1, "Deleted 1 task of 'ci'."), (3, "Deleted 3 tasks of 'ci'.")])
+    def test_a_count_of_one_is_singular(self, runner: CliRunner, api: FakeAPI, deleted: int, said: str) -> None:
+        # R6 F7: "1 tasks", "1 attempts".
+        api.on("DELETE", f"/{ENV_ID}/task-sets/ci", ok({"deleted": deleted}))
+        result = invoke(runner, "env", "tasks", "delete", ENV_ID, "--set", "ci", "--yes")
+        assert result.exit_code == 0, result.stderr
+        assert result.stdout.strip() == said
+
+    def test_a_model_run_of_one_task_says_task(self, runner: CliRunner, api: FakeAPI) -> None:
+        api.on("POST", f"/{ENV_ID}/rollout-runs", ok(run_view(row(A[0], None), kind="rollout", status="pending"), 202))
+        result = invoke(
+            runner, "env", "run", "model", ENV_ID, "--set", "ci", "--model", "m", "--budget", "1", "--no-wait"
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ": 1 task with " in result.stderr and "tasks" not in result.stderr
+
     def test_list_can_leave_out_members(self, runner: CliRunner, api: FakeAPI) -> None:
         api.on("GET", "", ok({"environments": [], "count": 0, "total_count": 0}))
         assert invoke(runner, "env", "list", "--hide-members").exit_code == 0

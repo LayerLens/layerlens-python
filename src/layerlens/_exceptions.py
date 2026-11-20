@@ -64,7 +64,8 @@ class APIResponseValidationError(APIError):
 
 
 class APIStatusError(APIError):
-    """Raised when an API response has a status code of 4xx or 5xx."""
+    """Raised when an API response has a status code of 4xx or 5xx, or a file upload's storage
+    service answers anything but 2xx."""
 
     response: httpx.Response
     status_code: int
@@ -93,6 +94,17 @@ class BadRequestError(APIStatusError):
 
 class AuthenticationError(APIStatusError):
     status_code: Literal[HTTPStatus.UNAUTHORIZED] = HTTPStatus.UNAUTHORIZED
+
+
+class PaymentRequiredError(APIStatusError):
+    """402: the organization has no credit left for this request.
+
+    Credit-gated requests (benchmark and trace evaluations, judge optimizations, synthetic
+    jobs) answer 402 when the organization's balance, less what running evaluations hold,
+    cannot cover them. Top up, or wait for running evaluations to finish.
+    """
+
+    status_code: Literal[HTTPStatus.PAYMENT_REQUIRED] = HTTPStatus.PAYMENT_REQUIRED
 
 
 class PermissionDeniedError(APIStatusError):

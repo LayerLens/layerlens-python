@@ -12,6 +12,10 @@ from typing import NoReturn
 
 import click
 
+#: ``evaluate run --wait`` and ``bulk eval --wait``: an evaluation they waited for ended in a status
+#: other than ``success`` (``failure``, ``cancelled``, ``timeout``, ...). No other command exits with it.
+EXIT_EVALUATION_NOT_SUCCESSFUL = 12
+
 
 def _json(ctx: click.Context) -> bool:
     return bool(ctx.obj["output_format"] == "json")

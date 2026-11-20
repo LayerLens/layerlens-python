@@ -11,14 +11,14 @@ from ...models import (
     PublicBenchmarksListResponse,
 )
 from ..._resource import SyncPublicAPIResource, AsyncPublicAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 DEFAULT_PROMPTS_PAGE_SIZE = 100
-MAX_PROMPTS_PAGE_SIZE = 500
+MAX_PROMPTS_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 class PublicBenchmarksResource(SyncPublicAPIResource):
@@ -36,7 +36,7 @@ class PublicBenchmarksResource(SyncPublicAPIResource):
         page: Optional[int] = None,
         page_size: Optional[int] = None,
         include_deprecated: Optional[bool] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[PublicBenchmarksListResponse]:
         params = {}
         if query:
@@ -86,7 +86,7 @@ class PublicBenchmarksResource(SyncPublicAPIResource):
         search_value: Optional[str] = None,
         sort_by: Optional[Literal["id", "input", "truth"]] = None,
         sort_order: Optional[Literal["asc", "desc"]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[BenchmarkPromptsResponse]:
         params = {}
         if page is not None:
@@ -118,7 +118,7 @@ class PublicBenchmarksResource(SyncPublicAPIResource):
         self,
         benchmark_id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[BenchmarkPrompt]:
         all_prompts: List[BenchmarkPrompt] = []
         page = 1
@@ -161,7 +161,7 @@ class AsyncPublicBenchmarksResource(AsyncPublicAPIResource):
         page: Optional[int] = None,
         page_size: Optional[int] = None,
         include_deprecated: Optional[bool] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[PublicBenchmarksListResponse]:
         params = {}
         if query:
@@ -211,7 +211,7 @@ class AsyncPublicBenchmarksResource(AsyncPublicAPIResource):
         search_value: Optional[str] = None,
         sort_by: Optional[Literal["id", "input", "truth"]] = None,
         sort_order: Optional[Literal["asc", "desc"]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[BenchmarkPromptsResponse]:
         params = {}
         if page is not None:
@@ -243,7 +243,7 @@ class AsyncPublicBenchmarksResource(AsyncPublicAPIResource):
         self,
         benchmark_id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[BenchmarkPrompt]:
         all_prompts: List[BenchmarkPrompt] = []
         page = 1

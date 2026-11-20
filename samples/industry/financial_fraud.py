@@ -86,6 +86,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -135,39 +136,44 @@ def main() -> None:
                     trace_id=trace_id, judge_id=judge_obj.id
                 )
                 results = poll_evaluation_results(client, evaluation.id)
-                score = 0.0
-                passed = False
-                reasoning = ""
-                if results:
-                    r = results[0]
-                    score = r.score
-                    passed = r.passed
-                    reasoning = r.reasoning
+                if not results:
+                    # The evaluation failed or did not finish (the helper logged why): no verdict.
+                    eval_results[judge_key] = None
+                    continue
+                r = results[0]
                 eval_results[judge_key] = {
-                    "score": score,
-                    "passed": passed,
-                    "reasoning": reasoning,
+                    "score": r.score,
+                    "passed": r.passed,
+                    "reasoning": r.reasoning,
                 }
 
             print(
                 f"Transaction: ${txn['amount']:,.2f} at {txn['merchant']} ({txn['description'][:40]})"
             )
+            no_verdict = "no verdict (the evaluation failed or did not finish)"
 
             fraud = eval_results["fraud_risk"]
-            score = fraud["score"]
-            risk_level = "HIGH" if score > 0.7 else "MEDIUM" if score > 0.3 else "LOW"
-            print(
-                f"  Fraud Score:  {score:.2f} ({_RISK_COLORS.get(risk_level.lower(), '')}{risk_level} RISK{_RESET})"
-            )
+            if fraud is None:
+                print(f"  Fraud Score:  {no_verdict}")
+            else:
+                score = fraud["score"]
+                risk_level = "HIGH" if score > 0.7 else "MEDIUM" if score > 0.3 else "LOW"
+                print(
+                    f"  Fraud Score:  {score:.2f} ({_RISK_COLORS.get(risk_level.lower(), '')}{risk_level} RISK{_RESET})"
+                )
 
             guardrail = eval_results["financial_guardrail"]
-            verdict = "pass" if guardrail["passed"] else "fail"
-            reasoning = guardrail["reasoning"]
-            color = _VERDICT_COLORS.get(verdict, "")
-            print(f"  Guardrail:    {color}{verdict.upper()}{_RESET} - {reasoning}")
+            if guardrail is None:
+                print(f"  Guardrail:    {no_verdict}")
+            else:
+                verdict = "pass" if guardrail["passed"] else "fail"
+                color = _VERDICT_COLORS.get(verdict, "")
+                print(f"  Guardrail:    {color}{verdict.upper()}{_RESET} - {guardrail['reasoning']}")
 
             aml = eval_results["aml_compliance"]
-            if not aml["passed"]:
+            if aml is None:
+                print(f"  AML:          {no_verdict}")
+            elif not aml["passed"]:
                 print(f"  AML Flag:     {aml['reasoning']}")
 
             print()

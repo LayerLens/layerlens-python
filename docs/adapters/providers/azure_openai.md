@@ -45,6 +45,8 @@ On `connect()` the adapter reads the client's base URL, strips any query string
 ```python
 import os
 from openai import AzureOpenAI
+from layerlens import LayerLens
+from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers import AzureOpenAIProvider
 
 client = AzureOpenAI(
@@ -56,11 +58,19 @@ client = AzureOpenAI(
 provider = AzureOpenAIProvider()
 provider.connect(client)   # patches chat.completions / responses / embeddings
 
-resp = client.chat.completions.create(
-    model="<your-deployment-name>",   # Azure deployment, not the base model id
-    messages=[{"role": "user", "content": "Hi"}],
-)
-print(resp.choices[0].message.content)
+layerlens_client = LayerLens()
+
+# The adapter records into the trace a call runs in (here, my_agent's): outside a trace,
+# a call is recorded nowhere.
+@trace(layerlens_client)
+def my_agent(question: str) -> str:
+    resp = client.chat.completions.create(
+        model="<your-deployment-name>",   # Azure deployment, not the base model id
+        messages=[{"role": "user", "content": question}],
+    )
+    return resp.choices[0].message.content
+
+print(my_agent("Hi"))
 ```
 
 ## Event surface

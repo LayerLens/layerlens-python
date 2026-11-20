@@ -30,8 +30,9 @@ from ._shared import (
     environment_conflict,
     require_api_key_client,
 )
-from ..._polling import POLL_RETRIES
+from ..._polling import POLL_RETRIES, PollPolicy
 from ..._resource import SyncAPIResource, AsyncAPIResource
+from ..._constants import NOT_GIVEN, NotGiven
 from ..._exceptions import ConflictError, NotFoundError, LayerLensError, EnvironmentBuildError
 from ...models.environment import (
     ToolList,
@@ -94,19 +95,24 @@ class Environments(SyncAPIResource):
         idempotency_key: IdempotencyKey = None,
         max_retries: Optional[int] = None,
         remedy: str = SEND_LESS_AT_ONCE,
+        timeout: Union[float, httpx.Timeout, None, NotGiven] = NOT_GIVEN,
     ) -> httpx.Response:
         if body is not None:
             check_body_size(body, remedy=remedy)
         if idempotency_key is None:
             return as_response(
-                self._client._request_cast(method, path, body=body, params=params, max_retries=max_retries)
+                self._client._request_cast(
+                    method, path, body=body, params=params, max_retries=max_retries, timeout=timeout
+                )
             )
         headers = {"Idempotency-Key": idempotency_key}
         policy = ResendPolicy(self._client._max_retries if max_retries is None else max_retries)
         while True:
             try:
                 return as_response(
-                    self._client._request_cast(method, path, body=body, params=params, headers=headers, max_retries=0)
+                    self._client._request_cast(
+                        method, path, body=body, params=params, headers=headers, max_retries=0, timeout=timeout
+                    )
                 )
             except LayerLensError as err:
                 self._sleep(policy.after_error(err))
@@ -116,9 +122,15 @@ class Environments(SyncAPIResource):
 
     def resolve(self, environment: str) -> str:
         """The id of an environment given by id or by name. An id (24 lower-case hex digits) is returned as is."""
+        return self._resolve(environment)
+
+    def _resolve(self, environment: str, *, policy: Optional[PollPolicy] = None) -> str:
+        """``resolve``; within a wait (``policy``), each page is sent as a poll is (see ``_list``)."""
         if is_object_id(environment):
             return environment
-        return _only_match(environment, self.list(name=environment))
+        return _only_match(
+            environment, self._list(_list_params(name=environment, search=None, hide_members=False), policy=policy)
+        )
 
     def create(
         self,
@@ -134,8 +146,9 @@ class Environments(SyncAPIResource):
         An agent reads the company the description is about and builds that company's
         ``type`` app (a type whose ``WorldType.built_by_agent`` is true; any other is refused
         with :class:`BadRequestError`). The environment is a composite of that one app: its
-        ``type`` is ``"composite"``, its tools are named ``<alias>__<tool>``, and the app is a
-        member environment named ``<name> — <type's title>``.
+        ``type`` is ``"composite"`` and its tools are named ``<alias>__<tool>``. An API key works
+        with the composite only: its environment list leaves the app out, and the agent and
+        Automation routes refuse the app with a 409 naming its composite.
 
         With ``if_not_exists``, an environment of this name created from the same type and
         description is returned with ``reused=True``. Raises :class:`EnvironmentConflictError`
@@ -161,13 +174,22 @@ class Environments(SyncAPIResource):
     ) -> List[Environment]:
         """The project's environments, newest change first; ``name`` finds one by its exact name.
 
-        ``hide_members`` leaves out the environments a composite is built from.
+        ``hide_members`` is kept for compatibility: an API key's list already leaves out a
+        composite's apps, so it changes nothing.
         """
-        params = _list_params(name=name, search=search, hide_members=hide_members)
+        return self._list(_list_params(name=name, search=search, hide_members=hide_members))
+
+    def _list(self, params: Dict[str, Any], *, policy: Optional[PollPolicy] = None) -> List[Environment]:
+        """Every page. Within a wait (``policy``), each page is sent once, with the time left of
+        the wait when it is sent; a failure goes to the wait, which retries the lookup."""
         found: List[Environment] = []
         page = 1
         while True:
-            response = self._send("GET", self._path(), params={**params, "page": page})
+            response = self._send(
+                "GET", self._path(), params={**params, "page": page}, **_as_poll(policy, self._client)
+            )
+            if policy is not None:
+                policy.answered()
             batch = unwrap_list(response, Environment, "environments")
             found.extend(batch)
             if not batch or len(found) >= _total_count(response):
@@ -190,12 +212,27 @@ class Environments(SyncAPIResource):
         fails, and :class:`TimeoutError` when it is still building after ``timeout_seconds``,
         or the polls kept failing until then; a poll that fails on a 429, a 5xx or a lost
         connection does not end the wait.
+
+        Each request, the lookup of an environment by name included, is sent once with the client's
+        timeout cut to the time left (httpx applies it to connecting and to each wait for data), and
+        none is sent once ``timeout_seconds`` has passed. The wait aims a poll at 2 seconds before
+        the deadline, so that poll has time to answer; polls can also run inside those 2 seconds,
+        none with less than half a second left. A wait never polls sooner than a ``Retry-After``
+        asks. When the ``Retry-After`` reaches past the wait's deadline, the wait sleeps until the
+        deadline and then raises, with the 429 as the cause. A wait with no deadline
+        (``timeout_seconds=None``) reads a ``Retry-After`` longer than 5 minutes as 5 minutes.
+        ``timeout_seconds=0`` checks once. A client's first organization read, made once per client,
+        comes before the wait and is not counted in ``timeout_seconds``.
         """
-        environment_id = self.resolve(environment)
-        policy = wait_policy(f"environment {environment_id}", timeout_seconds, poll_interval_seconds)
+        # The client's first organization read, made once per client, comes before the deadline.
+        self._client._organization_scope()
+        policy = wait_policy(f"environment {environment}", timeout_seconds, poll_interval_seconds)
+        environment_id: Optional[str] = None
         while True:
             try:
-                ready = self._ready(environment_id)
+                if environment_id is None:
+                    environment_id = self._resolve(environment, policy=policy)
+                ready = self._ready(environment_id, policy)
             except EnvironmentBuildError:
                 raise
             except LayerLensError as err:
@@ -206,14 +243,24 @@ class Environments(SyncAPIResource):
                 delay = policy.after_pending(still(f"environment {environment_id} is still building", timeout_seconds))
             self._sleep(delay)
 
-    def _ready(self, environment_id: str) -> Optional[Environment]:
-        """One poll of a build: the environment once it is ready, ``None`` while it builds."""
-        build = self._call("GET", self._path(environment_id, "build"), EnvironmentBuild, max_retries=POLL_RETRIES)
+    def _ready(self, environment_id: str, policy: PollPolicy) -> Optional[Environment]:
+        """One poll of a build: the environment once it is ready, ``None`` while it builds.
+
+        Each of its two reads is sent with the time left of the wait (``policy.poll_timeout``).
+        """
+        build = self._call(
+            "GET", self._path(environment_id, "build"), EnvironmentBuild,
+            max_retries=POLL_RETRIES, timeout=policy.poll_timeout(self._client.timeout),
+        )  # fmt: skip
         if build.failed:
             raise EnvironmentBuildError(environment_id, build)
         if not build.ready:
             return None
-        return self._call("GET", self._path(environment_id), Environment, key="environment", max_retries=POLL_RETRIES)
+        policy.answered()
+        return self._call(
+            "GET", self._path(environment_id), Environment, key="environment",
+            max_retries=POLL_RETRIES, timeout=policy.poll_timeout(self._client.timeout),
+        )  # fmt: skip
 
     def world_types(self) -> List[WorldType]:
         """The world types an environment can simulate: the apps an agent builds from a description."""
@@ -228,18 +275,32 @@ class Environments(SyncAPIResource):
         return self._call("DELETE", self._path(self.resolve(environment), "state"), StateReset)
 
     def revert(self, environment: str, *, to_version: int) -> EnvironmentRef:
-        """Serve an earlier version of the world. Already serving ``to_version`` is not an error."""
+        """Serve an earlier version of the world. Already serving ``to_version`` is not an error.
+
+        The API refuses (409) a revert while a build or a task generation runs, and a revert to
+        the version already served; only the second is success, and only when the environment
+        really serves that version: its tools are there and no build runs.
+        """
         environment_id = self.resolve(environment)
         try:
             return self._call(
                 "POST", self._path(environment_id, "revert"), EnvironmentRef,
                 key="environment", body={"to_version": to_version},
             )  # fmt: skip
-        except ConflictError:
+        except ConflictError as err:
+            if _refused_while_busy(err):
+                raise
             found = self._call("GET", self._path(environment_id), Environment, key="environment")
-            if found.current_version != to_version:
+            if not _serves(found, to_version) or _building(self._latest_build(environment_id)):
                 raise
             return EnvironmentRef(id=found.id, name=found.name, type=found.type, current_version=found.current_version)
+
+    def _latest_build(self, environment_id: str) -> Optional[EnvironmentBuild]:
+        """The latest build, or None for an environment that has none (an OpenAPI spec import)."""
+        try:
+            return self._call("GET", self._path(environment_id, "build"), EnvironmentBuild)
+        except NotFoundError:
+            return None
 
     def delete(self, environment: str) -> None:
         """Delete an environment. One that is gone once this returns is deleted, whoever deleted it."""
@@ -316,12 +377,15 @@ class AsyncEnvironments(AsyncAPIResource):
         idempotency_key: IdempotencyKey = None,
         max_retries: Optional[int] = None,
         remedy: str = SEND_LESS_AT_ONCE,
+        timeout: Union[float, httpx.Timeout, None, NotGiven] = NOT_GIVEN,
     ) -> httpx.Response:
         if body is not None:
             check_body_size(body, remedy=remedy)
         if idempotency_key is None:
             return as_response(
-                await self._client._request_cast(method, path, body=body, params=params, max_retries=max_retries)
+                await self._client._request_cast(
+                    method, path, body=body, params=params, max_retries=max_retries, timeout=timeout
+                )
             )
         headers = {"Idempotency-Key": idempotency_key}
         policy = ResendPolicy(self._client._max_retries if max_retries is None else max_retries)
@@ -329,7 +393,7 @@ class AsyncEnvironments(AsyncAPIResource):
             try:
                 return as_response(
                     await self._client._request_cast(
-                        method, path, body=body, params=params, headers=headers, max_retries=0
+                        method, path, body=body, params=params, headers=headers, max_retries=0, timeout=timeout
                     )
                 )
             except LayerLensError as err:
@@ -341,9 +405,15 @@ class AsyncEnvironments(AsyncAPIResource):
         return unwrap(await self._send(method, path, **kw), model, key=key)
 
     async def resolve(self, environment: str) -> str:
+        return await self._resolve(environment)
+
+    async def _resolve(self, environment: str, *, policy: Optional[PollPolicy] = None) -> str:
         if is_object_id(environment):
             return environment
-        return _only_match(environment, await self.list(name=environment))
+        return _only_match(
+            environment,
+            await self._list(_list_params(name=environment, search=None, hide_members=False), policy=policy),
+        )
 
     async def create(
         self,
@@ -370,11 +440,18 @@ class AsyncEnvironments(AsyncAPIResource):
     async def list(
         self, *, name: Optional[str] = None, search: Optional[str] = None, hide_members: bool = False
     ) -> List[Environment]:
-        params = _list_params(name=name, search=search, hide_members=hide_members)
+        """The project's environments (see :meth:`Environments.list`; ``hide_members`` changes nothing)."""
+        return await self._list(_list_params(name=name, search=search, hide_members=hide_members))
+
+    async def _list(self, params: Dict[str, Any], *, policy: Optional[PollPolicy] = None) -> List[Environment]:
         found: List[Environment] = []
         page = 1
         while True:
-            response = await self._send("GET", self._path(), params={**params, "page": page})
+            response = await self._send(
+                "GET", self._path(), params={**params, "page": page}, **_as_poll(policy, self._client)
+            )
+            if policy is not None:
+                policy.answered()
             batch = unwrap_list(response, Environment, "environments")
             found.extend(batch)
             if not batch or len(found) >= _total_count(response):
@@ -391,11 +468,13 @@ class AsyncEnvironments(AsyncAPIResource):
         timeout_seconds: Optional[float] = DEFAULT_WAIT_SECONDS,
         poll_interval_seconds: float = DEFAULT_POLL_SECONDS,
     ) -> Environment:
-        environment_id = await self.resolve(environment)
-        policy = wait_policy(f"environment {environment_id}", timeout_seconds, poll_interval_seconds)
+        policy = wait_policy(f"environment {environment}", timeout_seconds, poll_interval_seconds)
+        environment_id: Optional[str] = None
         while True:
             try:
-                ready = await self._ready(environment_id)
+                if environment_id is None:
+                    environment_id = await self._resolve(environment, policy=policy)
+                ready = await self._ready(environment_id, policy)
             except EnvironmentBuildError:
                 raise
             except LayerLensError as err:
@@ -406,15 +485,20 @@ class AsyncEnvironments(AsyncAPIResource):
                 delay = policy.after_pending(still(f"environment {environment_id} is still building", timeout_seconds))
             await self._sleep(delay)
 
-    async def _ready(self, environment_id: str) -> Optional[Environment]:
-        build = await self._call("GET", self._path(environment_id, "build"), EnvironmentBuild, max_retries=POLL_RETRIES)
+    async def _ready(self, environment_id: str, policy: PollPolicy) -> Optional[Environment]:
+        build = await self._call(
+            "GET", self._path(environment_id, "build"), EnvironmentBuild,
+            max_retries=POLL_RETRIES, timeout=policy.poll_timeout(self._client.timeout),
+        )  # fmt: skip
         if build.failed:
             raise EnvironmentBuildError(environment_id, build)
         if not build.ready:
             return None
+        policy.answered()
         return await self._call(
-            "GET", self._path(environment_id), Environment, key="environment", max_retries=POLL_RETRIES
-        )
+            "GET", self._path(environment_id), Environment, key="environment",
+            max_retries=POLL_RETRIES, timeout=policy.poll_timeout(self._client.timeout),
+        )  # fmt: skip
 
     async def world_types(self) -> List[WorldType]:
         return _world_types(await self._send("GET", self._path("world-types")))
@@ -432,11 +516,19 @@ class AsyncEnvironments(AsyncAPIResource):
                 "POST", self._path(environment_id, "revert"), EnvironmentRef,
                 key="environment", body={"to_version": to_version},
             )  # fmt: skip
-        except ConflictError:
+        except ConflictError as err:
+            if _refused_while_busy(err):
+                raise
             found = await self._call("GET", self._path(environment_id), Environment, key="environment")
-            if found.current_version != to_version:
+            if not _serves(found, to_version) or _building(await self._latest_build(environment_id)):
                 raise
             return EnvironmentRef(id=found.id, name=found.name, type=found.type, current_version=found.current_version)
+
+    async def _latest_build(self, environment_id: str) -> Optional[EnvironmentBuild]:
+        try:
+            return await self._call("GET", self._path(environment_id, "build"), EnvironmentBuild)
+        except NotFoundError:
+            return None
 
     async def delete(self, environment: str) -> None:
         environment_id = await self.resolve(environment)
@@ -467,6 +559,38 @@ class AsyncEnvironments(AsyncAPIResource):
             self.runs, environment, agent_name=agent_name, set_name=set_name, tasks=tasks, tasks_file=tasks_file,
             task_names=task_names, label=label, idempotency_key=idempotency_key,
         )  # fmt: skip
+
+
+def _refused_while_busy(err: ConflictError) -> bool:
+    """The API refused because a build or a task generation runs.
+
+    Its sentence then asks to wait: "... is still being built; wait for that build to finish
+    before changing it", "... is generating tasks from its current version; wait for that to
+    finish before changing it". Nothing else tells an API key that a task generation runs (it
+    cannot list jobs), and the version served is the one asked for then, so without this a
+    revert during a generation reported success while the API had refused it (R6 F4).
+    """
+    sentence = err.body if isinstance(err.body, str) else err.message
+    return "wait for" in sentence
+
+
+def _serves(found: Environment, to_version: int) -> bool:
+    """The environment serves ``to_version``: its pointer and the version it serves are that
+    version, and it has tools. While the first build runs both are 1 with no tools (R6 F4)."""
+    return found.current_version == to_version and found.environment_version == to_version and found.tool_count > 0
+
+
+def _building(build: Optional[EnvironmentBuild]) -> bool:
+    """A build is running: its tools and pointer may still change. A failed build leaves the
+    version served before it as it was."""
+    return build is not None and not build.ready and not build.failed
+
+
+def _as_poll(policy: Optional[PollPolicy], client: Any) -> Dict[str, Any]:
+    """How a request of a wait is sent: once, with the time left of the wait. Nothing outside one."""
+    if policy is None:
+        return {}
+    return {"max_retries": POLL_RETRIES, "timeout": policy.poll_timeout(client.timeout)}
 
 
 def _only_match(name: str, matches: List[Environment]) -> str:

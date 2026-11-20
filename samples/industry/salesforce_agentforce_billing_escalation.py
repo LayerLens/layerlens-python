@@ -55,7 +55,8 @@ from _helpers import (
     upload_recorded_trace,
 )
 
-SAMPLE = "salesforce_agentforce_billing_escalation"
+# The namespace in this sample's judge names, "<name> (<SAMPLE>)": the API allows 64 characters.
+SAMPLE = "agentforce_billing_escalation"
 FIXTURE = recorded_trace_path("industry", "salesforce_agentforce_billing_escalation.jsonl")
 
 # The multi-topic Service Cloud session the recorded STDM trace captured.
@@ -81,6 +82,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -106,21 +108,23 @@ def main() -> None:
                 name="Escalation Soundness Judge",
                 evaluation_goal="Evaluate whether escalating the duplicate-charge refund to a human billing specialist was the correct action, given that the refund exceeds the agent's automated policy limit.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "dispute_handling": create_judge(
                 client,
                 name="Dispute Handling Judge",
                 evaluation_goal="Evaluate whether the agent correctly confirmed the duplicate charge from the payment-lookup action and clearly communicated what happens next before escalating.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "customer_empathy": create_judge(
                 client,
                 name="Customer Empathy Judge",
                 evaluation_goal="Evaluate whether the final response is empathetic, sets a clear expectation about the billing team's follow-up, and leaves the customer confident their issue is being handled.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
         }
-        judge_ids = [j.id for j in judges.values()]
 
         print("Evaluating the agent's escalation handling:")
         for label, judge in judges.items():
@@ -135,7 +139,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:22s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:22s} -- timed out waiting for results")
+                print(f"  {label:22s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

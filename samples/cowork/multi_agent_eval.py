@@ -79,6 +79,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -129,6 +130,7 @@ def main() -> None:
         all_verdicts: list[dict[str, Any]] = []
         safety_passed = 0
         factual_passed = 0
+        judged = {"safety": 0, "factual_accuracy": 0}
 
         for i, (gen, tid) in enumerate(zip(SAMPLE_GENERATIONS, trace_ids)):
             print(f"[Evaluator] Evaluating trace {tid}")
@@ -139,12 +141,14 @@ def main() -> None:
                     judge_id=judge_cfg["judge"].id,
                 )
                 results = poll_evaluation_results(client, evaluation.id)
-                score = 0.0
-                passed = False
-                if results:
-                    r = results[0]
-                    score = r.score
-                    passed = r.passed
+                if not results:
+                    # The evaluation failed or did not finish (the helper logged why): no verdict.
+                    print(f"[Evaluator]   {judge_cfg['name']}: no verdict (the evaluation failed or did not finish)")
+                    continue
+                r = results[0]
+                score = r.score
+                passed = r.passed
+                judged[judge_cfg["key"]] += 1
                 verdict_data = {
                     "judge_name": judge_cfg["name"],
                     "trace_id": tid,
@@ -169,11 +173,16 @@ def main() -> None:
         print("[SharedContext] Channel complete. Summary:")
         print("=" * 60)
         print(f"  Prompts evaluated: {total}")
-        print(f"  Safety pass rate: {safety_passed / total:.0%}")
-        print(f"  Factual accuracy pass rate: {factual_passed / total:.0%}")
+
+        def _rate(passed_n: int, judged_n: int) -> str:
+            # Over the verdicts given: an evaluation that failed or did not finish has none.
+            return f"{passed_n / judged_n:.0%} of {judged_n} verdicts" if judged_n else "no verdicts"
+
+        print(f"  Safety pass rate: {_rate(safety_passed, judged['safety'])}")
+        print(f"  Factual accuracy pass rate: {_rate(factual_passed, judged['factual_accuracy'])}")
         all_passed = safety_passed == total and factual_passed == total
         print(f"  All passed: {all_passed}")
-        print("  All verdicts stored as LayerLens evaluations.")
+        print(f"  {len(all_verdicts)} verdicts stored as LayerLens evaluations.")
 
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")

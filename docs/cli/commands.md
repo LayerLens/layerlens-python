@@ -16,11 +16,12 @@ layerlens [global-options]
 │   ├── list          List judges
 │   ├── get           Get a judge by ID
 │   ├── create        Create a new judge
-│   └── test          Test a judge against a trace
+│   ├── test          Test a judge against a trace
+│   └── result        Get the result of a judge test
 ├── evaluate
 │   ├── list          List evaluations
 │   ├── get           Get an evaluation by ID
-│   └── run           Run a new evaluation
+│   └── run           Run a new evaluation; with --wait, exit 12 unless it succeeds
 ├── evaluations
 │   ├── run           Run a dataset through a target locally
 │   └── compare       Compare two saved runs; exit 1 on a regression
@@ -41,7 +42,13 @@ layerlens [global-options]
 ├── env               Environments: create, run your agent or a model, gate a build (see env.md)
 │   ├── world-types, list, get, create, status, wait, tools, reset, revert, delete
 │   ├── tasks         list, generate, delete
-│   └── run           exec, model, start, submit, finish, status, wait, results, cancel
+│   └── run           exec, model, start, submit, finish, status, wait, results, cancel, list, compare
+├── synthetic
+│   ├── templates     List the templates synthetic traces are made from
+│   └── generate      Generate synthetic traces from a template
+├── login             Sign in with your email and password
+├── logout            Remove the stored session
+├── whoami            Show the key or the session a command would use
 └── completion        Print shell completion setup
 ```
 
@@ -57,13 +64,20 @@ give an option in both places, the one at the end wins.
 ```
 --api-key TEXT         API key (env: LAYERLENS_API_KEY)
 --api-key-file PATH    Read the API key from this file, or from standard input for -
---host TEXT            API host
+--host TEXT            API host, or a URL: https://host[:port] or http://host[:port]
 --port INTEGER         API port
 --format [table|json]  Output format (default: table)
 --verbose, -v          Enable debug output
 --quiet, -q            Don't show the startup banner
 --help                 Show help and exit
 ```
+
+`--host` and `--port` connect over HTTPS, whatever the port. The CLI speaks plain HTTP only
+to a loopback host (`localhost`, `127.0.0.1` or `::1`) on a port other than 443, or when
+`--host` is an `http://` URL. A `--host` URL can carry a port and a path (the path defaults to
+`/api/v1`); a `--port` that differs from the URL's port is a usage error (exit `2`), and
+nothing is sent. 1.11.0 used HTTP on every port but 443, which sent the API key in clear text;
+see [Getting Started](getting-started.md#custom-host).
 
 `layerlens --version` prints the version and exits. With `--format json`, stdout
 holds only the JSON (`[]` for an empty list) and messages go to stderr, except for
@@ -110,6 +124,9 @@ The table shows each trace's ID, creation time, file name, evaluation count, age
 # The traces of the environment runs labelled with this commit
 layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"
 ```
+
+The traces of environment runs are listed only for an Automation key; a Standard key's list
+leaves them out, as it can't open them.
 
 ### `trace get`
 
@@ -211,6 +228,22 @@ layerlens judge test [OPTIONS]
 | `--judge-id` | text | yes | Judge ID to test |
 | `--trace-id` | text | yes | Trace ID to evaluate |
 
+It prints the trace evaluation it created, and on stderr the command that fetches its result.
+
+### `judge result`
+
+Get the result of a judge test: the trace evaluation `judge test` created, by its ID.
+
+```bash
+layerlens judge result <TRACE_EVALUATION_ID>
+```
+
+Once the trace evaluation has succeeded, it prints the result: the verdict (`passed`), the
+`score` and the judge's reasoning. Before that it prints the trace evaluation with its
+`status`, and while it is `pending` or `in_progress` it says on stderr to run the command
+again once it finishes. It exits `0` in both cases. `evaluate get` reads benchmark
+evaluations, not these.
+
 ---
 
 ## evaluate
@@ -258,6 +291,17 @@ layerlens evaluate run [OPTIONS]
 
 `--wait` keeps polling through a 429, a 5xx or a lost connection, as
 `wait_for_completion` does.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The evaluation was created; with `--wait`, it ended in `success`. |
+| `1` | It could not be created or read: an unknown model or benchmark, a refused request (an organization with no credit left gets `402`), a network or server failure. |
+| `2` | The command line was invalid. |
+| `12` | With `--wait`: the evaluation ended in another status than `success` (`failure`, `cancelled`, ...). It is printed as usual first, with its `status`, so `--format json` still writes the evaluation. |
+
+1.11.0 exited `0` whatever the evaluation's status, so a CI step that ran
+`evaluate run --wait` passed on a failed evaluation. `12` is used by `evaluate run` and
+`bulk eval` only.
 
 ---
 
@@ -402,7 +446,7 @@ Bulk operations.
 
 ### `bulk eval`
 
-Run evaluations in bulk. Supports two modes:
+Run evaluations in bulk. Supports three modes:
 
 **Mode 1: JSONL file**
 
@@ -439,7 +483,19 @@ The traces file contains one trace ID per line.
 | `--judge-id` | text | Judge ID (use with --traces) |
 | `--traces` | path | File with trace IDs (one per line) |
 | `--dry-run` | flag | Preview without executing |
-| `--wait` | flag | Wait for all evaluations to complete |
+| `--wait` | flag | With `--file` or `--model`/`--benchmark`: wait for the evaluations to finish; exit `12` if any ends in anything but `success`. `--judge-id`/`--traces` does not wait |
+
+Each job is reported as it is created. A job that cannot run (its model, benchmark or trace is
+not found, or the API refuses it) is reported on stderr, and the jobs after it still run; the
+command then says how many failed. With `--wait` (modes 1 and 2), it waits for every
+evaluation it created and prints its status. Mode 3 does not wait, with `--wait` or not.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Every job ran; with `--wait`, every evaluation ended in `success`. |
+| `1` | A job could not run (not found, refused, or an error), the file held no job, or, with `--dry-run`, a line is not a job. `1` wins over `12`. |
+| `2` | The command line was invalid. |
+| `12` | With `--wait`: every job ran, and an evaluation ended in another status than `success`. |
 
 ---
 
@@ -475,9 +531,11 @@ writes no report. An environment run needs an API key with **Automation** access
 [`layerlens env`](env.md) does; one Automation key can read all three kinds.
 
 It reports results without judging them: it exits `0` whatever they are. Gate the build with the
-commands that ran them (`env run exec --min-pass-rate`, for example), and run `ci report` even
-when they fail. GitHub Actions runs `run:` with `bash -e`, so save the exit status, write the id,
-then exit with it:
+commands that ran them: `evaluate run --wait` exits `12` when the evaluation did not succeed,
+and `env run exec --min-pass-rate` exits `10` below the pass rate. Run `ci report` even when
+they fail. GitHub Actions runs `run:` with `bash -e`, so save the exit status, write the id,
+then exit with it. Here the Evaluate step fails when the evaluation fails (exit `12`) or could
+not run (exit `1`), and Summarise still reports it:
 
 ```yaml
 - name: Evaluate
@@ -556,6 +614,60 @@ gate a build on the result. It needs an API key with Automation access, except `
 layerlens env create --type zendesk --name support-desk --description-file ci/environment.md --if-not-exists --wait
 layerlens env run exec support-desk --tasks-file ci/tasks.jsonl --agent-name support-agent --min-pass-rate 0.9 -- python ci/agent.py
 ```
+
+---
+
+## synthetic
+
+Generate synthetic traces from templates. They are made in this process: nothing is sent to
+LayerLens.
+
+### `synthetic templates`
+
+```bash
+layerlens synthetic templates
+```
+
+Lists each template's id, category and title; `--format json` prints them as a list of
+`id`, `category` and `title`.
+
+### `synthetic generate`
+
+```bash
+layerlens synthetic generate --template <TEMPLATE_ID> --count 5 --out traces.jsonl
+```
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--template` | yes | A template id, as `synthetic templates` lists it |
+| `--count` | no | How many traces, at least 1 (default `10`); the template's own maximum caps it |
+| `--provider` | no | The provider that makes them (default: the one the template names; `stochastic` is built in) |
+| `--project-id`, `--organization-id` | no | Written into each trace (default: `synthetic`) |
+| `--out` | no | Write the traces to this file, one JSON object per line (default: stdout) |
+
+It says on stderr how many traces it generated. An unknown template or provider exits `1`
+with the reason; a `--count` below 1 is a usage error (exit `2`).
+
+---
+
+## login, logout, whoami
+
+```bash
+layerlens login     # prompts for your email and password
+layerlens whoami
+layerlens logout
+```
+
+`login` signs in with your LayerLens email and password and keeps the session in
+`~/.layerlens/credentials`, readable by you only. Commands use it when no API key is given (see
+[Signing in](#signing-in)). It asks before replacing a session you already have.
+
+`whoami` shows what a command would use: with an API key, where the key came from and the
+organization and project it belongs to (reading them checks the key, so a wrong key exits `1`);
+otherwise the signed-in user's email, name and id. Without a key or a session it exits `1`.
+`--format json` prints `auth` (`api_key` or `login`) and those fields.
+
+`logout` removes the stored session. API keys are not affected.
 
 ---
 

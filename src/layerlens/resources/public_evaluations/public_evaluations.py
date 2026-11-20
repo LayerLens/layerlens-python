@@ -12,12 +12,12 @@ from ...models import (
     EvaluationsResponse,
 )
 from ..._resource import SyncPublicAPIResource, AsyncPublicAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 from ..evaluations.evaluations import _parse_rows
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 class PublicEvaluationsResource(SyncPublicAPIResource):
@@ -25,8 +25,9 @@ class PublicEvaluationsResource(SyncPublicAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Evaluation]:
+        """A public evaluation, by id. Raises :class:`NotFoundError` when none has this id."""
         evaluation = self._get(
             f"/evaluations/{id}",
             timeout=timeout,
@@ -47,7 +48,7 @@ class PublicEvaluationsResource(SyncPublicAPIResource):
         benchmark_ids: Optional[List[str]] = None,
         status: Optional[EvaluationStatus] = None,
         unique: bool = False,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[EvaluationsResponse]:
         """
         Get evaluations with optional pagination, sorting, and filtering.
@@ -124,8 +125,9 @@ class AsyncPublicEvaluationsResource(AsyncPublicAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Evaluation]:
+        """A public evaluation, by id. Raises :class:`NotFoundError` when none has this id."""
         evaluation = await self._get(
             f"/evaluations/{id}",
             timeout=timeout,
@@ -146,7 +148,7 @@ class AsyncPublicEvaluationsResource(AsyncPublicAPIResource):
         benchmark_ids: Optional[List[str]] = None,
         status: Optional[EvaluationStatus] = None,
         unique: bool = False,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[EvaluationsResponse]:
         """
         Get evaluations with optional pagination, sorting, and filtering.

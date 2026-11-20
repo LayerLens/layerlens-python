@@ -51,7 +51,8 @@ from _helpers import (
     upload_recorded_trace,
 )
 
-SAMPLE = "media_langfuse_moderation_pipeline"
+# The namespace in this sample's judge names, "<name> (<SAMPLE>)": the API allows 64 characters.
+SAMPLE = "media_langfuse_mod_pipeline"
 FIXTURE = recorded_trace_path("industry", "media_langfuse_moderation_pipeline.jsonl")
 
 # The post the migrated review pipeline processed. Documents the scenario; the
@@ -79,6 +80,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -105,21 +107,23 @@ def main() -> None:
                 name="Moderation Accuracy Judge",
                 evaluation_goal="Evaluate whether the moderation decision correctly applies platform policy to the misinformation post.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "escalation_appropriateness": create_judge(
                 client,
                 name="Escalation Appropriateness Judge",
                 evaluation_goal="Evaluate whether escalating this post to human review was an appropriate handling of an unverified safety-recall claim.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "grading_signal_preserved": create_judge(
                 client,
                 name="Grading Signal Judge",
                 evaluation_goal="Evaluate whether the migrated trace preserved the LLM-as-judge policy-adherence score alongside the moderation decision.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
         }
-        judge_ids = [j.id for j in judges.values()]
 
         print("Evaluating the migrated review pipeline:")
         for label, judge in judges.items():
@@ -134,7 +138,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:28s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:28s} -- timed out waiting for results")
+                print(f"  {label:28s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is migrated; add a project/public model to enable judges.")

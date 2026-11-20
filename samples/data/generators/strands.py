@@ -34,6 +34,10 @@ import sys
 
 # Make the seam (_generate_fixtures) + src importable regardless of entrypoint.
 _HERE = os.path.dirname(os.path.abspath(__file__))
+# Run as a script, this folder is sys.path[0], and this file has the name of the library it
+# records: ``import <library>`` would import this file. Look the library up elsewhere.
+if sys.path and os.path.abspath(sys.path[0] or os.curdir) == _HERE:
+    sys.path.pop(0)
 _DATA = os.path.dirname(_HERE)  # samples/data
 _SAMPLES = os.path.dirname(_DATA)  # samples
 _REPO = os.path.dirname(_SAMPLES)

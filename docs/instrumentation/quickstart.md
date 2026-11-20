@@ -30,7 +30,7 @@ event emitted while it runs. When the call ends, the trace is sealed and uploade
 
 ```python
 from layerlens import LayerLens
-from layerlens.instrument import trace
+from layerlens.instrument import flush, trace
 
 client = LayerLens()
 
@@ -41,7 +41,12 @@ def my_agent(query: str):
 
 my_agent("Hello")
 # → the trace is uploaded in the background
+
+# At the end of a script or CI job: wait for every trace to upload
+flush(timeout=120)
 ```
+
+See [Before a Script or CI Job Exits](#before-a-script-or-ci-job-exits).
 
 ### Using Async Client
 
@@ -163,6 +168,37 @@ An error from an LLM provider also carries the provider's reason code as `error_
 `rate_limit_exceeded` or `invalid_api_key`), even when a framework wrapped it in an error of its own.
 Like `error_type`, it is kept when content is not, so a trace always says why a call failed. See
 [Error events](../api-reference/instrumentation.md#error-events).
+
+## Before a Script or CI Job Exits
+
+Traces upload in the background, one at a time, a second or two each. When the process exits,
+the SDK waits at most 5 seconds for the uploads still queued; what is left then is lost, with a
+warning on stderr:
+
+```
+layerlens: 8 trace(s) not sent: the process exited before their upload ended (waited 5s; set LAYERLENS_EXIT_TIMEOUT to wait longer, or call layerlens.instrument.flush() before exiting)
+```
+
+So a script or a CI job that records more than a trace or two calls `flush()` at its end:
+
+```python
+from layerlens.instrument import flush, trace
+
+@trace(client)
+def my_agent(query: str):
+    ...
+
+for question in questions:
+    my_agent(question)
+
+if not flush(timeout=120):
+    print("some traces were still uploading after 120 s")
+```
+
+`flush(timeout)` waits until every queued trace is sent, or `timeout` seconds pass (`None` waits
+as long as it takes), and returns whether nothing is left to send. To wait at exit without a
+code change, set `LAYERLENS_EXIT_TIMEOUT` (seconds) instead. A service that keeps running needs
+neither. See [Uploading](../api-reference/instrumentation.md#uploading).
 
 ## Next Steps
 

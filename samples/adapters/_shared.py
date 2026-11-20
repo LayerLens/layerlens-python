@@ -49,9 +49,16 @@ def _build_client() -> Optional[Any]:
     if find_api_key() is None:
         return None
     try:
-        from layerlens import LayerLens
+        from layerlens import LayerLens, APIConnectionError
 
-        return LayerLens()
+        client = LayerLens()
+        try:
+            client.organization_id  # checks the key and URL now: building the client makes no request
+        except APIConnectionError as exc:
+            # LayerLens may be back by the time the block ends: keep the client, and the
+            # upload after the block tries again (and reports "[upload failed]" if not).
+            print(f"[upload deferred] LayerLens not reachable yet: {exc}")
+        return client
     except Exception as exc:  # noqa: BLE001 -- a sample must not hard-fail on client init
         print(f"[upload skipped] could not initialize LayerLens client: {exc}")
         return None

@@ -43,7 +43,8 @@ from _helpers import (
     upload_recorded_trace,
 )
 
-SAMPLE = "manufacturing_maintenance_tooluse"
+# The namespace in this sample's judge names, "<name> (<SAMPLE>)": the API allows 64 characters.
+SAMPLE = "mfg_maintenance_tooluse"
 FIXTURE = recorded_trace_path("industry", "manufacturing_maintenance_tooluse.jsonl")
 
 # The machine snapshot the tool-using agent assessed. Documents the scenario;
@@ -74,6 +75,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -100,21 +102,23 @@ def main() -> None:
                 name="Tool Use Soundness Judge",
                 evaluation_goal="Evaluate whether calling get_maintenance_history was appropriate and whether the returned repair history was actually used in the assessment.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "prediction_quality": create_judge(
                 client,
                 name="Failure Prediction Judge",
                 evaluation_goal="Evaluate whether the failure-risk assessment and remaining-useful-life estimate are justified by the sensor data and the maintenance history.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "recommendation_quality": create_judge(
                 client,
                 name="Maintenance Recommendation Judge",
                 evaluation_goal="Evaluate whether the maintenance recommendation is concrete, actionable, and appropriately prioritized for the assessed risk.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
         }
-        judge_ids = [j.id for j in judges.values()]
 
         print("Evaluating the tool-use maintenance assessment:")
         for label, judge in judges.items():
@@ -129,7 +133,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:24s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:24s} -- timed out waiting for results")
+                print(f"  {label:24s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

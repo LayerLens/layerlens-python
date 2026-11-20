@@ -256,7 +256,12 @@ async def demo_judge_and_traces(client: AsyncLayerLens) -> None:
 
 
 async def main() -> None:
-    client = AsyncLayerLens()
+    try:
+        client = AsyncLayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     print("=" * 60)
     print("1. CONCURRENT RESULT FETCHING")

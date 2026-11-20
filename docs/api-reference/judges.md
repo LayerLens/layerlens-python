@@ -57,7 +57,11 @@ if __name__ == "__main__":
 
 Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
-### `create(name, evaluation_goal, model_id=None, timeout=None)`
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
+
+### `create(name, evaluation_goal, model_id=None)`
 
 Creates a new judge with the specified evaluation criteria.
 
@@ -68,11 +72,11 @@ Creates a new judge with the specified evaluation criteria.
 | `name`            | `str`                            | Yes      | Display name for the judge                   |
 | `evaluation_goal` | `str`                            | Yes      | Description of what the judge should evaluate |
 | `model_id`        | `str \| None`                    | No       | ID of the LLM model to grade with. Defaults server-side when omitted — but pass it explicitly, see below |
-| `timeout`         | `float \| httpx.Timeout \| None` | No       | Override request timeout                     |
+| `timeout`         | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `Judge` object if successful, `None` if the judge could not be created.
+Returns the new `Judge`. A create the API refuses raises its error, such as `BadRequestError` (400) for an `evaluation_goal` under 10 characters.
 
 > **Pass `model_id` explicitly.** Omitting it is safe — the server assigns a default
 > grader — but it means you did not choose the model your evaluations are graded by,
@@ -121,7 +125,7 @@ judge = client.judges.create(
 )
 ```
 
-### `get(id, timeout=None)`
+### `get(id)`
 
 Retrieves a judge by its unique identifier.
 
@@ -130,13 +134,13 @@ Retrieves a judge by its unique identifier.
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
 | `id`      | `str`                            | Yes      | The unique judge ID      |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `Judge` object if found, `None` otherwise.
+Returns a `Judge`. Raises `NotFoundError` if no judge has this id.
 
-### `get_many(page=None, page_size=None, timeout=None)`
+### `get_many(page=None, page_size=None)`
 
 Retrieves multiple judges with pagination.
 
@@ -145,8 +149,8 @@ Retrieves multiple judges with pagination.
 | Parameter   | Type                             | Required | Description                                        |
 | ----------- | -------------------------------- | -------- | -------------------------------------------------- |
 | `page`      | `int \| None`                    | No       | Page number (1-based, defaults to 1)               |
-| `page_size` | `int \| None`                    | No       | Number of judges per page (default: 100, max: 500) |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout                           |
+| `page_size` | `int \| None`                    | No       | Number of judges per page (default and maximum: 100) |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -156,7 +160,7 @@ Returns a `JudgesResponse` object containing:
 - `count`: Number of judges in this page
 - `total_count`: Total number of judges
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
 #### Example
 
@@ -169,7 +173,7 @@ print(f"Total judges: {response.total_count}")
 response = client.judges.get_many(page=2, page_size=50)
 ```
 
-### `update(id, name=None, evaluation_goal=None, model_id=None, timeout=None)`
+### `update(id, name=None, evaluation_goal=None, model_id=None)`
 
 Updates an existing judge. Only provided fields are modified; omitted fields remain unchanged. Updating a judge creates a new version.
 
@@ -181,11 +185,11 @@ Updates an existing judge. Only provided fields are modified; omitted fields rem
 | `name`            | `str \| None`                    | No       | Updated display name                         |
 | `evaluation_goal` | `str \| None`                    | No       | Updated evaluation criteria                  |
 | `model_id`        | `str \| None`                    | No       | Updated model ID                             |
-| `timeout`         | `float \| httpx.Timeout \| None` | No       | Override request timeout                     |
+| `timeout`         | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns an `UpdateJudgeResponse` if successful, `None` otherwise.
+Returns an `UpdateJudgeResponse`. Raises `NotFoundError` if no judge has this id.
 
 #### Example
 
@@ -196,7 +200,7 @@ updated = client.judges.update(
 )
 ```
 
-### `delete(id, timeout=None)`
+### `delete(id)`
 
 Deletes a judge by its unique identifier.
 
@@ -205,11 +209,11 @@ Deletes a judge by its unique identifier.
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
 | `id`      | `str`                            | Yes      | The unique judge ID      |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `DeleteJudgeResponse` if successful, `None` otherwise.
+Returns a `DeleteJudgeResponse`. Raises `NotFoundError` if no judge has this id, for example when it was already deleted.
 
 ## Response Objects
 

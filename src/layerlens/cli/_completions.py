@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any, List
 
 import click
@@ -17,9 +18,12 @@ def _get_client_silent(ctx: click.Context) -> Any:
         given = {**ctx.find_root().params}
         given.update({k: v for k, v in (ctx.obj or {}).items() if k in ("api_key", "host", "port")})
 
-        return LayerLens(
-            api_key=given.get("api_key") or None, base_url=base_url_for(given.get("host"), given.get("port"))
-        )
+        # The shell calls the program on every TAB: a warning printed here would land in the prompt.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return LayerLens(
+                api_key=given.get("api_key") or None, base_url=base_url_for(given.get("host"), given.get("port"))
+            )
     except Exception:
         return None
 

@@ -427,8 +427,9 @@ class TestWhatIsReported:
         assert result.stdout.count(f"run `{RUN_ID}`") == 1
 
     def test_limit_still_works_as_latest_with_a_deprecation_notice(
-        self, runner: CliRunner, api: SimpleNamespace
+        self, runner: CliRunner, api: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setattr("layerlens.cli._notice.stderr_is_terminal", lambda: True)
         api.routes[("GET", f"{API}/evaluations")] = (200, {"evaluations": [benchmark_evaluation()], "total_count": 1})
 
         result = invoke(runner, "ci", "report", "--limit", "3")
@@ -437,6 +438,45 @@ class TestWhatIsReported:
         assert f"`{EVAL_ID}`" in result.stdout
         assert "--limit is deprecated" in stderr(result)
         assert "--latest" in stderr(result)
+        listing = next(r for r in api.requests if r.url.path == f"{API}/evaluations")
+        assert listing.url.params["page_size"] == "3"
+
+    def test_latest_over_100_reads_pages_of_100(
+        self, runner: CliRunner, api: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The API serves at most 100 a page: --latest 150 read one page of 100 and reported 100.
+        rows = [benchmark_evaluation(id=f"{i:024x}") for i in range(230)]
+        organization = {"id": ORG, "name": "Acme", "projects": [{"id": PROJECT, "name": "Default"}]}
+
+        def send(self: httpx.Client, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+            api.requests.append(request)
+            if request.url.path.endswith("/organizations"):
+                body: Any = {"data": organization}
+            else:
+                size = min(int(request.url.params["page_size"]), 100)
+                page = int(request.url.params["page"])
+                body = {"evaluations": rows[(page - 1) * size : page * size], "total_count": len(rows)}
+            return httpx.Response(200, content=json.dumps(body).encode(), request=request)
+
+        monkeypatch.setattr(httpx.Client, "send", send)
+
+        result = invoke(runner, "ci", "report", "--latest", "150")
+
+        assert result.exit_code == 0, result.output + stderr(result)
+        listed = [r for r in api.requests if r.url.path == f"{API}/evaluations"]
+        assert [(r.url.params["page"], r.url.params["page_size"]) for r in listed] == [("1", "100"), ("2", "100")]
+        reported = [row["id"] for row in rows if f"`{row['id']}`" in result.stdout]
+        assert reported == [row["id"] for row in rows[:150]]
+
+    def test_limit_in_ci_prints_no_notice(self, runner: CliRunner, api: SimpleNamespace) -> None:
+        # stderr is not a terminal (CI): nothing extra on it, as on 1.11.0.
+        api.routes[("GET", f"{API}/evaluations")] = (200, {"evaluations": [benchmark_evaluation()], "total_count": 1})
+
+        result = invoke(runner, "ci", "report", "--limit", "3")
+
+        assert result.exit_code == 0, result.output + stderr(result)
+        assert f"`{EVAL_ID}`" in result.stdout
+        assert stderr(result) == ""
         listing = next(r for r in api.requests if r.url.path == f"{API}/evaluations")
         assert listing.url.params["page_size"] == "3"
 

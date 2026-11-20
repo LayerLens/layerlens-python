@@ -2,10 +2,11 @@
 # Quick start: configure, list traces, inspect, evaluate
 #
 # Usage: ./01_quickstart.sh [MODEL_ID]
-# MODEL_ID defaults to the first available judge model.
+# MODEL_ID is the judge's model; it defaults to GPT-4o-mini (openai/gpt-4o-mini).
+# A judge on a model the catalog marks deprecated is created, but refused when it runs.
 set -euo pipefail
 
-MODEL_ID="${1:-67e1fe69e014f9fa6e50d7be}"
+MODEL_ID="${1:-6a0b692ced57a8fd01d1433a}"
 
 # 1. List available traces
 echo "==> Listing traces..."

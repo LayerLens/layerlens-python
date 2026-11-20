@@ -39,17 +39,18 @@ description is about, then builds that company's app of the type you name (`zend
 as when you create the environment in the app. There are no settings and no seed: the
 description is the only input.
 
-The environment is a **composite** of that one app:
+Every environment `create` makes is a **composite** of that one app:
 
 - `type` is `composite`, and its tools are named `<alias>__<tool>`, where the alias is the
   type with `_` written `-`: `zendesk__ZENDESK_LIST_ZENDESK_TICKETS`, `google-calendar__list_events`. A call
   that names a tool without its alias is refused as an unknown tool, and so is a task whose
   grader names one: write `actions` calls, `ordered` steps and a `state` grader's tool with
   the alias, as `tools()` lists them.
-- The app itself is a second environment, a member of the composite, named
-  `<name> — <Title>` (`support-desk — Zendesk`). `list(hide_members=True)` leaves members
-  out. The member's name has to fit in 120 characters too, so the name can be up to 117
-  characters less the type's title.
+- The app itself is stored as a second environment, named `<name> — <Title>`
+  (`support-desk — Zendesk`), that an API key never sees or uses: `list()` leaves it out, and
+  the agent and Automation routes that start, drive or change it refuse it with a 409 that
+  names its composite (reads of its task sets and runs still answer). Connect to the composite. The app's name has to fit in 120 characters too, so the name can be up to
+  117 characters less the type's title.
 - `world_types()` lists the types. `create` builds a type whose `built_by_agent` is `True`,
   as every listed type is today; the API refuses any other with `BadRequestError` (400).
 
@@ -58,9 +59,61 @@ same type and description (`env.reused` is `True`). If the existing one differs,
 `EnvironmentConflictError`, whose `differences` names the inputs that differ (never their
 values).
 
-A failed build is never started again: `create` with `if_not_exists=True` raises
-`EnvironmentConflictError`, with empty `differences` and a message that says so, until you
-delete the environment and create it again:
+A failed build is never started again by `create`: with `if_not_exists=True` it raises
+`EnvironmentConflictError`, with empty `differences` and the API's sentence as its message.
+For an environment created here, a composite of one app, it reads `"support-desk" needs a new
+build, and its apps are built together as a setup this request cannot build again: rebuild it
+from Change environment in the app, or remove it and create it again`; for one that cannot be
+built again at all, `"support-desk" needs a new build, and it cannot be built again: <reason>;
+remove it and create it again`.
+
+On a project other people or jobs also write to, remove the failed environment by hand, in the
+app, and run the job again. Code can't be sure the environment it deletes is the one that was
+refused. In a project only your code writes to (a scratch or per-CI project), or where one lock
+covers the whole recovery, from the first `create` to the second, and anything else that deletes
+or rebuilds that environment, code can recover, for that refusal only: an environment of the
+same name with other inputs (`differences`), or in another project (`project_id`), is not yours
+to delete:
+
+```python
+from layerlens import EnvironmentConflictError
+
+description = (
+    "A mid-size outdoor-gear retailer's support desk: 40 open tickets, "
+    "mostly returns and late deliveries, two agents on shift."
+)
+
+
+def create_support_desk():
+    return client.environments.create(
+        "support-desk", "zendesk", description=description, if_not_exists=True
+    )
+
+
+# Only in a project nothing else writes to, or under one lock held from the first create to the
+# second that every delete or rebuild of this environment also takes: see the text below.
+try:
+    env = create_support_desk()
+except EnvironmentConflictError as conflict:
+    if conflict.differences or conflict.project_id or "needs a new build" not in str(conflict):
+        raise
+    failed = client.environments.get("support-desk")
+    if client.environments.build_status(failed.id).status != "failed":
+        raise  # rebuilt or replaced since the refusal: leave it alone
+    client.environments.delete(failed.id)  # by id: one created since under this name has another
+    env = create_support_desk()
+```
+
+The refusal carries no environment id, so the example finds the environment by name and deletes
+it by that id. Two windows remain, which is why it needs a project nothing else writes to, or a
+lock that covers the whole recovery (a lock around `create` alone lets two jobs recover at once):
+
+- Between the refusal and `get`, someone can replace `support-desk`; if the replacement's build
+  failed too, the example deletes it, with its runs and task sets.
+- Between `build_status` and `delete`, someone can start a rebuild of the same environment in
+  the app; the delete removes it.
+
+A build can also fail after `create` returns. Then the wait raises:
 
 ```python
 from layerlens import EnvironmentBuildError
@@ -79,16 +132,23 @@ the deadline.
 Every wait (`wait_until_ready`, `jobs.wait`, `runs.wait`) keeps polling through a 429, a 5xx
 or a lost connection. It sends each poll once and does the retrying itself: the next poll
 follows half a second later, then after twice as long each time it fails again, up to the
-poll interval, and never sooner than the reply's `Retry-After`, up to 5 minutes. When its
-`timeout_seconds` passes while the polls are still failing, it raises `TimeoutError`,
-carrying the last error as its `__cause__`; any other error, such as a 403, is raised at
-once.
+poll interval. A wait never polls sooner than a `Retry-After` asks. When the `Retry-After`
+reaches past the wait's deadline, the wait sleeps until the deadline and then raises, with the
+429 as the cause. A wait with no deadline (`timeout_seconds=None`, or `0` on an evaluation
+wait) reads a `Retry-After` longer than 5 minutes as 5 minutes. When its `timeout_seconds` passes while the polls are still failing, it
+raises `TimeoutError`, carrying the last error as its `__cause__`; any other error, such as a
+403, is raised at once.
+
+`timeout_seconds` decides when the wait stops sending polls, not how long one answer may take
+to arrive. Each poll's timeout is cut to the time left, but an HTTP timeout limits connecting
+and each wait for data, not the whole answer: an answer that keeps arriving slowly can hold the
+wait past `timeout_seconds`.
 
 | Method | |
 | --- | --- |
 | `create(name, type, *, description, if_not_exists=False)` | Create and start the build. Returns `CreatedEnvironment` (`id`, `environment`, `job`, `reused`) |
 | `get(environment)` | One `Environment` |
-| `list(*, name=None, search=None, hide_members=False)` | The project's environments; `hide_members` leaves out a composite's members |
+| `list(*, name=None, search=None, hide_members=False)` | The project's environments. `hide_members` is kept for compatibility: an API key's list already leaves out a composite's apps, so it changes nothing |
 | `resolve(environment)` | The id of an environment given by id or name |
 | `build_status(environment)` | `EnvironmentBuild`: `status` (`building`, `ready`, `failed`), `steps`, counts, `refused_because` |
 | `wait_until_ready(environment, *, timeout_seconds=1800)` | Block until the build finishes; returns the `Environment` |
@@ -309,6 +369,10 @@ any did. Tasks match by `task_id`, and a task in one run only is listed, never a
 | `environment_versions_differ` | The runs were served different versions of the environment |
 
 ```python
+from layerlens.models import RunComparison
+
+# baseline: the run found above; candidate: the run to check, finished
+candidate = client.environments.runs.get("support-desk", run_id)
 comparison = RunComparison.between(baseline, candidate)
 for change in comparison.regressed:
     print(change.task_name, change.candidate.verdict, change.candidate.evidence)
@@ -349,7 +413,7 @@ attempt that is already graded raises `ConflictError`.
 | Exception | When |
 | --- | --- |
 | `EnvironmentConflictError` (a `ConflictError`) | `create`: the name is taken by an environment this call cannot reuse. `differences` and `project_id` say why; when both are empty, the message does, such as a build that failed |
-| `BadRequestError` | `create`: a type no agent builds, or a name whose member name would be over 120 characters |
+| `BadRequestError` | `create`: a type no agent builds, or a name whose app's name (`<name> — <Title>`) would be over 120 characters |
 | `EnvironmentBuildError` | `wait_until_ready`: the build failed. `refused_because` and `build` |
 | `TimeoutError` | A `wait` reached its `timeout_seconds`, with what it was waiting for still going, or with its polls still failing (429, 5xx, no connection); then `__cause__` is the last error |
 | `PermissionDeniedError` | The key has Standard access |

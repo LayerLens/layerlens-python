@@ -7,12 +7,12 @@ from pydantic import ValidationError
 
 from ...models import Scorer, ScorersResponse
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 from ..._exceptions import LayerLensError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 def _unwrap(resp: Any) -> Any:
@@ -67,7 +67,12 @@ class Scorers(SyncAPIResource):
     def _base_url(self) -> str:
         return f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/scorers"
 
-    def get(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Scorer]:
+    def get(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> Optional[Scorer]:
+        """A scorer, by id.
+
+        Raises :class:`NotFoundError` when the project has no scorer with this id. Returns None only
+        for a reply that holds no scorer.
+        """
         resp = self._get(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
         data = _unwrap(resp)
         if isinstance(data, dict):
@@ -82,7 +87,7 @@ class Scorers(SyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ScorersResponse]:
         params: Dict[str, Any] = {}
         effective_page_size = min(max(page_size, 1), MAX_PAGE_SIZE) if page_size is not None else DEFAULT_PAGE_SIZE
@@ -112,7 +117,7 @@ class Scorers(SyncAPIResource):
         description: str,
         model_id: str,
         prompt: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Scorer:
         """Create a scorer and return it, as stored.
 
@@ -144,7 +149,7 @@ class Scorers(SyncAPIResource):
         description: Optional[str] = None,
         model_id: Optional[str] = None,
         prompt: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         body: Dict[str, Any] = {}
         if name is not None:
@@ -161,7 +166,12 @@ class Scorers(SyncAPIResource):
         except Exception:
             return False
 
-    def delete(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> bool:
+    def delete(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> bool:
+        """Delete a scorer: True once deleted.
+
+        False when the API refused it or could not be reached, a missing id included: unlike the
+        other deletes, this one raises nothing.
+        """
         try:
             self._delete(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
             return True
@@ -173,7 +183,12 @@ class AsyncScorers(AsyncAPIResource):
     def _base_url(self) -> str:
         return f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/scorers"
 
-    async def get(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Scorer]:
+    async def get(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> Optional[Scorer]:
+        """A scorer, by id.
+
+        Raises :class:`NotFoundError` when the project has no scorer with this id. Returns None only
+        for a reply that holds no scorer.
+        """
         resp = await self._get(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
         data = _unwrap(resp)
         if isinstance(data, dict):
@@ -188,7 +203,7 @@ class AsyncScorers(AsyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ScorersResponse]:
         params: Dict[str, Any] = {}
         effective_page_size = min(max(page_size, 1), MAX_PAGE_SIZE) if page_size is not None else DEFAULT_PAGE_SIZE
@@ -216,7 +231,7 @@ class AsyncScorers(AsyncAPIResource):
         description: str,
         model_id: str,
         prompt: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Scorer:
         """Create a scorer and return it, as stored.
 
@@ -248,7 +263,7 @@ class AsyncScorers(AsyncAPIResource):
         description: Optional[str] = None,
         model_id: Optional[str] = None,
         prompt: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         body: Dict[str, Any] = {}
         if name is not None:
@@ -265,7 +280,12 @@ class AsyncScorers(AsyncAPIResource):
         except Exception:
             return False
 
-    async def delete(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> bool:
+    async def delete(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> bool:
+        """Delete a scorer: True once deleted.
+
+        False when the API refused it or could not be reached, a missing id included: unlike the
+        other deletes, this one raises nothing.
+        """
         try:
             await self._delete(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
             return True

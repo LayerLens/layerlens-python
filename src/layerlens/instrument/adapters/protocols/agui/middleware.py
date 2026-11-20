@@ -13,7 +13,11 @@ from typing import Any, Dict
 from collections.abc import Callable
 
 from ...._events import AGENT_ERROR, PROTOCOL_STREAM_EVENT
-from .event_mapper import map_agui_to_layerlens, build_run_error_payload
+from .event_mapper import (
+    map_agui_to_stratix as map_agui_to_stratix,  # deprecated; importable from here, as in 1.11.0
+    map_agui_to_layerlens,
+    build_run_error_payload,
+)
 
 log = logging.getLogger(__name__)
 

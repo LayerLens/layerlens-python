@@ -127,7 +127,10 @@ estimate = client.trace_evaluations.estimate_cost(
     trace_ids=trace_ids,
     judge_id=judge.id,
 )
-print(f"Estimated cost: ${estimate.estimated_cost:.4f} for {estimate.trace_count} traces")
+if estimate and estimate.cost_available:  # an unpriced estimate is falsy
+    print(f"Estimated cost: ${estimate.estimated_cost:.4f} for {estimate.trace_count} traces")
+else:
+    print("Estimated cost: not available")
 
 # --- Run a judge on the first trace
 evaluation = client.trace_evaluations.create(
@@ -268,7 +271,10 @@ async def main():
         trace_ids=trace_ids,
         judge_id=judge.id,
     )
-    print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+    if estimate and estimate.cost_available:  # an unpriced estimate is falsy
+        print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+    else:
+        print("Estimated cost: not available")
 
     # --- Run evaluations concurrently
     tasks = [client.trace_evaluations.create(trace_id=tid, judge_id=judge.id) for tid in trace_ids]

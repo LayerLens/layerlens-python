@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union, Optional
 from datetime import datetime
 
-from pydantic import Field, BaseModel, ConfigDict
+from pydantic import Field, BaseModel, ConfigDict, computed_field
 
 from ._run_reports import run_to_junit, run_to_markdown, comparison_to_markdown
 from ._run_comparison import task_changes, unfinished_reason
@@ -85,11 +85,13 @@ class Environment(_Model):
 
     id: str
     name: str
-    # "composite" for every environment created now (an app built inside one is listed too,
-    # under its own world type, unless ``hide_members``); "spec" for an OpenAPI spec import.
+    # "composite" for every environment created now (an API key's list leaves out the apps a
+    # composite holds); "spec" for an OpenAPI spec import.
     type: str
     current_version: int
-    # The version actually served; 0 before the first build lands.
+    # The number of the version record the pointer names; 0 only when there is none. It is set
+    # as soon as a build writes its version, so it is 1 (with tool_count 0) while the first build
+    # still runs: whether a build has landed is build_status().status, not this number.
     environment_version: int
     tool_count: int
     created_at: datetime
@@ -443,9 +445,14 @@ class RunComparison(_Model):
             regression=bool(regressed),
         )
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def environment_versions_differ(self) -> bool:
-        """The runs were served different versions of the environment."""
+        """The runs were served different versions of the environment.
+
+        A computed field, so ``model_dump()`` and ``layerlens --format json env run compare``
+        include it (R6 F3: as a plain property it was left out, and a script read ``null``).
+        """
         return self.baseline.environment_version != self.candidate.environment_version
 
     def to_markdown(self, *, title: Optional[str] = None) -> str:

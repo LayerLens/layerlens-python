@@ -6,7 +6,7 @@ import httpx
 
 from ...models import EvaluationStatus, ComparisonResponse, EvaluationsResponse
 from ..._resource import SyncPublicAPIResource, AsyncPublicAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, NotGiven
 
 _OUTCOME_FILTER = Literal["all", "both_succeed", "both_fail", "reference_fails", "comparison_fails"]
 
@@ -33,7 +33,7 @@ class Comparisons(SyncPublicAPIResource):
         page_size: Optional[int] = None,
         outcome_filter: Optional[_OUTCOME_FILTER] = None,
         search: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ComparisonResponse]:
         params = {
             "evaluation_id_1": evaluation_id_1,
@@ -73,7 +73,7 @@ class Comparisons(SyncPublicAPIResource):
         page_size: Optional[int] = None,
         outcome_filter: Optional[_OUTCOME_FILTER] = None,
         search: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ComparisonResponse]:
         """Compare two models on a benchmark by automatically finding their evaluations.
 
@@ -131,7 +131,7 @@ class Comparisons(SyncPublicAPIResource):
             timeout=timeout,
         )
 
-    def _resolve_model_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None) -> str:
+    def _resolve_model_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None | NotGiven) -> str:
         resp = self._client.models.get(key=key, timeout=timeout)
         if resp is not None:
             for model in resp.models:
@@ -139,7 +139,7 @@ class Comparisons(SyncPublicAPIResource):
                     return str(model.id)
         raise ValueError(f"No model found for key '{key}'")
 
-    def _resolve_benchmark_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None) -> str:
+    def _resolve_benchmark_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None | NotGiven) -> str:
         resp = self._client.benchmarks.get(key=key, timeout=timeout)
         if resp is not None:
             for benchmark in resp.datasets:
@@ -158,7 +158,7 @@ class AsyncComparisons(AsyncPublicAPIResource):
         page_size: Optional[int] = None,
         outcome_filter: Optional[_OUTCOME_FILTER] = None,
         search: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ComparisonResponse]:
         params = {
             "evaluation_id_1": evaluation_id_1,
@@ -198,7 +198,7 @@ class AsyncComparisons(AsyncPublicAPIResource):
         page_size: Optional[int] = None,
         outcome_filter: Optional[_OUTCOME_FILTER] = None,
         search: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ComparisonResponse]:
         """Compare two models on a benchmark by automatically finding their evaluations.
 
@@ -256,7 +256,7 @@ class AsyncComparisons(AsyncPublicAPIResource):
             timeout=timeout,
         )
 
-    async def _resolve_model_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None) -> str:
+    async def _resolve_model_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None | NotGiven) -> str:
         resp = await self._client.models.get(key=key, timeout=timeout)
         if resp is not None:
             for model in resp.models:
@@ -264,7 +264,9 @@ class AsyncComparisons(AsyncPublicAPIResource):
                     return str(model.id)
         raise ValueError(f"No model found for key '{key}'")
 
-    async def _resolve_benchmark_key(self, key: Optional[str], *, timeout: float | httpx.Timeout | None) -> str:
+    async def _resolve_benchmark_key(
+        self, key: Optional[str], *, timeout: float | httpx.Timeout | None | NotGiven
+    ) -> str:
         resp = await self._client.benchmarks.get(key=key, timeout=timeout)
         if resp is not None:
             for benchmark in resp.datasets:

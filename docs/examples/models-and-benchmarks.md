@@ -21,7 +21,7 @@ async def main():
     print(f"Found {len(models)} models with name {model_name}")
 
     # --- Filter by company
-    company_names = ["openai", "anthropic"]
+    company_names = ["OpenAI", "Anthropic"]  # as the catalog spells them: the match is case-sensitive
     models = await client.models.get(companies=company_names)
     print(f"Found {len(models)} models with companies {company_names}")
 

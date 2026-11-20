@@ -1,6 +1,6 @@
 # CLI — Workflow Examples
 
-Fifteen copy-paste workflows covering the most common CLI tasks.
+Fourteen copy-paste workflows covering the most common CLI tasks.
 
 ---
 
@@ -106,7 +106,8 @@ EOF
 # Dry-run to preview
 layerlens bulk eval --file jobs.jsonl --dry-run
 
-# Execute and wait
+# Execute and wait: exits 12 if an evaluation ends in anything but success,
+# and 1 if a job could not run (the other jobs still run)
 layerlens bulk eval --file jobs.jsonl --wait
 ```
 
@@ -135,19 +136,31 @@ layerlens bulk eval \
 ## 8. CI/CD pipeline integration
 
 ```bash
-# In your GitHub Actions workflow:
+# In a GitHub Actions step (bash -e): keep the exit status. `evaluate run --wait` exits 12
+# when the evaluation ends in anything but success, and 1 when it could not run.
+status=0
 layerlens --format json evaluate run \
   --model openai/gpt-4o \
   --benchmark arc-agi-2 \
-  --wait > evaluation.json
+  --wait > evaluation.json || status=$?
+EVAL_ID=$(jq -r '.id // empty' evaluation.json)
 
-# Summarise that evaluation on the GitHub job page (appended, so earlier steps' summaries stay)
-layerlens ci report --evaluation-id "$(jq -r .id evaluation.json)" -o "$GITHUB_STEP_SUMMARY"
+# Summarise that evaluation on the GitHub job page (appended, so earlier steps' summaries stay),
+# even when it failed
+if [ -n "$EVAL_ID" ]; then
+  layerlens ci report --evaluation-id "$EVAL_ID" -o "$GITHUB_STEP_SUMMARY"
+fi
 
 # Or as JSON for custom processing, with a trace evaluation and an environment run
-layerlens --format json ci report --evaluation-id "$(jq -r .id evaluation.json)" \
-  --trace-evaluation-id <TRACE_EVALUATION_ID> --env-run support-desk:<RUN_ID> -o report.json
+# layerlens --format json ci report --evaluation-id "$EVAL_ID" \
+#   --trace-evaluation-id <TRACE_EVALUATION_ID> --env-run support-desk:<RUN_ID> -o report.json
+
+# Fail the step when the evaluation failed or could not run
+exit "$status"
 ```
+
+`ci report` exits `0` whatever the results are: the step fails through `evaluate run`'s exit
+status. See [`ci report`](commands.md#ci-report) for a workflow that reports in a step of its own.
 
 ---
 
@@ -199,7 +212,8 @@ layerlens scorer delete <SCORER_ID> -y
 ## 11. JSON output and scripting
 
 ```bash
-# Pipe trace IDs into a loop
+# Pipe trace IDs into a loop (`trace export -o` does not create the folder)
+mkdir -p traces
 layerlens --format json trace list | jq -r '.[].id' | while read id; do
   echo "Exporting $id..."
   layerlens trace export "$id" -o "traces/${id}.json"
@@ -233,7 +247,8 @@ layerlens evaluate list --sort-by submitted_at --order asc
 ## 13. Verbose mode and debugging
 
 ```bash
-# Enable verbose output to see HTTP requests
+# Verbose output: list commands add a count line ("Showing 100 of 3260 traces"), and an
+# unexpected error prints its traceback. Requests themselves are not printed.
 layerlens -v trace list
 
 # Combine with JSON output

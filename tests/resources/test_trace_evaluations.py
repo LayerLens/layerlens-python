@@ -10,7 +10,7 @@ from layerlens.models import (
     TraceEvaluationsResponse,
     TraceEvaluationResultsResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens._exceptions import NotFoundError
 from layerlens.resources.trace_evaluations.trace_evaluations import TraceEvaluations
 
@@ -113,7 +113,7 @@ class TestTraceEvaluations:
         trace_evals_resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations",
             body={"trace_id": "trace-456", "judge_id": "judge-789"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -186,7 +186,7 @@ class TestTraceEvaluations:
 
         trace_evals_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations/te-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -292,7 +292,7 @@ class TestTraceEvaluations:
 
         trace_evals_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations/te-123/results",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -349,7 +349,7 @@ class TestTraceEvaluations:
         trace_evals_resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations/estimate",
             body={"trace_ids": ["t1", "t2"], "judge_id": "judge-789"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 

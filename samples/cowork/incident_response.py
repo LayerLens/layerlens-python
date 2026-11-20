@@ -117,6 +117,7 @@ def main() -> None:
 
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -182,9 +183,11 @@ def main() -> None:
                 judge_id=safety_judge.id,
             )
             results = poll_evaluation_results(client, evaluation.id)
-            score = 0.0
-            if results:
-                score = results[0].score
+            if not results:
+                # The evaluation failed or did not finish (the helper logged why): no score to triage.
+                print(f"[Detector] Trace {tid}: no verdict (the evaluation failed or did not finish)")
+                continue
+            score = results[0].score
             severity = triage_severity(score)
 
             triage_results.append(

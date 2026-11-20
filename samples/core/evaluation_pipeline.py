@@ -35,15 +35,11 @@ Usage
 
 from __future__ import annotations
 
-import os
 import sys
 import logging
 import argparse
 
-from layerlens import LayerLens
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from _helpers import poll_evaluation_results
+from layerlens import LayerLens, NotFoundError, PermissionDeniedError
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -101,6 +97,7 @@ def main() -> None:
     # --- Initialize SDK client ---
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)
@@ -138,9 +135,13 @@ def main() -> None:
 
     # Select the judge to use
     if args.judge_id:
-        judge = client.judges.get(args.judge_id)
-        if not judge:
+        try:
+            judge = client.judges.get(args.judge_id)
+        except NotFoundError:
             logger.error("Judge with ID '%s' not found", args.judge_id)
+            sys.exit(1)
+        if judge is None:
+            logger.error("Judge with ID '%s' could not be read", args.judge_id)
             sys.exit(1)
     else:
         judge = judges_response.judges[0]
@@ -178,9 +179,17 @@ def main() -> None:
 
     # Select the trace to evaluate
     if args.trace_id:
-        trace = client.traces.get(args.trace_id)
-        if not trace:
+        try:
+            trace = client.traces.get(args.trace_id)
+        except NotFoundError:
             logger.error("Trace with ID '%s' not found", args.trace_id)
+            sys.exit(1)
+        except PermissionDeniedError as exc:
+            # An environment run's attempt trace needs an Automation key.
+            logger.error("This key cannot read trace %s: %s", args.trace_id, exc)
+            sys.exit(1)
+        if trace is None:
+            logger.error("Trace with ID '%s' could not be read", args.trace_id)
             sys.exit(1)
     else:
         trace = traces_response.traces[0]
@@ -194,12 +203,17 @@ def main() -> None:
     logger.info("Step 3: Create trace evaluation")
     logger.info("=" * 60)
 
-    trace_eval = client.trace_evaluations.create(
-        trace_id=trace.id,
-        judge_id=judge.id,
-    )
-
-    if not trace_eval:
+    try:
+        trace_eval = client.trace_evaluations.create(
+            trace_id=trace.id,
+            judge_id=judge.id,
+        )
+    except (NotFoundError, PermissionDeniedError) as exc:
+        # An environment run's attempt trace needs an Automation key: a Standard
+        # key lists it but can't evaluate it. Pick another with --trace-id.
+        logger.error("Cannot evaluate trace %s with this key: %s", trace.id, exc)
+        sys.exit(1)
+    if trace_eval is None:
         logger.error("Failed to create trace evaluation")
         sys.exit(1)
 
@@ -216,16 +230,37 @@ def main() -> None:
     logger.info("Step 4: Fetch evaluation results")
     logger.info("=" * 60)
 
-    eval_results = poll_evaluation_results(client, trace_eval.id)
-    if eval_results:
-        logger.info("  Results ready.")
-    else:
+    eval_results = None
+    try:
+        result = client.trace_evaluations.wait_for_completion(
+            trace_eval.id,
+            interval_seconds=args.poll_interval,
+            timeout_seconds=args.poll_timeout,
+        )
+    except TimeoutError:
         logger.warning(
-            "Timed out waiting for results. "
+            "No results after %d seconds. "
             "The evaluation may still be processing -- check later with "
             "trace_evaluation ID: %s",
+            args.poll_timeout,
             trace_eval.id,
         )
+    else:
+        if result is not None:
+            eval_results = [result]
+            logger.info("  Results ready.")
+        else:
+            logger.warning("The evaluation finished without results")
+
+    # The evaluation's status now, and why it failed if it did. The report
+    # still prints what it has when this read fails.
+    try:
+        refreshed = client.trace_evaluations.get(trace_eval.id)
+    except Exception as exc:
+        logger.warning("Could not read the evaluation's status: %s", exc)
+        refreshed = None
+    if refreshed is not None:
+        trace_eval = refreshed
 
     # ------------------------------------------------------------------
     # Step 5: Evaluation report
@@ -242,7 +277,9 @@ def main() -> None:
     print(f"  Judge version:      {getattr(judge, 'version', 'N/A')}")
     print(f"  Trace ID:           {trace.id}")
     print(f"  Evaluation ID:      {trace_eval.id}")
-    print(f"  Evaluation status:  {getattr(trace_eval, 'status', 'unknown')}")
+    print(f"  Evaluation status:  {getattr(trace_eval.status, 'value', trace_eval.status)}")
+    if trace_eval.status_description:
+        print(f"  Status detail:      {trace_eval.status_description}")
     print("-" * 70)
 
     if eval_results:
@@ -259,9 +296,12 @@ def main() -> None:
             print(f"      Passed:    {passed}")
             print(f"      Reasoning: {reasoning_preview}")
             print()
+    elif getattr(trace_eval.status, "value", trace_eval.status) == "failure":
+        print("  No results: the evaluation failed.")
+        print()
     else:
         print("  No results available yet.")
-        print(f"  Re-run with --trace-id and check evaluation {trace_eval.id}")
+        print(f"  Check evaluation {trace_eval.id} later")
         print()
 
     print("=" * 70)

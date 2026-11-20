@@ -55,6 +55,17 @@ _RUN_METHODS = ("run", "run_sync", "run_stream")
 #: The token counts ``_extract_usage`` can report; a cost.record needs at least one.
 _TOKEN_KEYS = frozenset({"tokens_prompt", "tokens_completion", "tokens_total"})
 
+
+def _usage_method(usage: Any) -> bool:
+    """Whether ``usage`` is the method that returns the usage (pydantic-ai before 2), not the usage.
+
+    pydantic-ai 2.x made ``usage`` a property and kept ``RunUsage.__call__`` for V1-style
+    ``result.usage()``, with a PydanticAIDeprecationWarning on every call: calling whatever was
+    callable printed that warning on every run.
+    """
+    return callable(usage) and not hasattr(usage, "input_tokens")
+
+
 #: Sentinel distinguishing "no pre-resolved output supplied" (read it off the
 #: result) from a genuine ``None`` output — the streaming path resolves the
 #: output itself via ``await get_output()`` and hands it in.
@@ -438,7 +449,7 @@ class PydanticAIAdapter(FrameworkAdapter):
         if usage is None:
             return tokens
 
-        if callable(usage):
+        if _usage_method(usage):
             try:
                 usage = usage()
             except Exception:
@@ -516,7 +527,7 @@ class _InstrumentedModel(WrapperModel):  # type: ignore[misc,valid-type]
             payload["model"] = str(model_name)
         payload["latency_ms"] = latency_ms
         usage = getattr(streamed, "usage", None)
-        if callable(usage):
+        if _usage_method(usage):
             try:
                 usage = usage()
             except Exception:

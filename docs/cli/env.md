@@ -31,9 +31,10 @@ stdout, and progress to stderr; with `--format json`, stdout holds only the JSON
 | --- | --- |
 | `0` | Success. With `--min-pass-rate`: the run finished and met it. |
 | `1` | An error: authentication, permission, a refused request, a network or server failure. |
-| `2` | The command line was invalid. |
+| `2` | The command line was invalid, including an empty `RUN_ID`: what a variable holds when the step that should have set it failed. Nothing is sent. |
 | `10` | The run finished below `--min-pass-rate`. |
 | `11` | The run or the build did not finish: it failed, was cancelled, ran out of budget or timed out, including when the API kept answering 429, a 5xx or nothing at all until `--timeout`. Also `env run exec` when every attempt ended in an error, which is how a broken command and an agent that fails on every task (a crash on import, say) both look. |
+| `12` | Not used by `env` commands. (`evaluate run --wait` and `bulk eval --wait` exit `12` when an evaluation ends in anything but `success`: see [Command Reference](commands.md#evaluate-run).) |
 
 Test for `10` to tell "the agent regressed" from "the pipeline broke". Never treat `11` as a
 flake to ignore: it can be an agent that fails every task, so it must block a merge as `10`
@@ -46,7 +47,7 @@ gate exits `1` then.
 | Command | |
 | --- | --- |
 | `layerlens env world-types` | The apps an environment can simulate, with their tool counts |
-| `layerlens env list [--search TEXT] [--hide-members]` | The project's environments; `--hide-members` leaves out a composite's members |
+| `layerlens env list [--search TEXT] [--hide-members]` | The project's environments. `--hide-members` is kept for compatibility: an API key's list already leaves out a composite's apps, so it changes nothing |
 | `layerlens env get ENV` | One environment, with its task sets |
 | `layerlens env create` | Create an environment and start building it; prints its id |
 | `layerlens env status ENV` | The build: `building`, `ready` or `failed`, with its steps |
@@ -74,16 +75,26 @@ Step names in `env status` are informational and can change; scripts should read
 from `layerlens --format json env status ENV`.
 
 An agent reads the company the description is about and builds that company's app of
-`--type`; the description is the only input. The environment is a composite of that one app:
-its type is `composite`, its tools are named `<alias>__<tool>` (the type, with `_` written
-`-`: `zendesk__ZENDESK_LIST_ZENDESK_TICKETS`), and the app is a member environment named
-`<name> — <Title>` (`support-desk — Zendesk`), which `env list --hide-members` leaves out. A
+`--type`; the description is the only input. Every `env create` makes a composite of that one
+app: its type is `composite`, and its tools are named `<alias>__<tool>` (the type, with `_`
+written `-`: `zendesk__ZENDESK_LIST_ZENDESK_TICKETS`). The app itself is stored as a second
+environment, `<name> — <Title>` (`support-desk — Zendesk`), that an API key never sees or
+uses: `env list` leaves it out, an `env` command given its name finds no such environment,
+and a command that starts, drives or changes it by its id is refused with a 409 that names its
+composite (reads of its task sets and runs still answer). Use the composite. A
 tasks file whose `actions`, `ordered` or `state` grader names a tool must name it that way, as
 `env tools` lists it. See [Create and wait](../api-reference/environments.md#create-and-wait).
 
-A failed build is never started again: `env create --if-not-exists` then exits `1`, saying
-so, until you delete the environment and create it again. In CI, when `env status` shows
-the build `failed`:
+A failed build is never started again by `create`: `env create --if-not-exists` then exits `1`
+with the API's sentence. For an environment created here, a composite of one app, it reads:
+
+```
+"support-desk" needs a new build, and its apps are built together as a setup this request cannot build again: rebuild it from Change environment in the app, or remove it and create it again
+```
+
+and for one that cannot be built again at all:
+`"support-desk" needs a new build, and it cannot be built again: <reason>; remove it and create it again`.
+In CI, when `env status` shows the build `failed`, delete it and create it again:
 
 ```bash
 layerlens env delete support-desk --yes
@@ -176,7 +187,17 @@ with that key: `LayerLens(api_key=os.environ["AGENT_LAYERLENS_KEY"])`. The SDK u
 the background, and as the process exits waits for queued uploads as long as
 `LAYERLENS_EXIT_TIMEOUT` says: `exec` sets it to 30 seconds (half `--attempt-timeout` when
 that is shorter) unless the step sets it. A trace not uploaded by then, such as the one an
-agent killed at `--attempt-timeout` was recording, is not linked.
+agent killed at `--attempt-timeout` was recording, is not linked. An agent can call
+`layerlens.instrument.flush(timeout=...)` before it exits, so its traces are sent, and the
+first one's id written, before the exit wait starts. Call it after the `trace` or
+`trace_context` block has ended, and after any provider stream the block returned has been
+read to its end: `flush` waits only for traces already queued, and a trace is queued when its
+block ends, or when the stream it handed out ends. `flush` returns `False` when traces are
+still uploading at its timeout: then the trace may not be linked, so log it, or flush again
+for longer if the attempt's timeout allows. `True` means nothing is left to send, not that
+everything was stored: a trace the API refused, or the SDK dropped, counts as done.
+`layerlens.instrument.get_upload_loss_stats()` counts those by reason (`rejected`,
+`upload_error`, `circuit_open`, ...), and its trace is not linked.
 
 The file holds one id. A file with more than one, or an id over 256 bytes, is not linked:
 the attempt is graded all the same, and its progress line says why.
@@ -197,7 +218,7 @@ layerlens trace list --tag environment --tag "$GIT_SHA"  # only LayerLens's atte
 The agent's traces are not tagged `environment` or with the environment's name, so a filter or a
 grader rule on those keeps matching LayerLens's attempt traces alone. A label with a comma in it
 stays one tag: `exec` then writes the variable as a JSON array. With a Standard key, LayerLens's
-attempt traces are listed but cannot be opened, as their grading is for an Automation key to
+attempt traces are not listed and cannot be opened, as their grading is for an Automation key to
 read. See [Trace tags](../instrumentation/tags.md).
 
 #### Keeping the key from the agent
@@ -291,6 +312,10 @@ layerlens env run finish support-desk "$RUN_ID"
 layerlens env run wait support-desk "$RUN_ID" --min-pass-rate 0.9
 ```
 
+If `run start` failed, `jq` leaves `RUN_ID` empty, and each command after it stops with a
+usage error that says so (`Invalid value for 'RUN_ID': it is empty`, exit `2`) before it
+sends anything.
+
 `start` also takes `--idempotency-key`. `submit` takes `--answer` or `--answer-file`, or
 `--error TEXT` / `--timed-out` for an agent that gave no answer, and `--trace-id` to link the
 agent's own trace; an id that names no trace of the organization by its id, nor one of the
@@ -365,14 +390,14 @@ could be taken as the baseline.
 | --- | --- |
 | `0` | No task regressed. |
 | `1` | A task regressed. Nothing else exits `1`. A regression exits `1` also when the `--markdown` file could not be written to; stderr says so. |
-| `2` | The runs could not be compared: bad usage, a run not found, still running or not succeeded, no run with that label, an API or network error, or an interrupt. Also when no task regressed but the `--markdown` file could not be written to. |
+| `2` | The runs could not be compared: bad usage (an empty run id included), a run not found, still running or not succeeded, no run with that label, an API or network error, or an interrupt. Also when no task regressed but the `--markdown` file could not be written to. |
 
 A gate in CI, on a pull request, after the run of the pull request's commit:
 
 ```bash
 layerlens env run exec support-desk --tasks-file ci/tasks.jsonl --agent-name support-agent \
   --label "$GITHUB_SHA" --junit results.xml -- python ci/agent.py
-RUN_ID=$(layerlens --format json env run list support-desk --label "$GITHUB_SHA" --limit 1 | jq -r '.runs[0].run_id')
+RUN_ID=$(layerlens --format json env run list support-desk --label "$GITHUB_SHA" --limit 1 | jq -r '.runs[0].run_id // empty')
 layerlens env run compare support-desk --baseline-label main "$RUN_ID" --markdown "$GITHUB_STEP_SUMMARY"
 ```
 

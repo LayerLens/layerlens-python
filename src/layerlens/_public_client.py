@@ -42,6 +42,8 @@ def _make_status_error(
         return _exceptions.BadRequestError(err_msg, response=response, body=data)
     if response.status_code == HTTPStatus.UNAUTHORIZED:
         return _exceptions.AuthenticationError(err_msg, response=response, body=data)
+    if response.status_code == HTTPStatus.PAYMENT_REQUIRED:
+        return _exceptions.PaymentRequiredError(err_msg, response=response, body=data)
     if response.status_code == HTTPStatus.FORBIDDEN:
         return _exceptions.PermissionDeniedError(err_msg, response=response, body=data)
     if response.status_code == HTTPStatus.NOT_FOUND:

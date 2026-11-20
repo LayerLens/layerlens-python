@@ -34,10 +34,14 @@ class Trace(BaseModel):
     # The agent the API names for the trace, from what the trace declares; None when it names none.
     agent: Optional[str] = None
     # A trace continued in another process (``trace_context(from_context=...)``) is stored as one
-    # trace per process, its parts. The read of a part names them all, first part first
-    # (``segments``), its place among them (``part``, from 1) and their number (``parts``); a list
-    # shows the trace once, through its first part, with ``segment_count`` when it has more than
-    # one. None for a trace that is not continued, and from an API older than layerlens-app#2888.
+    # trace per process, its parts. The read of a part (``traces.get``) names them all, first part
+    # first (``segments``), its place among them (``part``, from 1) and their number (``parts``).
+    # A trace recorded in one process is a trace of one part: ``segments`` holds that part alone,
+    # and ``part`` and ``parts`` are 1, so ``trace.parts > 1`` tells that it was continued. The
+    # three are None when that is unknown: for a trace uploaded without a ``segment_id`` (by an
+    # SDK before 2.0.0, or from a file you wrote) and from an API older than layerlens-app#2888.
+    # Test ``trace.parts is None`` first when that matters; None is not "one part".
+    # ``segment_count`` is set only on a ``get_many`` row of a trace of more than one part (R3 F1).
     segments: Optional[List[TraceSegment]] = None
     part: Optional[int] = None
     parts: Optional[int] = None

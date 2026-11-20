@@ -67,11 +67,15 @@ providers-litellm = ["litellm>=1.0.0"]
 # count, as OpenAI chat completions do (an upstream bug, fixed in 2.17). A fresh install
 # does not resolve those: it gets 0.8.1 on Python 3.9 and 2.17 or later on 3.10+.
 pydantic-ai = ["pydantic-ai>=0.8.1"]
-openai-agents = ["openai-agents>=0.1.0"]
+# On Python 3.9, openai-agents resolves 0.8.x with a pydantic that evaluates its `float | None`
+# annotations only with eval-type-backport installed: without it `import agents` raised TypeError.
+openai-agents = ["openai-agents>=0.1.0", "eval-type-backport>=0.2.0; python_version < '3.10'"]
 semantic-kernel = ["semantic-kernel>=1.0.0; python_version >= '3.10'"]
 # mcp SDK requires Python 3.10+, so we gate the optional-dep on the interpreter
-# version rather than bumping the library's overall requires-python.
-mcp = ["mcp>=0.9; python_version >= '3.10'"]
+# version rather than bumping the library's overall requires-python. Bounded to what the
+# adapter is verified on: 1.23 (older releases don't import with current pydantic, or lack
+# the elicitation types the adapter handles) through 2.x (2.3.0 the latest checked).
+mcp = ["mcp>=1.23,<3; python_version >= '3.10'"]
 a2a = ["a2a-sdk>=0.1; python_version >= '3.10'"]
 agui = []
 # DSPy renamed its distribution from ``dspy-ai`` to ``dspy`` at 2.6; 3.x requires
@@ -125,7 +129,7 @@ all-providers = [
   "litellm>=1.0.0",
 ]
 all-protocols = [
-  "mcp>=0.9; python_version >= '3.10'",
+  "mcp>=1.23,<3; python_version >= '3.10'",
   "a2a-sdk>=0.1; python_version >= '3.10'",
 ]
 all-frameworks = [
@@ -137,6 +141,7 @@ all-frameworks = [
   "semantic-kernel>=1.0.0; python_version >= '3.10'",
   "pydantic-ai>=0.8.1",
   "openai-agents>=0.1.0",
+  "eval-type-backport>=0.2.0; python_version < '3.10'",
 ]
 
 [project.urls]

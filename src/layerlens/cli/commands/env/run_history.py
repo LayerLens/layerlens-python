@@ -288,6 +288,12 @@ def _append_summary(path: str, comparison: RunComparison) -> Optional[str]:
 
 
 def _run_ids(runs: Tuple[str, ...], baseline_label: Optional[str]) -> Tuple[Optional[str], str]:
+    if any(not run.strip() for run in runs):
+        # An empty id reached the API and came back as "404 page not found" (exit 2 all the same).
+        raise click.BadParameter(
+            "a run id is empty; pass the runs' ids (an earlier step that sets one may have failed)",
+            param_hint="'[BASELINE] CANDIDATE'",
+        )
     if baseline_label is not None:
         if not baseline_label.strip():
             raise click.UsageError("--baseline-label is blank; name the label the baseline's run was started with")

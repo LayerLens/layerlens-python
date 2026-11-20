@@ -74,7 +74,11 @@ if __name__ == "__main__":
 
 Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
-### `estimate(judge_id, budget="medium", timeout=None)`
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
+
+### `estimate(judge_id, budget="medium")`
 
 Estimates the cost of running an optimization on a judge before actually executing it.
 
@@ -84,11 +88,11 @@ Estimates the cost of running an optimization on a judge before actually executi
 | ---------- | -------------------------------- | -------- | ------------------------------------------ |
 | `judge_id` | `str`                            | Yes      | ID of the judge to optimize                |
 | `budget`   | `str`                            | No       | Optimization budget: "light", "medium", or "heavy" (default: "medium") |
-| `timeout`  | `float \| httpx.Timeout \| None` | No       | Override request timeout                   |
+| `timeout`  | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns an `EstimateJudgeOptimizationCostResponse` object if successful, `None` otherwise.
+Returns an `EstimateJudgeOptimizationCostResponse`. A request the API refuses raises its error, such as `BadRequestError` (400) for a `budget` other than `light`, `medium` or `heavy`.
 
 #### Example
 
@@ -97,13 +101,12 @@ estimate = client.judge_optimizations.estimate(
     judge_id="judge-123",
     budget="heavy",
 )
-if estimate:
-    print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
-    print(f"Annotations: {estimate.annotation_count}")
-    print(f"Budget: {estimate.budget}")
+print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+print(f"Annotations: {estimate.annotation_count}")
+print(f"Budget: {estimate.budget}")
 ```
 
-### `create(judge_id, budget="medium", timeout=None)`
+### `create(judge_id, budget="medium")`
 
 Starts a new optimization run for a judge. The optimization runs asynchronously on the server.
 
@@ -113,11 +116,11 @@ Starts a new optimization run for a judge. The optimization runs asynchronously 
 | ---------- | -------------------------------- | -------- | ------------------------------------------ |
 | `judge_id` | `str`                            | Yes      | ID of the judge to optimize                |
 | `budget`   | `str`                            | No       | Optimization budget: "light", "medium", or "heavy" (default: "medium") |
-| `timeout`  | `float \| httpx.Timeout \| None` | No       | Override request timeout                   |
+| `timeout`  | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `CreateJudgeOptimizationRunResponse` object if successful, `None` otherwise.
+Returns a `CreateJudgeOptimizationRunResponse`. A run the API refuses raises its error, such as `BadRequestError` (400) for a `budget` other than `light`, `medium` or `heavy`, or a judge with fewer than 10 annotations.
 
 #### Example
 
@@ -129,7 +132,7 @@ run = client.judge_optimizations.create(
 print(f"Optimization {run.id}: {run.status}")
 ```
 
-### `get(id, timeout=None)`
+### `get(id)`
 
 Retrieves the current state of an optimization run by its unique identifier.
 
@@ -138,24 +141,23 @@ Retrieves the current state of an optimization run by its unique identifier.
 | Parameter | Type                             | Required | Description                        |
 | --------- | -------------------------------- | -------- | ---------------------------------- |
 | `id`      | `str`                            | Yes      | The unique optimization run ID     |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout           |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `JudgeOptimizationRun` object if found, `None` otherwise.
+Returns a `JudgeOptimizationRun`. Raises `NotFoundError` if no optimization run has this id.
 
 #### Example
 
 ```python
 optimization = client.judge_optimizations.get("opt-run-123")
-if optimization:
-    print(f"Status: {optimization.status}")
-    if optimization.status.value == "success":
-        print(f"Baseline accuracy: {optimization.baseline_accuracy}")
-        print(f"Optimized accuracy: {optimization.optimized_accuracy}")
+print(f"Status: {optimization.status}")
+if optimization.status.value == "success":
+    print(f"Baseline accuracy: {optimization.baseline_accuracy}")
+    print(f"Optimized accuracy: {optimization.optimized_accuracy}")
 ```
 
-### `get_many(judge_id=None, page=None, page_size=None, timeout=None)`
+### `get_many(judge_id=None, page=None, page_size=None)`
 
 Retrieves multiple optimization runs with optional filtering and pagination.
 
@@ -165,8 +167,8 @@ Retrieves multiple optimization runs with optional filtering and pagination.
 | ----------- | -------------------------------- | -------- | ------------------------------------------------------ |
 | `judge_id`  | `str \| None`                    | No       | Filter by judge                                        |
 | `page`      | `int \| None`                    | No       | Page number (1-based, defaults to 1)                   |
-| `page_size` | `int \| None`                    | No       | Number of runs per page (default: 20, max: 500)        |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout                               |
+| `page_size` | `int \| None`                    | No       | Number of runs per page (default: 20, max: 100)        |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -176,7 +178,7 @@ Returns a `JudgeOptimizationRunsResponse` object containing:
 - `count`: Number of runs in this page
 - `total`: Total number of matching runs
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
 #### Example
 
@@ -191,7 +193,7 @@ for run in response.optimization_runs:
     print(f"  {run.id}: {run.status} (budget: {run.budget})")
 ```
 
-### `apply(id, timeout=None)`
+### `apply(id)`
 
 Applies the results of a successful optimization run to the judge, updating its evaluation goal and creating a new judge version.
 
@@ -200,20 +202,19 @@ Applies the results of a successful optimization run to the judge, updating its 
 | Parameter | Type                             | Required | Description                        |
 | --------- | -------------------------------- | -------- | ---------------------------------- |
 | `id`      | `str`                            | Yes      | The unique optimization run ID     |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout           |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns an `ApplyJudgeOptimizationResultResponse` object if successful, `None` otherwise.
+Returns an `ApplyJudgeOptimizationResultResponse`. Raises `NotFoundError` if no optimization run has this id; a run the API can't apply raises its error.
 
 #### Example
 
 ```python
 result = client.judge_optimizations.apply("opt-run-123")
-if result:
-    print(f"Applied to judge {result.judge_id}")
-    print(f"New version: v{result.new_version}")
-    print(f"{result.message}")
+print(f"Applied to judge {result.judge_id}")
+print(f"New version: v{result.new_version}")
+print(f"{result.message}")
 ```
 
 ## Response Objects

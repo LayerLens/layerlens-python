@@ -121,6 +121,7 @@ def main() -> None:
     # --- Initialize SDK client ---
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

@@ -16,10 +16,10 @@ Upload a trace file to your LayerLens workspace:
 
 ```bash
 export LAYERLENS_API_KEY=your-api-key
-python -c "from layerlens import LayerLens; LayerLens().traces.upload('samples/data/traces/simple_llm_trace.json')"
+python -c "from layerlens import LayerLens; print(LayerLens().traces.upload('samples/data/traces/simple_llm_trace.json').trace_ids)"
 ```
 
-Expected output: the trace ID of the newly uploaded trace record.
+Expected output: the IDs of the uploaded traces, such as `['6afe4f36cdb2d4ff5d02309e']`.
 
 ## Traces
 

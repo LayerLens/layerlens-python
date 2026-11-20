@@ -10,12 +10,13 @@ itself before, which the CLI turned into exit 1, and ``exec`` then left its run 
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, Dict, List, Callable
 
 import pytest
 
 from layerlens._resource import SyncAPIResource, AsyncAPIResource
-from layerlens._exceptions import RateLimitError, PermissionDeniedError
+from layerlens._exceptions import RateLimitError, InternalServerError, PermissionDeniedError
 
 from .conftest import ENV_ID, RUN_ID, FakeAPI, ok, err, row, run_view, environment
 
@@ -154,3 +155,74 @@ def test_a_refusal_still_ends_a_wait_at_once(any_client: Any, api: FakeAPI, wait
 
     assert len(api.calls("GET", RUN)) == 1
     assert waits == []
+
+
+# The same waits, given the environment by name: it is looked up first, within the wait.
+BY_NAME = [
+    pytest.param(
+        RUN, ok(run_view(row("x", "pass"))),
+        lambda client, **kw: client.environments.runs.wait("support-desk", RUN_ID, **kw), id="runs.wait",
+    ),
+    pytest.param(
+        JOB, ok(job("success")),
+        lambda client, **kw: client.environments.jobs.wait("support-desk", JOB_ID, **kw), id="jobs.wait",
+    ),
+    pytest.param(
+        BUILD, ok({"status": "ready", "version": 1, "steps": []}),
+        lambda client, **kw: client.environments.wait_until_ready("support-desk", **kw), id="ready",
+    ),
+]  # fmt: skip
+FOUND = ok({"environments": [environment()], "count": 1, "total_count": 1})
+
+
+@pytest.mark.parametrize("path, done, wait", BY_NAME)
+def test_a_throttled_name_lookup_is_ridden_out_by_the_wait(
+    any_client: Any, api: FakeAPI, waits: List[float], path: str, done: Any, wait: Callable[..., Any]
+) -> None:
+    # The lookup is sent once, as a poll is, and the wait waits out the 429's Retry-After: the
+    # client's own retries (up to 8 s each) no longer run outside the wait's deadline.
+    api.on("GET", "", THROTTLED, FOUND)
+    api.on("GET", path, done)
+    api.on("GET", f"/{ENV_ID}", ok({"environment": environment()}))
+
+    call(wait, any_client, poll_interval_seconds=0.01)
+
+    assert len(api.calls("GET", "")) == 2
+    assert waits == [1.0]
+
+
+@pytest.mark.parametrize("path, done, wait", BY_NAME)
+def test_a_name_lookup_that_fails_until_the_deadline_raises_timeout_error(
+    any_client: Any, api: FakeAPI, path: str, done: Any, wait: Callable[..., Any]
+) -> None:
+    api.on("GET", "", err(503, "Service Unavailable"))
+
+    with pytest.raises(TimeoutError, match="the last poll failed") as e:
+        call(wait, any_client, timeout_seconds=0)
+
+    assert isinstance(e.value.__cause__, InternalServerError)
+    assert len(api.calls("GET", "")) == 1
+    assert api.calls("GET", path) == []
+
+
+def test_each_lookup_page_is_sent_with_the_time_left(
+    any_client: Any, api: FakeAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = {"t": 0.0}
+    monkeypatch.setattr("layerlens._polling.time", SimpleNamespace(monotonic=lambda: now["t"]))
+
+    def first_page(_request: Any) -> Any:
+        now["t"] = 0.6
+        return ok({"environments": [environment()], "count": 1, "total_count": 2})
+
+    api.on("GET", "", first_page, ok({"environments": [], "count": 0, "total_count": 2}))
+    api.on("GET", RUN, ok(run_view(row("x", "pass"))))
+
+    call(
+        lambda client, **kw: client.environments.runs.wait("support-desk", RUN_ID, **kw), any_client, timeout_seconds=1
+    )
+
+    pages = api.calls("GET", "")
+    assert [r.url.params["page"] for r in pages] == ["1", "2"]
+    assert pages[0].extensions["timeout"]["read"] == 1.0
+    assert pages[1].extensions["timeout"]["read"] == pytest.approx(0.4)

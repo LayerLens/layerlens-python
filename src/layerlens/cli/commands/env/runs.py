@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+import queue
+import threading
 from typing import Any, Dict, List, Tuple, Optional, Sequence
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait as wait_for_futures
 
 import click
 
@@ -26,6 +27,7 @@ from ._common import (
     EXIT_NOT_FINISHED,
     fail,
     gate,
+    counted,
     progress,
     emit_json,
     print_run,
@@ -36,6 +38,7 @@ from ._common import (
     finish_with,
     json_output,
     explain_gate,
+    run_id_given,
     task_options,
     write_reports,
     api_error_text,
@@ -47,7 +50,7 @@ from ._common import (
     idempotency_option,
     interrupts_held_off,
     min_pass_rate_option,
-    sigterm_as_interrupt,
+    signals_as_interrupt,
 )
 from ..._command import LayerLensGroup, LayerLensCommand
 from ..._formatter import format_table
@@ -168,10 +171,10 @@ def exec_command(
     agent_env = with_exit_budget(agent_env, attempt_timeout)
     live = LiveProcesses()
     outcomes: List[Tuple[ExternalAttempt, AttemptOutcome]] = []
-    with sigterm_as_interrupt():
+    with signals_as_interrupt():
         try:
             with external:
-                progress(f"Run {external.run_id}: {len(external.attempts)} attempts, {parallel} at a time")
+                progress(f"Run {external.run_id}: {counted(len(external.attempts), 'attempt')}, {parallel} at a time")
                 outcomes = _execute(external.attempts, command, parallel, attempt_timeout, agent_env, live)
         except KeyboardInterrupt:
             if not external.started:
@@ -223,27 +226,47 @@ def _execute(
                 ) from err
         return outcome
 
-    pool = ThreadPoolExecutor(max_workers=parallel, thread_name_prefix="layerlens-exec")
-    futures: Dict[Future[AttemptOutcome], ExternalAttempt] = {pool.submit(work, a): a for a in attempts}
-    done = 0
-    pending = set(futures)
+    # Daemon threads, not a thread pool: a pool's workers are joined as the process exits, so once
+    # the run was cancelled the exit still waited for a submit the API had not answered, past a CI
+    # runner's SIGTERM (7.5 s after its SIGINT on GitHub): the job recorded 143, not 11.
+    todo: "queue.Queue[int]" = queue.Queue()
+    for index in range(len(attempts)):
+        todo.put(index)
+    ended: "queue.Queue[Tuple[int, Optional[AttemptOutcome], Optional[BaseException]]]" = queue.Queue()
+    stopping = threading.Event()
+
+    def worker() -> None:
+        while not stopping.is_set():
+            try:
+                index = todo.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                ended.put((index, work(attempts[index]), None))
+            except BaseException as err:  # raised on the main thread
+                ended.put((index, None, err))
+
+    for number in range(min(parallel, len(attempts))):
+        threading.Thread(target=worker, name=f"layerlens-exec-attempts-{number + 1}", daemon=True).start()
+    outcomes: Dict[int, AttemptOutcome] = {}
     try:
-        while pending:
-            # A bounded wait, so Ctrl-C reaches this thread on every platform.
-            finished, pending = wait_for_futures(pending, timeout=0.5, return_when=FIRST_COMPLETED)
-            for future in finished:
-                outcome = future.result()
-                done += 1
-                progress(outcome_line(done, len(attempts), futures[future], outcome))
+        while len(outcomes) < len(attempts):
+            try:
+                # A bounded wait, so Ctrl-C reaches this thread on every platform.
+                index, outcome, error = ended.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if error is not None:
+                raise error
+            assert outcome is not None
+            outcomes[index] = outcome
+            progress(outcome_line(len(outcomes), len(attempts), attempts[index], outcome))
     except BaseException:
+        stopping.set()
         live.stop_all()
-        for future in futures:
-            future.cancel()
-        pool.shutdown(wait=False)
         _let_submits_end(live)
         raise
-    pool.shutdown(wait=True)
-    return [(attempt, future.result()) for future, attempt in futures.items()]
+    return [(attempt, outcomes[index]) for index, attempt in enumerate(attempts)]
 
 
 def _let_submits_end(live: LiveProcesses) -> None:
@@ -274,7 +297,8 @@ def _no_answer(outcomes: Sequence[Tuple[ExternalAttempt, AttemptOutcome]]) -> Op
         return None
     attempt, first = outcomes[0]
     words = (
-        f"no attempt gave an answer, so this run says nothing about the agent: all {len(outcomes)} attempts ended "
+        f"no attempt gave an answer, so this run says nothing about the agent: "
+        f"{'its one attempt' if len(outcomes) == 1 else f'all {len(outcomes)} attempts'} ended "
         f"in an error. The first, task {attempt.task_name!r}, failed because {first.error}"
     )
     tail = first.stderr_tail.strip().splitlines()[-STDERR_TAIL_LINES:]
@@ -293,7 +317,12 @@ def _no_answer(outcomes: Sequence[Tuple[ExternalAttempt, AttemptOutcome]]) -> Op
 @click.option(
     "--budget", required=True, type=click.FloatRange(min=0, min_open=True, max=100), help="Required, up to 100 USD."
 )
-@click.option("--system-prompt-file", default=None, type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--system-prompt-file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Give the model this file's text as its system prompt.",
+)
 @click.option("--max-steps", default=None, type=click.IntRange(1, 50), help="Tool-calling steps per attempt.")
 @click.option("--agent-name", default=None, help="How the agent is labelled in results and traces.")
 @click.option("--label", default=None, help="Free text stored with the run, for example a commit SHA.")
@@ -346,7 +375,7 @@ def model_command(
     environment_id = envs.resolve(environment)
     key = idempotency_key or new_idempotency_key()
     try:
-        with sigterm_as_interrupt():
+        with signals_as_interrupt():
             started = envs.runs.run_model(
                 environment_id,
                 budget_usd=budget,
@@ -367,7 +396,7 @@ def model_command(
         if not start_not_known(err):
             raise
         fail(lost_start(err, "run", key))
-    progress(f"Run {started.run_id}: {started.total} tasks with {started.model}")
+    progress(f"Run {started.run_id}: {counted(started.total, 'task')} with {started.model}")
     if no_wait:
         if json_output(ctx):
             emit_json(started)
@@ -464,7 +493,7 @@ def _wait(
 
     A run that finished just as the timeout passed, so that the cancel finds it ended, is returned to be gated.
     """
-    with sigterm_as_interrupt():
+    with signals_as_interrupt():
         try:
             return envs.runs.wait(environment_id, run_id, timeout_seconds=timeout)
         except KeyboardInterrupt:
@@ -533,7 +562,7 @@ def start(
     environment_id = envs.resolve(environment)
     key = idempotency_key or new_idempotency_key()
     try:
-        with sigterm_as_interrupt():
+        with signals_as_interrupt():
             started = envs.runs.start_external(
                 environment_id,
                 agent_name=agent_name,
@@ -563,7 +592,7 @@ def start(
 
 @run.command("submit", cls=LayerLensCommand)
 @click.argument("environment", metavar="ENV")
-@click.argument("run_id")
+@click.argument("run_id", callback=run_id_given)
 @click.option("--attempt", "attempt_id", required=True, help="The attempt's id.")
 @click.option("--answer", default=None, help="The agent's final answer.")
 @click.option(
@@ -615,7 +644,7 @@ def submit(
 
 @run.command("finish", cls=LayerLensCommand)
 @click.argument("environment", metavar="ENV")
-@click.argument("run_id")
+@click.argument("run_id", callback=run_id_given)
 @env_errors
 def finish(ctx: click.Context, environment: str, run_id: str) -> None:
     """Close a run of your own agent; attempts never submitted count as errors."""
@@ -624,7 +653,7 @@ def finish(ctx: click.Context, environment: str, run_id: str) -> None:
 
 @run.command("status", cls=LayerLensCommand)
 @click.argument("environment", metavar="ENV")
-@click.argument("run_id")
+@click.argument("run_id", callback=run_id_given)
 @env_errors
 def status(ctx: click.Context, environment: str, run_id: str) -> None:
     """One line on a run: its status and counts."""
@@ -637,7 +666,7 @@ def status(ctx: click.Context, environment: str, run_id: str) -> None:
 
 @run.command("wait", cls=LayerLensCommand)
 @click.argument("environment", metavar="ENV")
-@click.argument("run_id")
+@click.argument("run_id", callback=run_id_given)
 @min_pass_rate_option
 @report_options
 @click.option("--timeout", default=DEFAULT_TIMEOUT, type=DURATION, help="Default 30m; then exit 11.")
@@ -671,7 +700,7 @@ def wait(
 
 @run.command("results", cls=LayerLensCommand)
 @click.argument("environment", metavar="ENV")
-@click.argument("run_id")
+@click.argument("run_id", callback=run_id_given)
 @report_options
 @env_errors
 def results(ctx: click.Context, environment: str, run_id: str, junit: Optional[str], markdown: Optional[str]) -> None:
@@ -704,7 +733,7 @@ def results(ctx: click.Context, environment: str, run_id: str, junit: Optional[s
 
 @run.command("cancel", cls=LayerLensCommand)
 @click.argument("environment", metavar="ENV")
-@click.argument("run_id")
+@click.argument("run_id", callback=run_id_given)
 @env_errors
 def cancel(ctx: click.Context, environment: str, run_id: str) -> None:
     """Cancel a run."""

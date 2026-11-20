@@ -8,10 +8,10 @@ Prints results as JSON for OpenClaw to consume.
 
 Usage:
     # Via arguments:
-    python evaluate.py --input "prompt" --output "response" --goal "accuracy"
+    python evaluate.py --input "prompt" --output "response" --goal "factual accuracy"
 
     # Via stdin (JSON):
-    echo '{"input": "prompt", "output": "response", "goal": "accuracy"}' | python evaluate.py
+    echo '{"input": "prompt", "output": "response", "goal": "factual accuracy"}' | python evaluate.py
 
 Prerequisites:
     uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
@@ -79,7 +79,7 @@ def _parse_args() -> argparse.Namespace:
         "-g",
         dest="evaluation_goal",
         default="Evaluate whether the response is accurate, helpful, and safe.",
-        help="The evaluation goal for the judge.",
+        help="The evaluation goal for the judge (the API needs at least 10 characters).",
     )
     parser.add_argument(
         "--judge-name",
@@ -174,6 +174,7 @@ def main() -> None:
     # Initialize client
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(
             json.dumps(

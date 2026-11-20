@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 import httpx
 
 from ..._ssrf import ensure_safe_upload_url
+from ..._pages import every_page, page_params, every_page_async
 from ...models import (
     Benchmark,
     BenchmarkPrompt,
@@ -18,7 +19,8 @@ from ...models import (
     CreateBenchmarkResponse,
 )
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, NotGiven, timeout_or
+from ..._presigned import put_presigned, put_presigned_async
 
 DEFAULT_PROMPTS_PAGE_SIZE = 100
 
@@ -52,16 +54,19 @@ class Benchmarks(SyncAPIResource):
     def get(
         self,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         type: Literal["custom", "public"] | None = None,
         name: Optional[str] = None,
         key: Optional[str] = None,
         categories: Optional[List[str]] = None,
         languages: Optional[List[str]] = None,
     ) -> Optional[List[Benchmark]]:
-        base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/benchmarks"
+        """Every benchmark of the project that matches the filters, custom and public unless ``type`` says one.
 
-        def fetch(bench_type: str) -> BenchmarksResponse | None:
+        Returns every matching row: the SDK reads the API's pages for you.
+        """
+
+        def fetch(bench_type: str) -> List[Benchmark]:
             params = {"type": bench_type}
             if name:
                 params["name"] = name
@@ -71,14 +76,7 @@ class Benchmarks(SyncAPIResource):
                 params["categories"] = ",".join(categories)
             if languages:
                 params["languages"] = ",".join(languages)
-
-            resp = self._get(
-                base_url,
-                params=params,
-                timeout=timeout,
-                cast_to=BenchmarksResponse,
-            )
-            return resp if isinstance(resp, BenchmarksResponse) else None
+            return self._every_row(params, timeout)
 
         benchmarks: List[Benchmark] = []
 
@@ -91,13 +89,9 @@ class Benchmarks(SyncAPIResource):
 
         if type is None:
             for t in ["custom", "public"]:
-                resp = fetch(t)
-                if resp:
-                    benchmarks.extend([cast_benchmark(b, t) for b in resp.data.benchmarks])
+                benchmarks.extend([cast_benchmark(b, t) for b in fetch(t)])
         else:  # fetch only one type
-            resp = fetch(type)
-            if resp:
-                benchmarks.extend([cast_benchmark(b, type) for b in resp.data.benchmarks])
+            benchmarks.extend([cast_benchmark(b, type) for b in fetch(type)])
 
         # Exclude custom benchmarks when filtering by fields they don't have
         if categories:
@@ -118,7 +112,14 @@ class Benchmarks(SyncAPIResource):
 
         return benchmarks
 
-    def get_by_id(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Benchmark]:
+    def get_by_id(
+        self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN
+    ) -> Optional[Benchmark]:
+        """A benchmark, by id: one of the catalog or a custom one of the project.
+
+        Raises :class:`NotFoundError` when no benchmark has this id. Returns None only for a reply that
+        holds no benchmark.
+        """
         base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/benchmarks/{id}"
 
         resp = self._get(
@@ -144,9 +145,9 @@ class Benchmarks(SyncAPIResource):
         self,
         key: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Benchmark]:
-        """Fetch a single benchmark by its unique key."""
+        """Fetch a single benchmark of the project by its unique key; None when none has this key."""
         benchmarks = self.get(timeout=timeout, key=key)
 
         if not benchmarks:
@@ -160,27 +161,27 @@ class Benchmarks(SyncAPIResource):
     def add(
         self,
         *benchmark_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Add public benchmarks to the project by their IDs.
 
         The project's ``datasets`` lists its public benchmarks only: a custom benchmark belongs
-        to the project already, and its id there made the API answer 500 (BUG-11).
+        to the project already, and its id there made the API answer 500 (BUG-11). The PATCH replaces
+        that whole list, so it is read whole first, every page and the deprecated benchmarks too: no
+        benchmark the project holds is dropped.
         """
-        current = self.get(type="public", timeout=timeout) or []
-        current_ids = [b.id for b in current]
+        current_ids = self._public_ids(timeout)
         new_ids = list(dict.fromkeys(current_ids + list(benchmark_ids)))
         return self._patch_project_benchmarks(new_ids, timeout)
 
     def remove(
         self,
         *benchmark_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Remove public benchmarks from the project by their IDs (see :meth:`add`)."""
-        current = self.get(type="public", timeout=timeout) or []
         remove_set = set(benchmark_ids)
-        new_ids = [b.id for b in current if b.id not in remove_set]
+        new_ids = [benchmark_id for benchmark_id in self._public_ids(timeout) if benchmark_id not in remove_set]
         return self._patch_project_benchmarks(new_ids, timeout)
 
     def get_prompts(
@@ -193,7 +194,7 @@ class Benchmarks(SyncAPIResource):
         search_value: Optional[str] = None,
         sort_by: Optional[Literal["id", "input", "truth"]] = None,
         sort_order: Optional[Literal["asc", "desc"]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[BenchmarkPromptsData]:
         """Fetch a page of prompts for a benchmark.
 
@@ -248,7 +249,7 @@ class Benchmarks(SyncAPIResource):
         self,
         benchmark_id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[BenchmarkPrompt]:
         """Fetch all prompts for a benchmark, automatically paginating."""
         all_prompts: List[BenchmarkPrompt] = []
@@ -276,10 +277,39 @@ class Benchmarks(SyncAPIResource):
 
         return all_prompts
 
+    def _every_row(
+        self,
+        params: Dict[str, str],
+        timeout: float | httpx.Timeout | None | NotGiven,
+    ) -> List[Benchmark]:
+        """Every row the project's benchmarks list answers for ``params``, read a page at a time."""
+        url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/benchmarks"
+
+        def page_of(page: int) -> Optional[List[Benchmark]]:
+            resp = self._get(
+                url,
+                params={**params, **page_params(page)},
+                timeout=timeout,
+                cast_to=BenchmarksResponse,
+            )
+            return resp.data.benchmarks if isinstance(resp, BenchmarksResponse) else None
+
+        return every_page(page_of)
+
+    def _public_ids(self, timeout: float | httpx.Timeout | None | NotGiven) -> List[str]:
+        """The ids of every public benchmark the project holds, deprecated ones too.
+
+        The PATCH replaces the project's whole list, so ``add()`` and ``remove()`` send back every row
+        it holds: the list hides a deprecated benchmark unless asked for it, and it answers 20 rows a
+        page unless asked for more.
+        """
+        rows = self._every_row({"type": "public", "include_deprecated": "true"}, timeout)
+        return [str(b.id) for b in rows]
+
     def _patch_project_benchmarks(
         self,
         dataset_ids: List[str],
-        timeout: float | httpx.Timeout | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
     ) -> bool:
         url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}"
         resp = self._patch(
@@ -294,7 +324,7 @@ class Benchmarks(SyncAPIResource):
         self,
         file_path: str,
         benchmark_name: str,
-        timeout: float | httpx.Timeout | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
     ) -> str:
         """Upload a file and return the filename for use in benchmark creation."""
         file_path = os.path.abspath(file_path)
@@ -329,13 +359,15 @@ class Benchmarks(SyncAPIResource):
         ensure_safe_upload_url(resp["url"], getattr(self._client, "trusted_upload_hosts", None))
 
         with open(file_path, "rb") as f:
-            put_resp = httpx.put(
-                resp["url"],
-                content=f.read(),
-                headers={"Content-Type": content_type},
-                timeout=(timeout if isinstance(timeout, httpx.Timeout) else httpx.Timeout(timeout)),
-            )
-            put_resp.raise_for_status()
+            content = f.read()
+        put_presigned(
+            resp["url"],
+            content,
+            content_type=content_type,
+            timeout=timeout_or(timeout, self._client.timeout),
+            client=self._client,
+            what="benchmark file",
+        )
 
         return filename
 
@@ -348,7 +380,7 @@ class Benchmarks(SyncAPIResource):
         additional_metrics: Optional[List[str]] = None,
         custom_scorer_ids: Optional[List[str]] = None,
         input_type: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateBenchmarkResponse]:
         """Create a custom benchmark by uploading a JSONL file.
 
@@ -399,7 +431,7 @@ class Benchmarks(SyncAPIResource):
         system_prompt: str,
         file_paths: List[str],
         metrics: Optional[List[str]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateBenchmarkResponse]:
         """Create a smart benchmark from uploaded files.
 
@@ -448,16 +480,19 @@ class AsyncBenchmarks(AsyncAPIResource):
     async def get(
         self,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         type: Literal["custom", "public"] | None = None,
         name: Optional[str] = None,
         key: Optional[str] = None,
         categories: Optional[List[str]] = None,
         languages: Optional[List[str]] = None,
     ) -> Optional[List[Benchmark]]:
-        base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/benchmarks"
+        """Every benchmark of the project that matches the filters, custom and public unless ``type`` says one.
 
-        async def fetch(bench_type: str) -> Optional[BenchmarksResponse]:
+        Returns every matching row: the SDK reads the API's pages for you.
+        """
+
+        async def fetch(bench_type: str) -> List[Benchmark]:
             params = {"type": bench_type}
             if name:
                 params["name"] = name
@@ -467,14 +502,7 @@ class AsyncBenchmarks(AsyncAPIResource):
                 params["categories"] = ",".join(categories)
             if languages:
                 params["languages"] = ",".join(languages)
-
-            resp = await self._get(
-                base_url,
-                params=params,
-                timeout=timeout,
-                cast_to=BenchmarksResponse,
-            )
-            return resp if isinstance(resp, BenchmarksResponse) else None
+            return await self._every_row(params, timeout)
 
         def cast_benchmark(b: Benchmark, bench_type: str) -> Benchmark:
             if bench_type == "custom":
@@ -487,13 +515,9 @@ class AsyncBenchmarks(AsyncAPIResource):
 
         if type is None:  # fetch both custom + public
             for t in ["custom", "public"]:
-                resp = await fetch(t)
-                if resp:
-                    benchmarks.extend([cast_benchmark(b, t) for b in resp.data.benchmarks])
+                benchmarks.extend([cast_benchmark(b, t) for b in await fetch(t)])
         else:  # fetch only one type
-            resp = await fetch(type)
-            if resp:
-                benchmarks.extend([cast_benchmark(b, type) for b in resp.data.benchmarks])
+            benchmarks.extend([cast_benchmark(b, type) for b in await fetch(type)])
 
         # Exclude custom benchmarks when filtering by fields they don't have
         if categories:
@@ -515,8 +539,13 @@ class AsyncBenchmarks(AsyncAPIResource):
         return benchmarks
 
     async def get_by_id(
-        self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT
+        self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN
     ) -> Optional[Benchmark]:
+        """A benchmark, by id: one of the catalog or a custom one of the project.
+
+        Raises :class:`NotFoundError` when no benchmark has this id. Returns None only for a reply that
+        holds no benchmark.
+        """
         base_url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/benchmarks/{id}"
 
         resp = await self._get(
@@ -542,9 +571,9 @@ class AsyncBenchmarks(AsyncAPIResource):
         self,
         key: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Benchmark]:
-        """Fetch a single benchmark by its unique key."""
+        """Fetch a single benchmark of the project by its unique key; None when none has this key."""
         benchmarks = await self.get(timeout=timeout, key=key)
 
         if not benchmarks:
@@ -558,23 +587,21 @@ class AsyncBenchmarks(AsyncAPIResource):
     async def add(
         self,
         *benchmark_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Add public benchmarks to the project by their IDs (see :meth:`Benchmarks.add`)."""
-        current = await self.get(type="public", timeout=timeout) or []
-        current_ids = [b.id for b in current]
+        current_ids = await self._public_ids(timeout)
         new_ids = list(dict.fromkeys(current_ids + list(benchmark_ids)))
         return await self._patch_project_benchmarks(new_ids, timeout)
 
     async def remove(
         self,
         *benchmark_ids: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         """Remove public benchmarks from the project by their IDs (see :meth:`Benchmarks.add`)."""
-        current = await self.get(type="public", timeout=timeout) or []
         remove_set = set(benchmark_ids)
-        new_ids = [b.id for b in current if b.id not in remove_set]
+        new_ids = [benchmark_id for benchmark_id in await self._public_ids(timeout) if benchmark_id not in remove_set]
         return await self._patch_project_benchmarks(new_ids, timeout)
 
     async def get_prompts(
@@ -587,7 +614,7 @@ class AsyncBenchmarks(AsyncAPIResource):
         search_value: Optional[str] = None,
         sort_by: Optional[Literal["id", "input", "truth"]] = None,
         sort_order: Optional[Literal["asc", "desc"]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[BenchmarkPromptsData]:
         """Fetch a page of prompts for a benchmark."""
         params: Dict[str, str] = {}
@@ -625,7 +652,7 @@ class AsyncBenchmarks(AsyncAPIResource):
         self,
         benchmark_id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[BenchmarkPrompt]:
         """Fetch all prompts for a benchmark, automatically paginating."""
         all_prompts: List[BenchmarkPrompt] = []
@@ -653,10 +680,39 @@ class AsyncBenchmarks(AsyncAPIResource):
 
         return all_prompts
 
+    async def _every_row(
+        self,
+        params: Dict[str, str],
+        timeout: float | httpx.Timeout | None | NotGiven,
+    ) -> List[Benchmark]:
+        """Every row the project's benchmarks list answers for ``params``, read a page at a time."""
+        url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/benchmarks"
+
+        async def page_of(page: int) -> Optional[List[Benchmark]]:
+            resp = await self._get(
+                url,
+                params={**params, **page_params(page)},
+                timeout=timeout,
+                cast_to=BenchmarksResponse,
+            )
+            return resp.data.benchmarks if isinstance(resp, BenchmarksResponse) else None
+
+        return await every_page_async(page_of)
+
+    async def _public_ids(self, timeout: float | httpx.Timeout | None | NotGiven) -> List[str]:
+        """The ids of every public benchmark the project holds, deprecated ones too.
+
+        The PATCH replaces the project's whole list, so ``add()`` and ``remove()`` send back every row
+        it holds: the list hides a deprecated benchmark unless asked for it, and it answers 20 rows a
+        page unless asked for more.
+        """
+        rows = await self._every_row({"type": "public", "include_deprecated": "true"}, timeout)
+        return [str(b.id) for b in rows]
+
     async def _patch_project_benchmarks(
         self,
         dataset_ids: List[str],
-        timeout: float | httpx.Timeout | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
     ) -> bool:
         url = f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}"
         resp = await self._patch(
@@ -671,7 +727,7 @@ class AsyncBenchmarks(AsyncAPIResource):
         self,
         file_path: str,
         benchmark_name: str,
-        timeout: float | httpx.Timeout | None,
+        timeout: float | httpx.Timeout | None | NotGiven,
     ) -> str:
         """Upload a file and return the filename for use in benchmark creation."""
         file_path = os.path.abspath(file_path)
@@ -705,15 +761,16 @@ class AsyncBenchmarks(AsyncAPIResource):
         # SSRF guard: never PUT benchmark bytes to an untrusted/internal host.
         ensure_safe_upload_url(resp["url"], getattr(self._client, "trusted_upload_hosts", None))
 
-        async with httpx.AsyncClient() as http:
-            with open(file_path, "rb") as f:
-                put_resp = await http.put(
-                    resp["url"],
-                    content=f.read(),
-                    headers={"Content-Type": content_type},
-                    timeout=(timeout if isinstance(timeout, httpx.Timeout) else httpx.Timeout(timeout)),
-                )
-                put_resp.raise_for_status()
+        with open(file_path, "rb") as f:
+            content = f.read()
+        await put_presigned_async(
+            resp["url"],
+            content,
+            content_type=content_type,
+            timeout=timeout_or(timeout, self._client.timeout),
+            client=self._client,
+            what="benchmark file",
+        )
 
         return filename
 
@@ -726,7 +783,7 @@ class AsyncBenchmarks(AsyncAPIResource):
         additional_metrics: Optional[List[str]] = None,
         custom_scorer_ids: Optional[List[str]] = None,
         input_type: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateBenchmarkResponse]:
         """Create a custom benchmark by uploading a JSONL file.
 
@@ -777,7 +834,7 @@ class AsyncBenchmarks(AsyncAPIResource):
         system_prompt: str,
         file_paths: List[str],
         metrics: Optional[List[str]] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateBenchmarkResponse]:
         """Create a smart benchmark from uploaded files.
 

@@ -58,4 +58,6 @@ chmod +x .git/hooks/pre-commit
 
 The quality gate script outputs a pass/fail summary with per-judge breakdown. In CI, a
 failing gate will cause the pipeline step to exit non-zero, blocking the merge. The
-pre-commit hook runs silently on success and prints a warning message on failure.
+pre-commit hook prints a summary box (the pass rate and the threshold) and allows or blocks
+the commit. When LayerLens can't be reached, or no evaluation gives a verdict, it logs why
+and allows the commit.

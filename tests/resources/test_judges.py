@@ -8,7 +8,7 @@ from layerlens.models import (
     DeleteJudgeResponse,
     UpdateJudgeResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens.resources.judges.judges import Judges
 
 
@@ -94,7 +94,7 @@ class TestJudges:
                 "evaluation_goal": "Test evaluation goal for testing",
                 "model_id": "model-789",
             },
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -140,7 +140,7 @@ class TestJudges:
 
         judges_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/judges/judge-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -184,7 +184,7 @@ class TestJudges:
                 "page": "2",
                 "page_size": "50",
             },
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -264,7 +264,7 @@ class TestJudges:
                 "evaluation_goal": "Updated goal text for testing",
                 "model_id": "new-model",
             },
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -315,7 +315,7 @@ class TestJudges:
 
         judges_resource._delete.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/judges/judge-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 

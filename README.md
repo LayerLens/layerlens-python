@@ -59,7 +59,7 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 | Eval generation ladder  | Heuristic > model-graded > deliberation > GEPA | Single generation          | Single generation                                         | Single generation   | Single generation      |
 | CI/CD eval gate         | `layerlens ci report` + sample threshold gate  | Custom integration         | Custom integration                                        | `deepeval test`     | Manual integration     |
 | Dataset versioning      | Pin evals to versions, diff between runs       | Dataset management         | Not built-in                                              | Basic support       | Dataset management     |
-| OpenTelemetry export    | Native OTLP exporter                           | Not built-in               | Native OTLP                                               | Not built-in        | Native (OpenInference) |
+| OpenTelemetry export    | Native OTLP ingest, through a registered [OTel integration](docs/instrumentation/README.md#sending-opentelemetry-spans) | Not built-in               | Native OTLP                                               | Not built-in        | Native (OpenInference) |
 | Pricing model           | Free public data; premium for org features     | Per-trace pricing          | Per-event pricing                                         | Open source + cloud | Open source + cloud    |
 
 ## Pricing
@@ -68,10 +68,12 @@ Production-grade evaluation infrastructure out of the box: public benchmark data
 
 ## Requirements
 
-- **Python 3.8+.** CI runs the test suite on 3.9–3.12. A few framework extras (`crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `dspy`, `marvin`, `mirascope`) require Python 3.10+ and are skipped automatically on older interpreters. The `pydantic-ai` extra also installs on Python 3.9, where it resolves pydantic-ai 0.8.1. On the other end, `layerlens[crewai]` has been reported to fail to install on Python 3.14 (a `tiktoken` build failure upstream, not in this SDK) — use 3.11 or 3.12 for CrewAI work until that resolves.
+- **Python 3.8+** for the SDK and its CLI. CI runs the test suite on 3.9–3.12. Some extras need a newer Python:
+  - **3.9+:** `litellm`, `providers-litellm`, `all-providers`, `langgraph`, `all-frameworks`, `pydantic-ai`, `openai-agents` and `instructor` fail to install on 3.8. The `pydantic-ai` extra resolves pydantic-ai 0.8.1 on Python 3.9.
+  - **3.10+:** `crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `all-protocols`, `dspy`, `marvin` and `mirascope` install nothing on older interpreters.
 - **OS independent.** Linux, macOS and Windows.
 - **Async supported.** Every client has an async twin — `AsyncLayerLens`, `AsyncPublicClient` — with the same methods and `await` semantics.
-- **Runtime dependencies:** `httpx` and `pydantic` — the core SDK works on Pydantic v1.9+ or v2; some framework adapters (LangGraph, CrewAI, AutoGen) are Pydantic v2-only, following their upstream. The CLI adds `click`.
+- **Runtime dependencies:** `httpx` and `pydantic` 2 (`pydantic>=2.0.1,<3`). The CLI adds `click`.
 
 ## Installation
 
@@ -115,7 +117,7 @@ Get a key from [app.layerlens.ai](https://app.layerlens.ai) → Settings → API
 export LAYERLENS_API_KEY="your-api-key"
 ```
 
-> **Upgrading from an earlier release?** The client was renamed to `LayerLens` and its variables to `LAYERLENS_API_KEY` / `LAYERLENS_BASE_URL`. Your existing code and environment keep working, with a deprecation warning. See [Migrating from Stratix](docs/migrating-from-stratix.md).
+> **Upgrading from 1.11.0 or earlier?** The client was renamed to `LayerLens` and its variables to `LAYERLENS_API_KEY` / `LAYERLENS_BASE_URL`. The old names keep working, with a deprecation warning. A few things do change: `layerlens ci report` needs a selector, the client checks the key on its first call, not when built, and `Result.score` can be `None`. See [Migrating from Stratix](docs/migrating-from-stratix.md).
 
 ### 3. Run your first comparison
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import logging
+import threading
 from typing import Any, Dict, List, Tuple, Iterator, Optional
 
 from ._utils import safe_serialize
@@ -67,8 +68,8 @@ except (ImportError, TypeError):
     _crewai_scope_stack = None
 
 
-def _scope_stack_ids() -> List[str]:
-    """The event ids of crewai's open scopes, outermost first, or [] when the
+def _scope_stack() -> List[Tuple[str, Optional[str]]]:
+    """crewai's open scopes as ``(event_id, event_type)``, outermost first, or [] when the
     private stack is absent or holds something other than the ``(event_id,
     event_type)`` entries 1.14 and 1.15 use. A release can keep the name and
     change its contents; lineage then comes from the adapter's own handlers
@@ -81,13 +82,30 @@ def _scope_stack_ids() -> List[str]:
         return []
     if not isinstance(stack, (tuple, list)):
         return []
-    ids: List[str] = []
+    scopes: List[Tuple[str, Optional[str]]] = []
     for entry in stack:
         if not (isinstance(entry, (tuple, list)) and entry and isinstance(entry[0], str)):
             log.debug("layerlens: unrecognised crewai scope stack entry %r; using handler lineage", entry)
             return []
-        ids.append(entry[0])
-    return ids
+        kind = entry[1] if len(entry) > 1 and isinstance(entry[1], str) else None
+        scopes.append((entry[0], kind))
+    return scopes
+
+
+def _scope_stack_ids() -> List[str]:
+    """The event ids of crewai's open scopes, outermost first (see :func:`_scope_stack`)."""
+    return [event_id for event_id, _ in _scope_stack()]
+
+
+# The scopes whose start the adapter records a span for: a crew, task, agent, flow or tool.
+_SPAN_SCOPES = frozenset(
+    {"crew_kickoff_started", "task_started", "agent_execution_started", "flow_started", "tool_usage_started"}
+)
+
+# How long a handler waits for the span of an ancestor scope whose handler is still running.
+# crewai runs handlers on a pool of 10 threads, so a child event's can run before its
+# parent's has recorded the parent's span: the AgentExecutor flow then hung under the task.
+_ANCESTOR_SPAN_WAIT_SECONDS = 1.0
 
 
 class CrewAIAdapter(FrameworkAdapter):
@@ -137,6 +155,8 @@ class CrewAIAdapter(FrameworkAdapter):
         self._runs: Dict[str, RunState] = {}
         # event_id -> parent_event_id, so any event can be traced to its root.
         self._event_parents: Dict[str, Optional[str]] = {}
+        # Notified whenever a handler records the span it opened for an event.
+        self._spans_recorded = threading.Condition()
         # event_id -> owning root event_id (memoised chain walk).
         self._event_root: Dict[str, str] = {}
         # Fallback collector slot for callers that drive ``_fire`` outside a run
@@ -606,6 +626,8 @@ class CrewAIAdapter(FrameworkAdapter):
         with self._lock:
             self._runs[root_id] = run
             self._memoise_root(root_id, root_id)
+        with self._spans_recorded:
+            self._spans_recorded.notify_all()
         run._col_token = _current_collector.set(collector)
         run._token = _current_run.set(run)
 
@@ -635,7 +657,10 @@ class CrewAIAdapter(FrameworkAdapter):
         """Record the span opened for *event* so its descendants can find it."""
         eid = getattr(event, "event_id", None)
         if eid is not None:
-            self._run_map("event_spans")[eid] = span_id
+            spans = self._run_map("event_spans")
+            with self._spans_recorded:
+                spans[eid] = span_id
+                self._spans_recorded.notify_all()
 
     def _closed_span(self, by_label: Dict[str, str], label: str, event: Any, fallback: Optional[str]) -> str:
         """The span an end event closes: the one its own start opened, paired
@@ -667,16 +692,34 @@ class CrewAIAdapter(FrameworkAdapter):
         if not spans or event is None:
             return
         cur = getattr(event, "parent_event_id", None)
-        seen = 0
-        found: List[str] = []
+        chain: List[str] = []
         with self._lock:
-            while cur is not None and seen < _MAX_TRACKED_EVENTS:
-                span = spans.get(cur)
-                if span is not None:
-                    found.append(span)
+            while cur is not None and len(chain) < _MAX_TRACKED_EVENTS:
+                chain.append(cur)
                 cur = self._event_parents.get(cur)
-                seen += 1
-        yield from found
+        # The ancestors whose handler records a span, as crewai's scope stack names them: one
+        # whose span is missing yet is still being handled on another thread.
+        span_scopes = {event_id for event_id, kind in _scope_stack() if kind in _SPAN_SCOPES}
+        for event_id in chain:
+            span = spans.get(event_id)
+            if span is None and event_id in span_scopes:
+                span = self._wait_for_span(spans, event_id)
+            if span is not None:
+                yield span
+
+    def _wait_for_span(self, spans: Dict[str, str], event_id: str) -> Optional[str]:
+        """The span recorded for *event_id* once its handler has run, or None after a short wait.
+
+        Never called under ``self._lock``: the handler being waited for takes it.
+        """
+        deadline = time.monotonic() + _ANCESTOR_SPAN_WAIT_SECONDS
+        with self._spans_recorded:
+            while event_id not in spans:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self._spans_recorded.wait(left)
+            return spans[event_id]
 
     def _owning_crew_span(self, event: Any) -> Optional[str]:
         """The span of the crew *event* runs in: its nearest crew ancestor, or, with

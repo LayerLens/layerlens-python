@@ -54,7 +54,7 @@ def main():
     print(f"\nFound {response.total_count} open-source models")
 
     # --- Sort by release date (newest first)
-    response = client.models.get(sort_by="releasedAt", order="desc", page_size=5)
+    response = client.models.get(sort_by="released_at", order="desc", page_size=5)
     print(f"\nNewest 5 models:")
     for model in response.models:
         print(f"  - {model.name} (released_at={model.released_at})")
@@ -147,7 +147,7 @@ if __name__ == "__main__":
 > Source: [`samples/core/public_catalog.py`](../../samples/core/public_catalog.py)
 
 ```python
-from layerlens import PublicClient
+from layerlens import NotFoundError, PublicClient
 from layerlens.models import EvaluationStatus
 
 
@@ -156,8 +156,11 @@ def main():
 
     # --- Get a specific evaluation by ID
     evaluation_id = "699f1426c1212b2d9c78e947"
-    evaluation = client.evaluations.get_by_id(evaluation_id)
-    if evaluation:
+    try:
+        evaluation = client.evaluations.get_by_id(evaluation_id)
+    except NotFoundError:
+        print(f"Evaluation {evaluation_id} not found")
+    else:
         print(f"Evaluation: {evaluation.id}")
         print(f"  Model: {evaluation.model_name} ({evaluation.model_company})")
         print(f"  Benchmark: {evaluation.benchmark_name}")
@@ -173,14 +176,12 @@ def main():
                 print(f"  Strengths: {evaluation.summary.performance_details.strengths}")
             if evaluation.summary.analysis_summary:
                 print(f"  Key takeaways: {evaluation.summary.analysis_summary.key_takeaways}")
-    else:
-        print(f"Evaluation {evaluation_id} not found")
 
     # --- List latest evaluations
     response = client.evaluations.get_many(
         page=1,
         page_size=5,
-        sort_by="submittedAt",
+        sort_by="submitted_at",
         order="desc",
     )
     if response:

@@ -307,15 +307,15 @@ class TestEvaluateCommands:
 
     @patch("layerlens.cli.commands.evaluate.get_client")
     def test_evaluate_get_wrong_resource_hints_judge_result(self, mock_get_client, runner):
-        """A backend error (e.g. a trace-eval ID) yields a hint, not a raw 500."""
+        """An id no evaluation has (e.g. a trace-eval ID, which the API answers 404) yields a hint."""
         from unittest.mock import MagicMock
 
-        from layerlens._exceptions import InternalServerError
+        from layerlens._exceptions import NotFoundError
 
         response = MagicMock()
-        response.status_code = 500
+        response.status_code = 404
         response.headers = {}
-        err = InternalServerError("boom", response=response, body=None)
+        err = NotFoundError("boom", response=response, body="evaluation not found")
 
         client = Mock()
         client.evaluations.get_by_id.side_effect = err
@@ -329,7 +329,7 @@ class TestEvaluateCommands:
 
         assert result.exit_code == 1
         assert "judge result te-1" in result.stderr
-        assert "500" in result.stderr
+        assert "evaluation not found (HTTP 404)" in result.stderr
 
 
 class TestScorerCommands:

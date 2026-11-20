@@ -6,11 +6,18 @@ Requires:
     export LAYERLENS_API_KEY="your-api-key"
 """
 
-from layerlens import LayerLens
+import sys
+
+from layerlens import LayerLens, BadRequestError
 
 
 def main() -> None:
-    client = LayerLens()
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     # --- List all integrations
     response = client.integrations.get_many()
@@ -44,8 +51,13 @@ def main() -> None:
             print(f"  Status: {integration.status}")
             print(f"  Config: {integration.config}")
 
-        # --- Test an integration
-        result = client.integrations.test(integration_id)
+        # --- Test an integration. The API tests Langfuse integrations only, and refuses
+        # another kind with a 400 that says so.
+        try:
+            result = client.integrations.test(integration_id)
+        except BadRequestError as exc:
+            print(f"\nTest skipped: {exc}")
+            result = None
         if result:
             status = "OK" if result.success else "FAILED"
             print(f"\nTest result: {status}")

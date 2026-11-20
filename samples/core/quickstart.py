@@ -22,7 +22,12 @@ from _helpers import create_judge, poll_evaluation_results
 
 def main() -> None:
     # --- 1. Initialize the client (reads LAYERLENS_API_KEY from env)
-    client = LayerLens()
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     # --- 2. Create a temporary JSONL trace file and upload it. A record needs a field the API
     # reads a trace by (a name, metadata, events, ...): input and output alone are refused.

@@ -797,6 +797,7 @@ def main() -> None:
     # Initialize LayerLens client
     try:
         client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"\n{_RED}ERROR: Failed to initialize LayerLens client: {exc}{_RESET}")
         print("Set LAYERLENS_API_KEY and try again.")
