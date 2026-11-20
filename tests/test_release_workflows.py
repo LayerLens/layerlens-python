@@ -166,7 +166,8 @@ def test_every_publish_checkout_is_the_release_tag_not_the_dispatch_ref(path: Pa
     # On a dispatch, a plain checkout is the ref the dispatch ran from. validate-release-tag.sh
     # checks the tag's version and that the tag is on release, not that the checkout is the
     # tag, so a dispatch from main naming an older tag of the same version validated, and the
-    # build published main's code under that tag.
+    # build published main's code under that tag. The build takes the validated commit by SHA,
+    # because the tag name could be moved between the two jobs.
     checkouts = _blocks(path, "uses: actions/checkout@")
 
     assert len(checkouts) == 2, f"expected the validate and publish jobs' checkouts in {path.name}"
@@ -176,7 +177,12 @@ def test_every_publish_checkout_is_the_release_tag_not_the_dispatch_ref(path: Pa
         " || github.ref }}" in line
         for line in validate
     ), validate
-    assert any("ref: refs/tags/${{ needs.validate.outputs.release_tag }}" in line for line in build), build
+    assert any("ref: ${{ needs.validate.outputs.release_sha }}" in line for line in build), build
+    # ...and that commit is the one validate checked out, which is still where the tag points.
+    text = path.read_text()
+    assert "release_sha: ${{ steps.set_release_tag.outputs.release_sha }}" in text
+    assert 'echo "release_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT' in text
+    assert 'if [ "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then' in text
 
 
 @pytest.mark.parametrize("path", PUBLISH_WORKFLOWS, ids=lambda p: p.name)
