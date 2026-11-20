@@ -47,13 +47,19 @@ jobs:
           esac
       - uses: actions/checkout@v4
         with:
+          # The tag being released, never the ref a dispatch ran from, so the
+          # version and scripts validated are those of the commit that ships.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
           fetch-depth: 0 # Fetch all history for checking branch
       - name: Set release tag
         id: set_release_tag
         # ensure the tag is valid (matches code, is on release branch, etc)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RELEASE_TAG="$INPUT_RELEASE_TAG"
           else
             RELEASE_TAG=${GITHUB_REF#refs/tags/}
           fi
@@ -74,6 +80,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Build the tag validate checked, not the ref a dispatch ran from.
+          ref: refs/tags/${{ needs.validate.outputs.release_tag }}
 
       - name: Set up Python
         uses: actions/setup-python@v4

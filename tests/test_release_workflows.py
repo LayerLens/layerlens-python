@@ -13,6 +13,10 @@ step names the two that publish and fails on any other. These tests run that
 step, and hold every repository a publish workflow compares ``github.repository``
 with to a name the step accepts, so a rename that updates one place and misses
 another fails here instead of at the next release.
+
+They also hold both publish workflows to validating and building the release tag
+itself rather than the ref a dispatch ran from, and to passing the dispatch input
+to a script through ``env`` instead of splicing it in.
 """
 
 from __future__ import annotations
@@ -136,3 +140,50 @@ def test_the_public_repository_publishes_to_production_and_pypi() -> None:
     assert len(environments) == 2 and all(production), environments
     assert {match.group(1) for match in production if match} == {PUBLIC}
     assert set(_compared((WORKFLOWS / "publish-sdk.yaml").read_text())) == {PUBLIC}
+
+
+def _blocks(path: Path, marker: str) -> List[List[str]]:
+    """The lines of every step or key whose first line contains ``marker``, up to its next sibling."""
+    lines = path.read_text().splitlines()
+    blocks = []
+    for i, line in enumerate(lines):
+        if marker not in line:
+            continue
+        indent = len(line) - len(line.lstrip(" -"))
+        block = [line]
+        for following in lines[i + 1 :]:
+            if following.strip() and len(following) - len(following.lstrip()) < indent:
+                break
+            if following.lstrip().startswith("- ") and len(following) - len(following.lstrip()) < indent:
+                break
+            block.append(following)
+        blocks.append(block)
+    return blocks
+
+
+@pytest.mark.parametrize("path", PUBLISH_WORKFLOWS, ids=lambda p: p.name)
+def test_every_publish_checkout_is_the_release_tag_not_the_dispatch_ref(path: Path) -> None:
+    # On a dispatch, a plain checkout is the ref the dispatch ran from. validate-release-tag.sh
+    # checks the tag's version and that the tag is on release, not that the checkout is the
+    # tag, so a dispatch from main naming an older tag of the same version validated, and the
+    # build published main's code under that tag.
+    checkouts = _blocks(path, "uses: actions/checkout@")
+
+    assert len(checkouts) == 2, f"expected the validate and publish jobs' checkouts in {path.name}"
+    validate, build = checkouts
+    assert any(
+        "ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.release_tag)"
+        " || github.ref }}" in line
+        for line in validate
+    ), validate
+    assert any("ref: refs/tags/${{ needs.validate.outputs.release_tag }}" in line for line in build), build
+
+
+@pytest.mark.parametrize("path", PUBLISH_WORKFLOWS, ids=lambda p: p.name)
+def test_the_release_tag_input_reaches_the_shell_through_env(path: Path) -> None:
+    # A ref name may hold $( ) ; and quotes, so an input spliced into a script runs as code.
+    scripts = _blocks(path, "run: |")
+    spliced = [line.strip() for block in scripts for line in block[1:] if re.search(r"\$\{\{[^}]*inputs\.", line)]
+
+    assert scripts, f"found no run: | script in {path.name}"
+    assert not spliced, f"{path.name} splices a dispatch input into a script: {spliced}"
