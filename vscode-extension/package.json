@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LayerLens/stratix-python",
+    "url": "https://github.com/LayerLens/layerlens-python",
     "directory": "vscode-extension"
   },
   "engines": { "vscode": "^1.85.0" },

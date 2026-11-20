@@ -145,8 +145,8 @@ all-frameworks = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LayerLens/stratix-python"
-Repository = "https://github.com/LayerLens/stratix-python"
+Homepage = "https://github.com/LayerLens/layerlens-python"
+Repository = "https://github.com/LayerLens/layerlens-python"
 
 [project.scripts]
 layerlens = "layerlens.cli:main"

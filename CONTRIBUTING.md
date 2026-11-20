@@ -4,8 +4,8 @@ Thanks for your interest in contributing. The fastest path to a merged PR is to 
 
 ## Before you start
 
-- Browse [open issues](https://github.com/LayerLens/stratix-python/issues), especially anything tagged `good first issue`.
-- For non-trivial changes, [open an issue](https://github.com/LayerLens/stratix-python/issues/new) describing the problem and your proposed approach. We'll respond within a few business days.
+- Browse [open issues](https://github.com/LayerLens/layerlens-python/issues), especially anything tagged `good first issue`.
+- For non-trivial changes, [open an issue](https://github.com/LayerLens/layerlens-python/issues/new) describing the problem and your proposed approach. We'll respond within a few business days.
 - For questions and design discussion, join us in [Discord](https://discord.gg/layerlens).
 
 ## Repo layout
@@ -24,7 +24,7 @@ Thanks for your interest in contributing. The fastest path to a merged PR is to 
 The project uses [uv](https://docs.astral.sh/uv/) to manage Python and dependencies. [Install uv](https://docs.astral.sh/uv/getting-started/installation/) (0.12.23 or newer), then run the bootstrap script:
 
 ```bash
-git clone https://github.com/LayerLens/stratix-python.git
+git clone https://github.com/LayerLens/layerlens-python.git
 cd stratix-python
 ./scripts/bootstrap        # uv sync --locked --all-extras: the Python in .python-version, then exactly uv.lock
 source .venv/bin/activate
@@ -53,11 +53,11 @@ A pre-commit hook runs `./scripts/format` and `./scripts/lint` against staged Py
 
 Every PR runs these workflows. They must pass before review:
 
-- [`run-tests.yaml`](https://github.com/LayerLens/stratix-python/actions/workflows/run-tests.yaml) is the full test suite.
-- [`invariants.yaml`](https://github.com/LayerLens/stratix-python/actions/workflows/invariants.yaml) — **Invariant Gates**: the privacy / observability / schema contract guards (`pytest -m invariant`). See [Instrumentation invariants](#instrumentation-invariants--guards).
-- [`check-format.yaml`](https://github.com/LayerLens/stratix-python/actions/workflows/check-format.yaml) checks formatting.
-- [`check-lint.yaml`](https://github.com/LayerLens/stratix-python/actions/workflows/check-lint.yaml) runs the linter.
-- [`check-lock.yaml`](https://github.com/LayerLens/stratix-python/actions/workflows/check-lock.yaml) checks that `uv.lock` is up to date with `pyproject.toml`.
+- [`run-tests.yaml`](https://github.com/LayerLens/layerlens-python/actions/workflows/run-tests.yaml) is the full test suite.
+- [`invariants.yaml`](https://github.com/LayerLens/layerlens-python/actions/workflows/invariants.yaml) — **Invariant Gates**: the privacy / observability / schema contract guards (`pytest -m invariant`). See [Instrumentation invariants](#instrumentation-invariants--guards).
+- [`check-format.yaml`](https://github.com/LayerLens/layerlens-python/actions/workflows/check-format.yaml) checks formatting.
+- [`check-lint.yaml`](https://github.com/LayerLens/layerlens-python/actions/workflows/check-lint.yaml) runs the linter.
+- [`check-lock.yaml`](https://github.com/LayerLens/layerlens-python/actions/workflows/check-lock.yaml) checks that `uv.lock` is up to date with `pyproject.toml`.
 
 Run them locally before pushing.
 

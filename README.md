@@ -14,9 +14,9 @@
 <p align="center">
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.9.0-blue" alt="Version" /></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="Python 3.8+" /></a>
-  <a href="https://github.com/LayerLens/stratix-python/stargazers"><img src="https://img.shields.io/github/stars/LayerLens/stratix-python?style=social" alt="GitHub Stars" /></a>
-  <a href="https://codecov.io/gh/LayerLens/stratix-python"><img src="https://codecov.io/gh/LayerLens/stratix-python/branch/main/graph/badge.svg" alt="Coverage" /></a>
-  <a href="https://github.com/LayerLens/stratix-python/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License" /></a>
+  <a href="https://github.com/LayerLens/layerlens-python/stargazers"><img src="https://img.shields.io/github/stars/LayerLens/layerlens-python?style=social" alt="GitHub Stars" /></a>
+  <a href="https://codecov.io/gh/LayerLens/layerlens-python"><img src="https://codecov.io/gh/LayerLens/layerlens-python/branch/main/graph/badge.svg" alt="Coverage" /></a>
+  <a href="https://github.com/LayerLens/layerlens-python/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License" /></a>
   <a href="https://discord.gg/layerlens"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
@@ -320,7 +320,7 @@ The [`samples/`](./samples) directory contains 70+ production-ready samples orga
 
 The SDK powers evaluation workflows at LayerLens and across teams building production AI systems. The public benchmark data is queried thousands of times per week via the SDK and [app.layerlens.ai](https://app.layerlens.ai).
 
-If your team uses LayerLens, [open a PR](https://github.com/LayerLens/stratix-python/pulls) to add your logo here.
+If your team uses LayerLens, [open a PR](https://github.com/LayerLens/layerlens-python/pulls) to add your logo here.
 
 ## Join the Community
 
@@ -367,7 +367,7 @@ export LAYERLENS_API_KEY="your-api-key"
 python3 -c "from layerlens import PublicClient; pc = PublicClient(); print(pc.models.get(page_size=5))"
 ```
 
-Then explore the [Quick Start guide](https://layerlens.gitbook.io/stratix-python-sdk), try a [cookbook recipe](https://github.com/LayerLens/stratix-python/tree/main/samples), or [join the Discord](https://discord.gg/layerlens) to ask questions and share what you're building.
+Then explore the [Quick Start guide](https://layerlens.gitbook.io/stratix-python-sdk), try a [cookbook recipe](https://github.com/LayerLens/layerlens-python/tree/main/samples), or [join the Discord](https://discord.gg/layerlens) to ask questions and share what you're building.
 
 ---
 

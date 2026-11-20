@@ -1242,20 +1242,20 @@ The instrumentation release: `layerlens.instrument` captures agent traces from t
 - `evaluations`, `results`, `models`, and `benchmarks` resources
 - Typed exception hierarchy for API errors
 
-[Unreleased]: https://github.com/LayerLens/stratix-python/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/LayerLens/stratix-python/compare/v1.11.0...v2.0.0
-[1.9.0]: https://github.com/LayerLens/stratix-python/compare/v1.8.0...v1.9.0
-[1.8.0]: https://github.com/LayerLens/stratix-python/compare/v1.7.0...v1.8.0
-[1.7.0]: https://github.com/LayerLens/stratix-python/compare/v1.6.1...v1.7.0
-[1.6.1]: https://github.com/LayerLens/stratix-python/compare/v1.6.0...v1.6.1
-[1.6.0]: https://github.com/LayerLens/stratix-python/compare/v1.5.0...v1.6.0
-[1.5.0]: https://github.com/LayerLens/stratix-python/compare/v1.4.0...v1.5.0
-[1.4.0]: https://github.com/LayerLens/stratix-python/compare/v1.3.3...v1.4.0
-[1.3.3]: https://github.com/LayerLens/stratix-python/compare/v1.3.2...v1.3.3
-[1.3.2]: https://github.com/LayerLens/stratix-python/compare/v1.3.1...v1.3.2
-[1.3.1]: https://github.com/LayerLens/stratix-python/compare/v1.3.0...v1.3.1
-[1.3.0]: https://github.com/LayerLens/stratix-python/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/LayerLens/stratix-python/compare/v1.0.2...v1.2.0
-[1.0.2]: https://github.com/LayerLens/stratix-python/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/LayerLens/stratix-python/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/LayerLens/stratix-python/releases/tag/v1.0.0
+[Unreleased]: https://github.com/LayerLens/layerlens-python/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/LayerLens/layerlens-python/compare/v1.11.0...v2.0.0
+[1.9.0]: https://github.com/LayerLens/layerlens-python/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/LayerLens/layerlens-python/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/LayerLens/layerlens-python/compare/v1.6.1...v1.7.0
+[1.6.1]: https://github.com/LayerLens/layerlens-python/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/LayerLens/layerlens-python/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/LayerLens/layerlens-python/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/LayerLens/layerlens-python/compare/v1.3.3...v1.4.0
+[1.3.3]: https://github.com/LayerLens/layerlens-python/compare/v1.3.2...v1.3.3
+[1.3.2]: https://github.com/LayerLens/layerlens-python/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/LayerLens/layerlens-python/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/LayerLens/layerlens-python/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/LayerLens/layerlens-python/compare/v1.0.2...v1.2.0
+[1.0.2]: https://github.com/LayerLens/layerlens-python/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/LayerLens/layerlens-python/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/LayerLens/layerlens-python/releases/tag/v1.0.0

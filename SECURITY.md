@@ -41,6 +41,6 @@ We provide security fixes for the latest minor release of `layerlens`. Older ver
 
 ## Disclosure
 
-We follow coordinated disclosure. Once a fix is released, we will publish an advisory on the [GitHub Security Advisories](https://github.com/LayerLens/stratix-python/security/advisories) page and credit the reporter unless they prefer to remain anonymous.
+We follow coordinated disclosure. Once a fix is released, we will publish an advisory on the [GitHub Security Advisories](https://github.com/LayerLens/layerlens-python/security/advisories) page and credit the reporter unless they prefer to remain anonymous.
 
 Thanks for keeping the community safe.
