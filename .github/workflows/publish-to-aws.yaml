@@ -18,17 +18,33 @@ env:
 jobs:
   validate:
     # Runs in BOTH LayerLens repos — each targets its own S3 index via that
-    # repo's secrets: the public repo publishes to sdk.layerlens.ai, the
-    # private upstream to the private (basic-auth) index. The guard just keeps
-    # the workflow from firing on forks, which lack the AWS secrets.
-    if: startsWith(github.repository, 'LayerLens/stratix-python')
+    # repo's secrets: the public repo (LayerLens/layerlens-python) publishes to
+    # sdk.layerlens.ai, the private upstream (LayerLens/layerlens-python-private)
+    # to the private (basic-auth) index. The owner guard keeps the workflow from
+    # firing on forks, which lack the AWS secrets. It does not name the repos:
+    # when it did, renaming them from stratix-python made both jobs skip, and a
+    # run whose jobs all skip reports success with nothing published. The first
+    # step names them instead, and fails on any other name.
+    if: github.repository_owner == 'LayerLens'
     runs-on: ubuntu-latest
     # public repo releases to "production"; the private upstream uses its
     # "development" environment (pre-release index). Secrets live per-environment.
-    environment: ${{ github.repository == 'LayerLens/stratix-python' && 'production' || 'development' }}
+    environment: ${{ github.repository == 'LayerLens/layerlens-python' && 'production' || 'development' }}
     outputs:
       release_tag: ${{ steps.set_release_tag.outputs.release_tag }}
     steps:
+      - name: Check this repository publishes
+        # tests/test_release_workflows.py runs this script.
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          case "$REPOSITORY" in
+            LayerLens/layerlens-python | LayerLens/layerlens-python-private) ;;
+            *)
+              echo "::error title=Unknown repository::$REPOSITORY is neither LayerLens/layerlens-python (production index) nor LayerLens/layerlens-python-private (development index), so it has no index to publish to. If the repository was renamed, update the names in publish-to-aws.yaml."
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch all history for checking branch
@@ -49,11 +65,11 @@ jobs:
 
   deploy:
     needs: validate
-    if: startsWith(github.repository, 'LayerLens/stratix-python')
+    if: github.repository_owner == 'LayerLens'
     runs-on: ubuntu-latest
     # public repo releases to "production"; the private upstream uses its
     # "development" environment (pre-release index). Secrets live per-environment.
-    environment: ${{ github.repository == 'LayerLens/stratix-python' && 'production' || 'development' }}
+    environment: ${{ github.repository == 'LayerLens/layerlens-python' && 'production' || 'development' }}
 
     steps:
       - name: Checkout code

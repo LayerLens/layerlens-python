@@ -21,7 +21,7 @@ jobs:
   validate:
     # PyPI publishes only from the public repo. The same workflow file exists in
     # the private upstream, where this guard keeps it from ever reaching PyPI.
-    if: github.repository == 'LayerLens/stratix-python'
+    if: github.repository == 'LayerLens/layerlens-python'
     runs-on: ubuntu-latest
     environment: production
     outputs:
@@ -46,7 +46,7 @@ jobs:
 
   build-and-publish:
     needs: validate
-    if: github.repository == 'LayerLens/stratix-python'
+    if: github.repository == 'LayerLens/layerlens-python'
     runs-on: ubuntu-latest
     environment: production
 
