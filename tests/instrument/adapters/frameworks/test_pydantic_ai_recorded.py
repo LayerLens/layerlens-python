@@ -1,6 +1,6 @@
 """Recorded-real-response replay for the PydanticAI framework (LAY-3614).
 
-Drives a REAL ``pydantic_ai.Agent`` whose ``OpenAIModel`` is backed by an
+Drives a REAL ``pydantic_ai.Agent`` whose ``OpenAIChatModel`` is backed by an
 ``httpx.AsyncClient`` over ``httpx.MockTransport`` serving the captured OpenAI
 response, with the real ``PydanticAIAdapter`` attached. This exercises the full
 path — real provider response shape -> real pydantic_ai ``ModelResponse`` /
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import httpx
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from layerlens.instrument._capture_config import CaptureConfig
@@ -33,7 +33,10 @@ def _agent(fixture):
     # pydantic_ai's OpenAI model client is async-only; inject the MockTransport
     # through the provider's documented ``http_client=`` seam.
     provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-    model = OpenAIModel("gpt-4o-mini", provider=provider)
+    # ``OpenAIChatModel`` is the Chat Completions model, the API the recorded body
+    # comes from. pydantic-ai 0.8.1 (the extra's floor) already has it, with
+    # ``OpenAIModel`` as its deprecated alias; 2.0 removed ``OpenAIModel``.
+    model = OpenAIChatModel("gpt-4o-mini", provider=provider)
     return Agent(model, name="replay_agent")
 
 

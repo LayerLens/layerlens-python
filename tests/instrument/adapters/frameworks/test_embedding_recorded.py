@@ -19,9 +19,10 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import httpx
-import pytest
 
-pytest.importorskip("openai")
+from tests._optional_deps import importorskip
+
+importorskip("openai")
 
 import openai  # noqa: E402
 from layerlens.instrument import trace_context  # noqa: E402

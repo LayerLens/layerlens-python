@@ -11,24 +11,31 @@ fine-tuned models behind a gateway, etc.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python custom_model.py
 """
 
 from __future__ import annotations
 
-from layerlens import Stratix
+import sys
+
+from layerlens import LayerLens
 
 
 def main() -> None:
-    client = Stratix()
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     # ── Create a custom model ─────────────────────────────────────────
     #

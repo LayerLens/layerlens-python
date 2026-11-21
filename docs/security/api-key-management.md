@@ -1,12 +1,12 @@
 # API Key Management
 
-This guide covers best practices for securely managing your Stratix API keys throughout the development lifecycle.
+This guide covers best practices for securely managing your LayerLens API keys throughout the development lifecycle.
 
 ## API Key Security Fundamentals
 
 ### What Makes API Keys Sensitive
 
-API keys are sensitive credentials that provide access to your Stratix organization and projects. They should be treated with the same level of security as passwords or other authentication tokens.
+API keys are sensitive credentials that provide access to your LayerLens organization and projects. They should be treated with the same level of security as passwords or other authentication tokens.
 
 **Risks of compromised API keys**:
 
@@ -32,11 +32,11 @@ API keys are sensitive credentials that provide access to your Stratix organizat
 
 ```python
 import os
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Secure: Load from environment variables
-client = Stratix(
-    api_key=os.getenv('LAYERLENS_STRATIX_API_KEY'),
+client = LayerLens(
+    api_key=os.getenv('LAYERLENS_API_KEY'),
 )
 ```
 
@@ -46,7 +46,7 @@ client = Stratix(
 
 ```bash
 # Add to your shell profile (.bashrc, .zshrc, etc.)
-export LAYERLENS_STRATIX_API_KEY="sk-your-key-here"
+export LAYERLENS_API_KEY="sk-your-key-here"
 
 # Reload your shell configuration
 source ~/.bashrc  # or ~/.zshrc
@@ -56,10 +56,10 @@ source ~/.bashrc  # or ~/.zshrc
 
 ```cmd
 # Command Prompt (persistent)
-setx LAYERLENS_STRATIX_API_KEY "sk-your-key-here"
+setx LAYERLENS_API_KEY "sk-your-key-here"
 
 # PowerShell (session-only)
-$env:LAYERLENS_STRATIX_API_KEY="sk-your-key-here"
+$env:LAYERLENS_API_KEY="sk-your-key-here"
 ```
 
 ### Using .env Files
@@ -68,7 +68,7 @@ $env:LAYERLENS_STRATIX_API_KEY="sk-your-key-here"
 
 ```bash
 # .env
-LAYERLENS_STRATIX_API_KEY=sk-your-key-here
+LAYERLENS_API_KEY=sk-your-key-here
 ```
 
 **Load .env file in Python**:
@@ -80,10 +80,10 @@ import os
 # Load environment variables from .env file
 load_dotenv()
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Now environment variables are available
-client = Stratix()
+client = LayerLens()
 ```
 
 **Important**: Add `.env` to your `.gitignore` file:

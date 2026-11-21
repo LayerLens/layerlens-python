@@ -229,6 +229,7 @@ FRAMEWORKS: Tuple[FrameworkCase, ...] = (
         # genuinely cannot ("does not support tools"), so this needs OpenAI.
         required_env=("OPENAI_API_KEY",),
         expected_types=("model.invoke",),
+        extra_imports=("openai",),  # the runner patches its own openai.OpenAI client
         install_hint="instructor openai (no extra)",
     ),
     FrameworkCase(
@@ -248,6 +249,7 @@ FRAMEWORKS: Tuple[FrameworkCase, ...] = (
         runner=fs.run_mirascope,
         required_env=("OLLAMA_HOST",),  # FREE: a plain llm.call needs no tools
         expected_types=("model.invoke",),
+        extra_imports=("openai",),  # the runner gives mirascope's ollama provider an openai client
         install_hint="mirascope>=2 openai (v2 API: mirascope.llm, not mirascope.core)",
     ),
     FrameworkCase(
@@ -270,8 +272,8 @@ FRAMEWORKS: Tuple[FrameworkCase, ...] = (
         required_env=("OLLAMA_HOST",),
         supports_redaction=False,  # content gating covered by the unit doubles
         self_flushing=True,  # owns one collector per SOURCE OTel trace id
-        extra_imports=("opentelemetry.sdk",),
-        install_hint="openinference-instrumentation-openai opentelemetry-sdk",
+        extra_imports=("opentelemetry.sdk", "openai"),  # openai: the client the runner instruments and calls
+        install_hint="openinference-instrumentation-openai opentelemetry-sdk openai",
     ),
     FrameworkCase(
         id="langfuse",

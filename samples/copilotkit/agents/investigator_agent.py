@@ -7,7 +7,7 @@ Given a trace ID the agent:
   3. Runs a battery of analysis helpers (errors, slow spans, token usage, etc.)
   4. Produces a structured report with issues and suggestions
 
-All LayerLens API calls go through the Python SDK (`layerlens.Stratix`)
+All LayerLens API calls go through the Python SDK (`layerlens.LayerLens`)
 instead of raw httpx.
 """
 
@@ -25,7 +25,7 @@ from langgraph.graph import END, StateGraph
 # CopilotKit helpers
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +34,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _client_lock = threading.Lock()
-_client: Optional[Stratix] = None
+_client: Optional[LayerLens] = None
 
 
-def _get_client() -> Stratix:
-    """Return (and lazily create) a module-level Stratix client."""
+def _get_client() -> LayerLens:
+    """Return (and lazily create) a module-level LayerLens client."""
     global _client
     if _client is None:
         with _client_lock:
             if _client is None:  # double-check after acquiring lock
-                _client = Stratix()
+                _client = LayerLens()
     return _client
 
 
@@ -558,7 +558,7 @@ def main() -> None:
     print()
     print("Import `investigator_graph` and wire it into your CopilotKit server.")
     print()
-    print("Required env var: LAYERLENS_STRATIX_API_KEY")
+    print("Required env var: LAYERLENS_API_KEY")
 
 
 if __name__ == "__main__":

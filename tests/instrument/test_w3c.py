@@ -292,8 +292,24 @@ class TestGenAiAttributes:
             usage={"prompt_tokens": 100, "completion_tokens": 30, "cached_tokens": 64},
         )
         assert attrs["gen_ai.usage.cache_read_input_tokens"] == 64
-        # Anthropic-only field is absent.
+        # No cache write was reported, so no cache-creation attribute.
         assert "gen_ai.usage.cache_creation_input_tokens" not in attrs
+
+    def test_openai_cache_write_tokens_map_to_cache_creation(self):
+        # OpenAI reports prompt-cache writes as ``cache_write_tokens`` (GPT-5.6
+        # and later); they are the same quantity Anthropic calls
+        # ``cache_creation_input_tokens``.
+        attrs = gen_ai_attributes(
+            provider="openai",
+            operation="chat",
+            parameters={},
+            response_meta={},
+            usage={"prompt_tokens": 1500, "completion_tokens": 12, "cached_tokens": 0, "cache_write_tokens": 1024},
+        )
+        assert attrs["gen_ai.usage.cache_creation_input_tokens"] == 1024
+        assert attrs["gen_ai.usage.cache_read_input_tokens"] == 0
+        assert attrs["gen_ai.usage.input_tokens"] == 1500
+        assert not [key for key in attrs if key.startswith("gen_ai.anthropic.")]
 
     def test_reasoning_tokens_mapped_openai(self):
         attrs = gen_ai_attributes(

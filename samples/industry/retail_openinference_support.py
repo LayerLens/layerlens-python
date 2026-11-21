@@ -48,8 +48,8 @@ This sample uploads that recorded trace with ONLY a LayerLens API key -- no
 provider key is needed or used, because no model is called here.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python retail_openinference_support.py
@@ -61,7 +61,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -101,10 +101,11 @@ def main() -> None:
     print("=== LayerLens Industry: Retail RAG Customer Support (OpenInference ingestion) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
-        print("  Set LAYERLENS_STRATIX_API_KEY to run this sample.")
+        print("  Set LAYERLENS_API_KEY to run this sample.")
         sys.exit(1)
 
     # Upload the recorded ingested trace first (renders the real span tree with
@@ -167,7 +168,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:22s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:22s} -- timed out waiting for results")
+                print(f"  {label:22s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from ._utils import safe_serialize
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -341,7 +342,7 @@ class SmolAgentsAdapter(FrameworkAdapter):
 
     def _on_run_error(self, agent: Any, exc: Exception) -> None:
         agent_name = _agent_name(agent) or _raw_agent_name(agent)
-        payload = self._payload(error=str(exc), error_type=type(exc).__name__)
+        payload = self._payload(error=str(exc), **error_category(exc))
         if agent_name:
             payload["agent_name"] = agent_name
         self._fire(

@@ -221,6 +221,13 @@ class _AggregatedPart:
 
 
 def instrument_google_vertex(model: Any) -> GoogleVertexProvider:
+    """Trace the Vertex AI calls ``model`` makes; returns the adapter.
+
+    One model at a time: the model instrumented before is restored first, and
+    :func:`uninstrument_google_vertex` restores the last one. To trace several models at once,
+    connect an adapter to each, ``GoogleVertexProvider().connect(other_model)``: each adapter's
+    ``disconnect()`` restores its own model.
+    """
     from .._registry import get, register
 
     existing = get("google_vertex")

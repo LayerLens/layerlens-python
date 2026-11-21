@@ -5,4 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 echo "==> Running formatters"
-rye run format
+uv run --all-extras ruff format
+uv run --all-extras ruff check --fix .
+# run formatting again to fix any inconsistencies when imports are stripped
+uv run --all-extras ruff format

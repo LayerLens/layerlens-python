@@ -79,7 +79,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import (  # noqa: E402
     TraceCollector,
@@ -169,7 +169,7 @@ def _sealed_openrouter_client():
 # payload gets a synthesized content-free trace.root (span_name "trace") and a
 # finalized attestation chain -- an honest empty-state trace.
 # --------------------------------------------------------------------------
-def _capture_openrouter(client: Stratix, root_span_name: str, run_fn, tags: list) -> dict:
+def _capture_openrouter(client: LayerLens, root_span_name: str, run_fn, tags: list) -> dict:
     from layerlens.instrument.adapters.providers.openrouter import (
         instrument_openrouter,
         uninstrument_openrouter,
@@ -243,7 +243,7 @@ def _summary(payload: dict) -> str:
     )
 
 
-def generate_openrouter_single(client: Stratix) -> dict:
+def generate_openrouter_single(client: LayerLens) -> dict:
     """Record the SaaS multi-model cost-routing support run through the sealed
     OpenRouter gateway. Renders an honest empty-state (Agent ``—``, Framework
     ``openrouter``, Status ``ok``) + a two-call waterfall.
@@ -303,5 +303,5 @@ generate_saas_openrouter_cost_routing = generate_openrouter_single
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_openrouter_single(_client)

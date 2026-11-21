@@ -11,11 +11,11 @@ Walk through results page by page with full control over page size.
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -63,16 +63,20 @@ async def main():
         print(f"\nTotal results collected: {len(all_results):,}")
 
         if all_results:
-            correct_answers = sum(1 for r in all_results if r.score > 0.5)
-            accuracy = correct_answers / len(all_results)
-            avg_score = sum(r.score for r in all_results) / len(all_results)
-
-            print(f"Overall accuracy: {accuracy:.1%} ({correct_answers:,}/{len(all_results):,})")
-            print(f"Average score: {avg_score:.3f}")
+            # score is None for a prompt the scorer could not grade; skip those
+            graded = [r.score for r in all_results if r.score is not None]
+            ungraded = len(all_results) - len(graded)
+            if graded:
+                correct = sum(1 for score in graded if score > 0.5)
+                print(f"Accuracy: {correct / len(graded):.1%} ({correct:,}/{len(graded):,} graded)")
+                print(f"Average score: {sum(graded) / len(graded):.3f}")
+            if ungraded:
+                print(f"Not scored: {ungraded:,} (excluded from accuracy)")
 
             print(f"\nFirst 3 results:")
             for i, result in enumerate(all_results[:3], 1):
-                print(f"  {i}. Score: {result.score:.3f}, Subset: {result.subset}")
+                score_str = f"{result.score:.3f}" if result.score is not None else f"not scored ({result.score_error})"
+                print(f"  {i}. Score: {score_str}, Subset: {result.subset}")
                 print(f"     Prompt: {result.prompt[:100]}...")
                 print(f"     Response: {result.result[:100]}...")
 
@@ -90,11 +94,11 @@ Use `get_all()` to fetch every result in a single call. Simpler but loads everyt
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -129,7 +133,7 @@ Use `asyncio.gather` to load results for several evaluations in parallel.
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def fetch_evaluation_results(client, evaluation_id):
@@ -151,7 +155,7 @@ async def fetch_evaluation_results(client, evaluation_id):
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # Replace with your own evaluation IDs
     evaluation_ids = ["68a65a3de7ad047fb5d8e7d4", "688a254c673f6b2835cc7278"]
@@ -177,9 +181,10 @@ if __name__ == "__main__":
 Results can also be fetched directly from an `Evaluation` object when a client is attached:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
+evaluation = client.evaluations.get_by_id(evaluation_id)
 
 # Get results via the client
 results_response = client.results.get(evaluation=evaluation, page=1, page_size=50)
@@ -187,8 +192,24 @@ results_response = client.results.get(evaluation=evaluation, page=1, page_size=5
 # Or via the evaluation object (client must be attached)
 results_response = evaluation.get_results(page=1, page_size=50)
 all_results = evaluation.get_all_results()
+```
 
-# Async equivalents
-results_response = await evaluation.get_results_async(page=1, page_size=50)
-all_results = await evaluation.get_all_results_async()
+The async helpers need an evaluation read with an `AsyncLayerLens`; on one read with
+`LayerLens` they raise `RuntimeError`:
+
+```python
+import asyncio
+
+from layerlens import AsyncLayerLens
+
+
+async def main():
+    client = AsyncLayerLens()
+    evaluation = await client.evaluations.get_by_id(evaluation_id)
+
+    results_response = await evaluation.get_results_async(page=1, page_size=50)
+    all_results = await evaluation.get_all_results_async()
+
+
+asyncio.run(main())
 ```

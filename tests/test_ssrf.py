@@ -3,7 +3,7 @@
 import pytest
 
 from layerlens._ssrf import ensure_safe_upload_url, resolve_trusted_upload_hosts
-from layerlens._exceptions import StratixError
+from layerlens._exceptions import LayerLensError
 
 
 @pytest.mark.invariant
@@ -35,7 +35,7 @@ class TestEnsureSafeUploadURL:
         ],
     )
     def test_rejects_unsafe(self, url):
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             ensure_safe_upload_url(url, None)
 
     def test_allowlist_reenables_self_host(self):
@@ -46,17 +46,17 @@ class TestEnsureSafeUploadURL:
 
     def test_metadata_blocked_even_if_trusted(self):
         # Cloud metadata is never a legitimate target, allowlist or not.
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             ensure_safe_upload_url("http://169.254.169.254/x", ["169.254.169.254"])
 
     def test_non_list_trusted_is_coerced_not_crashed(self):
         # A Mock-like / garbage trusted arg must be treated as empty, not crash.
         ensure_safe_upload_url("https://s3.amazonaws.com/x", object())
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             ensure_safe_upload_url("http://10.0.0.1/x", object())
 
     def test_no_host_rejected(self):
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             ensure_safe_upload_url("not-a-url", None)
 
 

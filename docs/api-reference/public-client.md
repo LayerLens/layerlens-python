@@ -9,7 +9,7 @@ The `PublicClient` (synchronous) and `AsyncPublicClient` (asynchronous) classes 
 ```python
 from layerlens import PublicClient
 
-# Loads API key from the "LAYERLENS_STRATIX_API_KEY" environment variable
+# Loads API key from the "LAYERLENS_API_KEY" environment variable
 client = PublicClient()
 
 # Browse public models
@@ -36,12 +36,12 @@ asyncio.run(main())
 
 ### Accessing from an Authenticated Client
 
-If you already have an authenticated `Stratix` or `AsyncStratix` client, you can access public endpoints through the `.public` property:
+If you already have an authenticated `LayerLens` or `AsyncLayerLens` client, you can access public endpoints through the `.public` property:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()  # requires API key
+client = LayerLens()  # requires API key
 
 # Access public endpoints through the authenticated client
 public_models = client.public.models.get(query="claude")
@@ -49,15 +49,23 @@ public_models = client.public.models.get(query="claude")
 
 ## Constructor Parameters
 
-### `PublicClient(api_key, base_url, timeout)` and `AsyncPublicClient(api_key, base_url, timeout)`
+### `PublicClient(api_key, base_url, timeout, max_retries)` and `AsyncPublicClient(api_key, base_url, timeout, max_retries)`
 
-| Parameter  | Type                             | Required | Default         | Description                   |
-| ---------- | -------------------------------- | -------- | --------------- | ----------------------------- |
-| `api_key`  | `str \| None`                    | Yes\*    | `None`          | Your LayerLens Stratix API key  |
-| `base_url` | `str \| httpx.URL \| None`       | No       | Stratix API URL | Custom API base URL           |
-| `timeout`  | `float \| httpx.Timeout \| None` | No       | 10 minutes      | Request timeout configuration |
+| Parameter     | Type                             | Required | Default           | Description                                         |
+| ------------- | -------------------------------- | -------- | ----------------- | --------------------------------------------------- |
+| `api_key`     | `str \| None`                    | Yes\*    | `None`            | Your LayerLens API key                              |
+| `base_url`    | `str \| httpx.URL \| None`       | No       | LayerLens API URL | Custom API base URL                                 |
+| `timeout`     | `float \| httpx.Timeout \| None` | No       | 10 minutes        | Request timeout configuration                       |
+| `max_retries` | `int`                            | No       | `2`               | Retries of a 429 or a 5xx (500, 502, 503, 504); a lost connection is not retried |
 
-\*Required unless set via the `LAYERLENS_STRATIX_API_KEY` environment variable
+\*Required unless set via the `LAYERLENS_API_KEY` environment variable
+
+`client.public` on a `LayerLens` / `AsyncLayerLens` client is built with that client's key, URL,
+timeout and `max_retries`.
+
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
 
 ## Public Models
 
@@ -78,23 +86,23 @@ Retrieves a list of public models with optional filtering, sorting, and paginati
 | `regions`            | `List[str] \| None`    | No       | Filter by regions                                                                            |
 | `licenses`           | `List[str] \| None`    | No       | Filter by license types                                                                      |
 | `sizes`              | `List[str] \| None`    | No       | Filter by size (Small, Medium, Large, Extra Large)                                           |
-| `sort_by`            | `str \| None`          | No       | Sort column: `name`, `createdAt`, `releasedAt`, `architectureType`, `contextLength`, `license`, `region` |
+| `sort_by`            | `str \| None`          | No       | Sort column: `name`, `created_at`, `released_at`, `architecture_type`, `context_length`, `license`, `region` |
 | `order`              | `str \| None`          | No       | Sort order: `asc` or `desc`                                                                  |
 | `page`               | `int \| None`          | No       | Page number (1-based)                                                                        |
 | `page_size`          | `int \| None`          | No       | Results per page                                                                             |
 | `include_deprecated` | `bool \| None`         | No       | Include deprecated models (default: false)                                                   |
-| `timeout`            | `float \| httpx.Timeout \| None` | No | Override request timeout                                                                     |
+| `timeout`            | `float \| httpx.Timeout \| None` | No | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
 Returns a `PublicModelsListResponse` containing:
 
-- `models`: List of `PublicModelDetail` objects
+- `models`: List of `PublicModelDetail` objects (a page holds at most 100)
 - `categories`: List of available category strings
-- `count`: Number of results in current page
-- `total_count`: Total number of matching results
+- `count`: Number of models that match the filters, across all pages (deprecated ones only with `include_deprecated=True`)
+- `total_count`: Number of models in the catalogue, deprecated ones included, whatever the filters
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
 #### PublicModelDetail Properties
 
@@ -128,7 +136,7 @@ client = PublicClient()
 # Get newest OpenAI models
 response = client.models.get(
     companies=["OpenAI"],
-    sort_by="releasedAt",
+    sort_by="released_at",
     order="desc",
     page_size=5,
 )
@@ -158,18 +166,18 @@ Retrieves a list of public benchmarks with optional filtering, sorting, and pagi
 | `page`               | `int \| None`          | No       | Page number (1-based)                      |
 | `page_size`          | `int \| None`          | No       | Results per page                           |
 | `include_deprecated` | `bool \| None`         | No       | Include deprecated benchmarks              |
-| `timeout`            | `float \| httpx.Timeout \| None` | No | Override request timeout               |
+| `timeout`            | `float \| httpx.Timeout \| None` | No | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
 Returns a `PublicBenchmarksListResponse` containing:
 
-- `datasets`: List of `PublicBenchmarkDetail` objects
+- `datasets`: List of `PublicBenchmarkDetail` objects (a page holds at most 100)
 - `categories`: List of available category strings
-- `count`: Number of results in current page
-- `total_count`: Total number of matching results
+- `count`: Number of benchmarks that match the filters, across all pages
+- `total_count`: Number of benchmarks in the catalogue, whatever the filters
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
 #### PublicBenchmarkDetail Properties
 
@@ -178,7 +186,8 @@ Returns `None` if the request fails.
 | `id`              | `str`              | Unique benchmark identifier           |
 | `key`             | `str`              | Unique benchmark key                  |
 | `name`            | `str`              | Human-readable name                   |
-| `description`     | `str \| None`      | Text description                      |
+| `description`     | `str \| None`      | Text description (the API's `full_description`) |
+| `short_description` | `str \| None`    | One-line summary                      |
 | `prompt_count`    | `int \| None`      | Number of prompts in the benchmark    |
 | `language`        | `str \| None`      | Language of the benchmark             |
 | `categories`      | `List[str] \| None`| Categories                            |
@@ -201,7 +210,7 @@ Fetches prompts/content from a public benchmark with optional search and paginat
 | `search_value` | `str \| None`          | No       | Search value                                   |
 | `sort_by`      | `str \| None`          | No       | Sort field: `id`, `input`, or `truth`          |
 | `sort_order`   | `str \| None`          | No       | Sort order: `asc` or `desc`                    |
-| `timeout`      | `float \| httpx.Timeout \| None` | No | Override request timeout                   |
+| `timeout`      | `float \| httpx.Timeout \| None` | No | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -211,7 +220,7 @@ Returns a `BenchmarkPromptsResponse` containing:
 - `data.prompts`: List of `BenchmarkPrompt` objects
 - `data.count`: Total number of prompts
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
 #### BenchmarkPrompt Properties
 
@@ -221,7 +230,7 @@ Returns `None` if the request fails.
 | `input`  | `str \| List \| Dict` | The prompt input          |
 | `truth`  | `str` | The expected/ground truth answer       |
 
-### `benchmarks.get_all_prompts(benchmark_id, timeout=None)`
+### `benchmarks.get_all_prompts(benchmark_id)`
 
 Fetches all prompts from a benchmark by automatically handling pagination.
 
@@ -230,7 +239,7 @@ Fetches all prompts from a benchmark by automatically handling pagination.
 | Parameter      | Type                   | Required | Description                             |
 | -------------- | ---------------------- | -------- | --------------------------------------- |
 | `benchmark_id` | `str`                  | Yes      | The benchmark ID to fetch prompts from  |
-| `timeout`      | `float \| httpx.Timeout \| None` | No | Override request timeout            |
+| `timeout`      | `float \| httpx.Timeout \| None` | No | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -274,11 +283,11 @@ Retrieves a single evaluation by its unique identifier, including the full evalu
 | Parameter | Type                             | Required | Description                      |
 | --------- | -------------------------------- | -------- | -------------------------------- |
 | `id`      | `str`                            | Yes      | The unique evaluation identifier |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout         |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns an `Evaluation` object if found, `None` otherwise. See [Evaluations](evaluations.md) for the full `Evaluation` object properties.
+Returns an `Evaluation`. Raises `NotFoundError` if no evaluation has this id. See [Evaluations](evaluations.md) for the full `Evaluation` object properties.
 
 ### `evaluations.get_many(...)`
 
@@ -289,14 +298,14 @@ Retrieves evaluations with optional pagination, sorting, and filtering.
 | Parameter         | Type                             | Required | Description                                                                        |
 | ----------------- | -------------------------------- | -------- | ---------------------------------------------------------------------------------- |
 | `page`            | `int \| None`                    | No       | Page number for pagination (1-based, defaults to 1)                                |
-| `page_size`       | `int \| None`                    | No       | Number of evaluations per page (default: 100, max: 500)                            |
+| `page_size`       | `int \| None`                    | No       | Number of evaluations per page (default and maximum: 100)                            |
 | `sort_by`         | `str \| None`                    | No       | Sort by field: `submitted_at`, `accuracy`, or `average_duration`                   |
 | `order`           | `str \| None`                    | No       | Sort order: `asc` or `desc`                                                        |
 | `model_ids`       | `List[str] \| None`              | No       | Filter by model IDs                                                                |
 | `benchmark_ids`   | `List[str] \| None`              | No       | Filter by benchmark/dataset IDs                                                    |
 | `status`          | `EvaluationStatus \| None`       | No       | Filter by evaluation status                                                        |
 | `unique`          | `bool`                           | No       | If `True`, deduplicate by model+benchmark pair, keeping only the latest evaluation |
-| `timeout`         | `float \| httpx.Timeout \| None` | No       | Override request timeout                                                           |
+| `timeout`         | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -305,7 +314,9 @@ Returns an `EvaluationsResponse` object containing:
 - `evaluations`: List of `Evaluation` objects
 - `pagination`: Pagination metadata with `page`, `page_size`, `total_pages`, and `total_count`
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
+
+The API returns at most 100 rows a page: a larger `page_size` is read as 100, and `pagination.page_size` and `total_pages` say so, so paging through `total_pages` reads every evaluation.
 
 #### Example
 
@@ -315,14 +326,13 @@ from layerlens.models import EvaluationStatus
 
 client = PublicClient()
 
-# Get a specific evaluation by ID (with full summary)
+# Get a specific evaluation by ID (with full summary); raises NotFoundError for an unknown id
 evaluation = client.evaluations.get_by_id("eval_abc123")
-if evaluation:
-    print(f"{evaluation.model_name} on {evaluation.benchmark_name}: {evaluation.accuracy:.2f}%")
-    if evaluation.summary:
-        print(f"Goal: {evaluation.summary.goal}")
-        for takeaway in evaluation.summary.analysis_summary.key_takeaways:
-            print(f"  - {takeaway}")
+print(f"{evaluation.model_name} on {evaluation.benchmark_name}: {evaluation.accuracy:.2f}%")
+if evaluation.summary:
+    print(f"Goal: {evaluation.summary.goal}")
+    for takeaway in evaluation.summary.analysis_summary.key_takeaways:
+        print(f"  - {takeaway}")
 
 # List successful evaluations sorted by accuracy
 response = client.evaluations.get_many(
@@ -353,7 +363,7 @@ Compares results between two evaluations side-by-side.
 | `page_size`        | `int \| None`          | No       | Results per page                                                           |
 | `outcome_filter`   | `str \| None`          | No       | Filter by outcome (see below)                                              |
 | `search`           | `str \| None`          | No       | Search within results                                                      |
-| `timeout`          | `float \| httpx.Timeout \| None` | No | Override request timeout                                               |
+| `timeout`          | `float \| httpx.Timeout \| None` | No | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Outcome Filter Options
 
@@ -376,7 +386,7 @@ Returns a `ComparisonResponse` containing:
 - `correct_count_2`: Number of correct answers for evaluation 2
 - `total_results_2`: Total results for evaluation 2
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
 #### ComparisonResult Properties
 
@@ -430,11 +440,11 @@ Compares two models on a benchmark by automatically finding their most recent su
 | `page_size`      | `int \| None`          | No       | Results per page                           |
 | `outcome_filter` | `str \| None`          | No       | Filter by outcome (same options as `compare`) |
 | `search`         | `str \| None`          | No       | Search within results                      |
-| `timeout`        | `float \| httpx.Timeout \| None` | No | Override request timeout               |
+| `timeout`        | `float \| httpx.Timeout \| None` | No | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `ComparisonResponse` (same as `compare()`), or `None` if the comparison request fails.
+Returns a `ComparisonResponse` (same as `compare()`). A request the API refuses raises its error.
 
 Raises `ValueError` if no successful evaluation is found for either model on the given benchmark.
 

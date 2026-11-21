@@ -7,12 +7,12 @@ any transport that handles UTF-8.
 
 Typical flow::
 
-    from layerlens import Stratix
+    from layerlens import LayerLens
     from layerlens.instrument import trace_context
     from layerlens.replay.snapshot import dump_collector, load_snapshot, replay_events
     from layerlens.replay import ReplayController
 
-    client = Stratix()
+    client = LayerLens()
 
     # 1. Capture
     with trace_context(client) as collector:

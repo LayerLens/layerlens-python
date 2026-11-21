@@ -16,14 +16,14 @@ This sample covers SDK model and benchmark management capabilities.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python model_benchmark_management.py
 """
 
@@ -32,7 +32,7 @@ from __future__ import annotations
 import sys
 import logging
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -47,7 +47,8 @@ logger = logging.getLogger("layerlens.samples.model_benchmark_management")
 
 def main() -> None:
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)
@@ -185,10 +186,10 @@ def main() -> None:
     logger.info("=" * 60)
 
     try:
-        # Filter models by company names
-        filtered_models = client.models.get(companies=["openai", "anthropic"])
+        # Filter models by company names, spelled as the catalog spells them (case-sensitive)
+        filtered_models = client.models.get(companies=["OpenAI", "Anthropic"])
         if filtered_models:
-            logger.info("Models from openai/anthropic: %d", len(filtered_models))
+            logger.info("Models from OpenAI/Anthropic: %d", len(filtered_models))
         else:
             logger.info("No models found for those companies")
     except Exception as exc:

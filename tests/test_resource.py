@@ -10,7 +10,7 @@ class TestSyncAPIResource:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client with required methods."""
+        """Mock LayerLens client with required methods."""
         client = Mock()
         client.get_cast = Mock()
         client.post_cast = Mock()
@@ -292,7 +292,7 @@ class TestSyncAPIResourceTyping:
     def test_resource_client_attribute_typing(self):
         """Resource._client maintains proper typing."""
 
-        # Test with properly typed client (would be Stratix in real usage)
+        # Test with properly typed client (would be LayerLens in real usage)
         mock_client = Mock()
         mock_client.get_cast = Mock()
         mock_client.post_cast = Mock()

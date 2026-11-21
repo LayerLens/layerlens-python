@@ -1,6 +1,6 @@
 # CLI — Workflow Examples
 
-Fifteen copy-paste workflows covering the most common CLI tasks.
+Fourteen copy-paste workflows covering the most common CLI tasks.
 
 ---
 
@@ -10,17 +10,17 @@ Set up, list traces, inspect one, and evaluate it with a judge.
 
 ```bash
 # Configure
-export LAYERLENS_STRATIX_API_KEY="sk-..."
+export LAYERLENS_API_KEY="sk-..."
 
 # See what traces are available
-stratix trace list
+layerlens trace list
 
 # Inspect a specific trace
-stratix trace get <TRACE_ID>
+layerlens trace get <TRACE_ID>
 
 # Create a judge and test it against the trace
-stratix judge create --name "Accuracy" --goal "Rate factual accuracy of the response" --model-id <MODEL_ID>
-stratix judge test --judge-id <JUDGE_ID> --trace-id <TRACE_ID>
+layerlens judge create --name "Accuracy" --goal "Rate factual accuracy of the response" --model-id <MODEL_ID>
+layerlens judge test --judge-id <JUDGE_ID> --trace-id <TRACE_ID>
 ```
 
 ---
@@ -29,15 +29,15 @@ stratix judge test --judge-id <JUDGE_ID> --trace-id <TRACE_ID>
 
 ```bash
 # Run and block until done
-stratix evaluate run \
+layerlens evaluate run \
   --model openai/gpt-4o \
   --benchmark arc-agi-2 \
   --wait
 
 # Or fire and check later
-stratix evaluate run --model openai/gpt-4o --benchmark arc-agi-2
-stratix evaluate list --status in-progress
-stratix evaluate get <EVAL_ID>
+layerlens evaluate run --model openai/gpt-4o --benchmark arc-agi-2
+layerlens evaluate list --status in-progress
+layerlens evaluate get <EVAL_ID>
 ```
 
 ---
@@ -45,11 +45,11 @@ stratix evaluate get <EVAL_ID>
 ## 3. Compare models on the same benchmark
 
 ```bash
-stratix evaluate run --model openai/gpt-4o --benchmark arc-agi-2 --wait
-stratix evaluate run --model anthropic/claude-3-opus --benchmark arc-agi-2 --wait
+layerlens evaluate run --model openai/gpt-4o --benchmark arc-agi-2 --wait
+layerlens evaluate run --model anthropic/claude-3-opus --benchmark arc-agi-2 --wait
 
 # List results sorted by accuracy
-stratix evaluate list --sort-by accuracy --order desc
+layerlens evaluate list --sort-by accuracy --order desc
 ```
 
 ---
@@ -58,19 +58,19 @@ stratix evaluate list --sort-by accuracy --order desc
 
 ```bash
 # Create a judge
-stratix judge create \
+layerlens judge create \
   --name "Helpfulness" \
   --goal "Rate how helpful and actionable the response is on a 1-5 scale" \
   --model-id <MODEL_ID>
 
 # Test against a sample trace
-stratix judge test --judge-id <JUDGE_ID> --trace-id <TRACE_ID>
+layerlens judge test --judge-id <JUDGE_ID> --trace-id <TRACE_ID>
 
 # Review the result
-stratix --format json judge get <JUDGE_ID>
+layerlens --format json judge get <JUDGE_ID>
 
 # Iterate: create a refined version
-stratix judge create \
+layerlens judge create \
   --name "Helpfulness v2" \
   --goal "Rate helpfulness on a 1-5 scale with justification" \
   --model-id <MODEL_ID>
@@ -82,13 +82,13 @@ stratix judge create \
 
 ```bash
 # Search for traces matching a keyword
-stratix trace search "customer support" --page-size 5
+layerlens trace search "customer support" --page-size 5
 
 # Export a trace to a file
-stratix trace export <TRACE_ID> -o trace_backup.json
+layerlens trace export <TRACE_ID> -o trace_backup.json
 
 # Export as JSON for piping
-stratix --format json trace get <TRACE_ID> | jq '.id'
+layerlens --format json trace get <TRACE_ID> | jq '.id'
 ```
 
 ---
@@ -104,10 +104,11 @@ cat > jobs.jsonl <<'EOF'
 EOF
 
 # Dry-run to preview
-stratix bulk eval --file jobs.jsonl --dry-run
+layerlens bulk eval --file jobs.jsonl --dry-run
 
-# Execute and wait
-stratix bulk eval --file jobs.jsonl --wait
+# Execute and wait: exits 12 if an evaluation ends in anything but success,
+# and 1 if a job could not run (the other jobs still run)
+layerlens bulk eval --file jobs.jsonl --wait
 ```
 
 ---
@@ -116,16 +117,16 @@ stratix bulk eval --file jobs.jsonl --wait
 
 ```bash
 # Create a trace ID file
-stratix --format json trace list | jq -r '.[].id' > trace_ids.txt
+layerlens --format json trace list | jq -r '.[].id' > trace_ids.txt
 
 # Dry-run to preview
-stratix bulk eval \
+layerlens bulk eval \
   --judge-id <JUDGE_ID> \
   --traces trace_ids.txt \
   --dry-run
 
 # Run trace evaluations for all traces
-stratix bulk eval \
+layerlens bulk eval \
   --judge-id <JUDGE_ID> \
   --traces trace_ids.txt
 ```
@@ -135,18 +136,31 @@ stratix bulk eval \
 ## 8. CI/CD pipeline integration
 
 ```bash
-# In your GitHub Actions workflow:
-stratix evaluate run \
+# In a GitHub Actions step (bash -e): keep the exit status. `evaluate run --wait` exits 12
+# when the evaluation ends in anything but success, and 1 when it could not run.
+status=0
+layerlens --format json evaluate run \
   --model openai/gpt-4o \
   --benchmark arc-agi-2 \
-  --wait
+  --wait > evaluation.json || status=$?
+EVAL_ID=$(jq -r '.id // empty' evaluation.json)
 
-# Generate a summary for the GitHub job
-stratix ci report -o "$GITHUB_STEP_SUMMARY"
+# Summarise that evaluation on the GitHub job page (appended, so earlier steps' summaries stay),
+# even when it failed
+if [ -n "$EVAL_ID" ]; then
+  layerlens ci report --evaluation-id "$EVAL_ID" -o "$GITHUB_STEP_SUMMARY"
+fi
 
-# Or output JSON for custom processing
-stratix ci report -o report.json
+# Or as JSON for custom processing, with a trace evaluation and an environment run
+# layerlens --format json ci report --evaluation-id "$EVAL_ID" \
+#   --trace-evaluation-id <TRACE_EVALUATION_ID> --env-run support-desk:<RUN_ID> -o report.json
+
+# Fail the step when the evaluation failed or could not run
+exit "$status"
 ```
+
+`ci report` exits `0` whatever the results are: the step fails through `evaluate run`'s exit
+status. See [`ci report`](commands.md#ci-report) for a workflow that reports in a step of its own.
 
 ---
 
@@ -154,13 +168,13 @@ stratix ci report -o report.json
 
 ```bash
 # List all integrations
-stratix integration list
+layerlens integration list
 
 # Test a specific integration
-stratix integration test <INTEGRATION_ID>
+layerlens integration test <INTEGRATION_ID>
 
 # JSON output for scripting
-stratix --format json integration list | jq '.[] | select(.status != "active")'
+layerlens --format json integration list | jq '.[] | select(.status != "active")'
 ```
 
 ---
@@ -169,10 +183,10 @@ stratix --format json integration list | jq '.[] | select(.status != "active")'
 
 ```bash
 # List existing scorers
-stratix scorer list
+layerlens scorer list
 
 # Create a scorer with dry-run
-stratix scorer create \
+layerlens scorer create \
   --name "Code Quality" \
   --description "Evaluates generated code for correctness, readability, and best practices" \
   --model-id <MODEL_ID> \
@@ -180,112 +194,83 @@ stratix scorer create \
   --dry-run
 
 # Create for real
-stratix scorer create \
+layerlens scorer create \
   --name "Code Quality" \
   --description "Evaluates generated code for correctness, readability, and best practices" \
   --model-id <MODEL_ID> \
   --prompt "Score the following code on a 1-10 scale for quality..."
 
 # Delete with confirmation
-stratix scorer delete <SCORER_ID>
+layerlens scorer delete <SCORER_ID>
 
 # Delete without prompt
-stratix scorer delete <SCORER_ID> -y
+layerlens scorer delete <SCORER_ID> -y
 ```
 
 ---
 
-## 11. Evaluation spaces
+## 11. JSON output and scripting
 
 ```bash
-# List spaces
-stratix space list
-
-# Create a private space
-stratix space create \
-  --name "Q1 Model Comparison" \
-  --description "Comparing GPT-4o vs Claude 3 Opus for Q1 release" \
-  --visibility private
-
-# Create a public space (dry-run first)
-stratix space create \
-  --name "Public Leaderboard" \
-  --visibility public \
-  --dry-run
-
-# Get space details by slug or ID
-stratix space get q1-model-comparison
-
-# Clean up
-stratix space delete <SPACE_ID> -y
-```
-
----
-
-## 12. JSON output and scripting
-
-```bash
-# Pipe trace IDs into a loop
-stratix --format json trace list | jq -r '.[].id' | while read id; do
+# Pipe trace IDs into a loop (`trace export -o` does not create the folder)
+mkdir -p traces
+layerlens --format json trace list | jq -r '.[].id' | while read id; do
   echo "Exporting $id..."
-  stratix trace export "$id" -o "traces/${id}.json"
+  layerlens trace export "$id" -o "traces/${id}.json"
 done
 
 # Get evaluation accuracy as a number
-ACCURACY=$(stratix --format json evaluate get <EVAL_ID> | jq -r '.accuracy')
+ACCURACY=$(layerlens --format json evaluate get <EVAL_ID> | jq -r '.accuracy')
 echo "Accuracy: $ACCURACY"
 
 # Filter evaluations by status
-stratix --format json evaluate list | jq '[.[] | select(.status == "success")]'
+layerlens --format json evaluate list | jq '[.[] | select(.status == "success")]'
 ```
 
 ---
 
-## 13. Pagination and sorting
+## 12. Pagination and sorting
 
 ```bash
 # Page through traces
-stratix trace list --page 1 --page-size 20
-stratix trace list --page 2 --page-size 20
+layerlens trace list --page 1 --page-size 20
+layerlens trace list --page 2 --page-size 20
 
 # Sort evaluations
-stratix evaluate list --sort-by accuracy --order desc --page-size 5
-stratix evaluate list --sort-by submitted_at --order asc
+layerlens evaluate list --sort-by accuracy --order desc --page-size 5
+layerlens evaluate list --sort-by submitted_at --order asc
 
-# Sort spaces
-stratix space list --sort-by created_at --order desc
 ```
 
 ---
 
-## 14. Verbose mode and debugging
+## 13. Verbose mode and debugging
 
 ```bash
-# Enable verbose output to see HTTP requests
-stratix -v trace list
+# Verbose output: list commands add a count line ("Showing 100 of 3260 traces"), and an
+# unexpected error prints its traceback. Requests themselves are not printed.
+layerlens -v trace list
 
 # Combine with JSON output
-stratix -v --format json evaluate get <EVAL_ID>
+layerlens -v --format json evaluate get <EVAL_ID>
 
 # Debug authentication issues
-stratix -v integration list
+layerlens -v integration list
 ```
 
 ---
 
-## 15. Clean up resources
+## 14. Clean up resources
 
 ```bash
 # Delete a trace (with confirmation prompt)
-stratix trace delete <TRACE_ID>
+layerlens trace delete <TRACE_ID>
 
 # Delete without prompting
-stratix trace delete <TRACE_ID> -y
+layerlens trace delete <TRACE_ID> -y
 
 # Delete a scorer (dry-run first)
-stratix scorer delete <SCORER_ID> --dry-run
-stratix scorer delete <SCORER_ID> -y
+layerlens scorer delete <SCORER_ID> --dry-run
+layerlens scorer delete <SCORER_ID> -y
 
-# Delete a space
-stratix space delete <SPACE_ID> -y
 ```

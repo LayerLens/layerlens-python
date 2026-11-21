@@ -12,11 +12,11 @@ from ...models import (
     EstimateJudgeOptimizationCostResponse,
 )
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 20
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 def _unwrap(resp: Any) -> Any:
@@ -35,7 +35,7 @@ class JudgeOptimizations(SyncAPIResource):
         *,
         judge_id: str,
         budget: str = "medium",
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[EstimateJudgeOptimizationCostResponse]:
         body: Dict[str, Any] = {
             "judge_id": judge_id,
@@ -61,7 +61,7 @@ class JudgeOptimizations(SyncAPIResource):
         *,
         judge_id: str,
         budget: str = "medium",
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateJudgeOptimizationRunResponse]:
         body: Dict[str, Any] = {
             "judge_id": judge_id,
@@ -86,8 +86,13 @@ class JudgeOptimizations(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[JudgeOptimizationRun]:
+        """A judge optimization run, by id.
+
+        Raises :class:`NotFoundError` when no run has this id. Returns None only for a reply that
+        holds no run.
+        """
         resp = self._get(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -107,7 +112,7 @@ class JudgeOptimizations(SyncAPIResource):
         judge_id: Optional[str] = None,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[JudgeOptimizationRunsResponse]:
         params: Dict[str, str] = {}
 
@@ -149,7 +154,7 @@ class JudgeOptimizations(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ApplyJudgeOptimizationResultResponse]:
         resp = self._post(
             f"{self._base_url()}/{id}/apply",
@@ -175,7 +180,7 @@ class AsyncJudgeOptimizations(AsyncAPIResource):
         *,
         judge_id: str,
         budget: str = "medium",
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[EstimateJudgeOptimizationCostResponse]:
         body: Dict[str, Any] = {
             "judge_id": judge_id,
@@ -201,7 +206,7 @@ class AsyncJudgeOptimizations(AsyncAPIResource):
         *,
         judge_id: str,
         budget: str = "medium",
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[CreateJudgeOptimizationRunResponse]:
         body: Dict[str, Any] = {
             "judge_id": judge_id,
@@ -226,8 +231,13 @@ class AsyncJudgeOptimizations(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[JudgeOptimizationRun]:
+        """A judge optimization run, by id.
+
+        Raises :class:`NotFoundError` when no run has this id. Returns None only for a reply that
+        holds no run.
+        """
         resp = await self._get(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -247,7 +257,7 @@ class AsyncJudgeOptimizations(AsyncAPIResource):
         judge_id: Optional[str] = None,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[JudgeOptimizationRunsResponse]:
         params: Dict[str, str] = {}
 
@@ -289,7 +299,7 @@ class AsyncJudgeOptimizations(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ApplyJudgeOptimizationResultResponse]:
         resp = await self._post(
             f"{self._base_url()}/{id}/apply",

@@ -226,7 +226,7 @@ def auto(
     user's SDK client — use ``instrument_openai(client)`` etc. for those.
 
     Args:
-        client: The ``layerlens.Stratix`` instance to attach.
+        client: The ``layerlens.LayerLens`` instance to attach.
         capture_config: Optional ``CaptureConfig`` shared by every adapter.
         skip: Adapter names to leave un-wired even if installed.
 

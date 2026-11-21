@@ -5,6 +5,8 @@ import sys
 import click
 
 from .._client import get_client, handle_errors
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
 from .._formatter import format_output
 
 SCORER_COLUMNS = [
@@ -16,16 +18,16 @@ SCORER_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def scorer() -> None:
     """Manage scorers.
 
     \b
     Examples:
-      stratix scorer list
-      stratix scorer get <scorer-id>
-      stratix scorer create --name "Quality" --description "..." --model-id <id> --prompt "..."
-      stratix scorer delete <scorer-id>
+      layerlens scorer list
+      layerlens scorer get <scorer-id>
+      layerlens scorer create --name "Quality" --description "..." --model-id <id> --prompt "..."
+      layerlens scorer delete <scorer-id>
     """
 
 
@@ -39,13 +41,15 @@ def list_scorers(ctx: click.Context, page: int | None, page_size: int | None) ->
 
     \b
     Examples:
-      stratix scorer list
-      stratix scorer list --page-size 10
+      layerlens scorer list
+      layerlens scorer list --page-size 10
     """
     client = get_client(ctx)
     result = client.scorers.get_many(page=page, page_size=page_size)
-    if result is None or not result.scorers:
-        click.echo("No scorers found.")
+    if result is None:
+        exit_unreadable("the scorer list")
+    if not result.scorers:
+        echo_empty(ctx, "No scorers found.")
         return
 
     if ctx.obj["verbose"]:
@@ -64,8 +68,8 @@ def get_scorer(ctx: click.Context, id: str) -> None:
 
     \b
     Examples:
-      stratix scorer get abc123
-      stratix scorer get abc123 --format json
+      layerlens scorer get abc123
+      layerlens scorer get abc123 --format json
     """
     client = get_client(ctx)
     s = client.scorers.get(id)
@@ -79,9 +83,9 @@ def get_scorer(ctx: click.Context, id: str) -> None:
 
 @scorer.command("create")
 @click.option("--name", required=True, help="Scorer name (3-64 chars).")
-@click.option("--description", required=True, help="Scorer description (10-500 chars).")
+@click.option("--description", required=True, help="Scorer description (10-280 chars).")
 @click.option("--model-id", required=True, help="Model ID to use for scoring.")
-@click.option("--prompt", required=True, help="Scoring prompt.")
+@click.option("--prompt", required=True, help="Scoring prompt (at least 10 chars).")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without executing.")
 @click.pass_context
 @handle_errors
@@ -97,22 +101,18 @@ def create_scorer(
 
     \b
     Examples:
-      stratix scorer create --name "Quality" --description "Evaluate quality" --model-id abc123 --prompt "Rate the quality..."
-      stratix scorer create --name "Test" --description "Test scorer" --model-id abc123 --prompt "..." --dry-run
+      layerlens scorer create --name "Quality" --description "Evaluate quality" --model-id abc123 --prompt "Rate the quality..."
+      layerlens scorer create --name "Test" --description "Test scorer" --model-id abc123 --prompt "..." --dry-run
     """
     if dry_run:
-        click.echo(f"[dry-run] Would create scorer: {name}")
-        click.echo(f"  Model: {model_id}")
-        click.echo(f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
+        echo_status(ctx, f"[dry-run] Would create scorer: {name}")
+        echo_status(ctx, f"  Model: {model_id}")
+        echo_status(ctx, f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
         return
 
     client = get_client(ctx)
     s = client.scorers.create(name=name, description=description, model_id=model_id, prompt=prompt)
-    if s is None:
-        click.echo("Failed to create scorer.", err=True)
-        sys.exit(1)
-
-    click.echo(f"Scorer created: {s.id}")
+    echo_status(ctx, f"Scorer created: {s.id}")
     output = format_output(s, ctx.obj["output_format"])
     click.echo(output)
 
@@ -128,21 +128,22 @@ def delete_scorer(ctx: click.Context, id: str, yes: bool, dry_run: bool) -> None
 
     \b
     Examples:
-      stratix scorer delete abc123
-      stratix scorer delete abc123 --yes
-      stratix scorer delete abc123 --dry-run
+      layerlens scorer delete abc123
+      layerlens scorer delete abc123 --yes
+      layerlens scorer delete abc123 --dry-run
     """
     if dry_run:
-        click.echo(f"[dry-run] Would delete scorer {id}")
+        echo_status(ctx, f"[dry-run] Would delete scorer {id}")
         return
 
     if not yes:
-        click.confirm(f"Are you sure you want to delete scorer {id}?", abort=True)
+        # On stderr: a prompt is not output, and stdout may be JSON.
+        click.confirm(f"Are you sure you want to delete scorer {id}?", abort=True, err=True)
 
     client = get_client(ctx)
     success = client.scorers.delete(id)
     if success:
-        click.echo(f"Scorer {id} deleted.")
+        echo_status(ctx, f"Scorer {id} deleted.")
     else:
         click.echo(f"Failed to delete scorer {id}.", err=True)
         sys.exit(1)

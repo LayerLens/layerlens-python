@@ -260,6 +260,44 @@ class TestProviderTagging:
         assert tool["arguments"] == {"city": "Lisbon"}
         assert tool["id"] == "call_or_abc123"
 
+    @pytest.mark.parametrize("capture_content", [False, True])
+    def test_malformed_tool_arguments_are_parsed_and_logged_only_with_capture_content(
+        self, mock_client, capture_trace, caplog, capture_content
+    ):
+        # OpenRouter reuses the OpenAI tool-call hooks, so it follows the same rule:
+        # the arguments are content, decoded once and only when content is captured.
+        sentinel = "LL-SENTINEL-4267"
+        malformed = '{"city": "' + sentinel
+        body = _tool_call_json()
+        body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = malformed
+        client, _ = _make_client(body)
+        provider = OpenRouterProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+        def my_agent():
+            client.chat.completions.create(model=_ROUTED_SLUG, messages=[{"role": "user", "content": "Weather?"}])
+            return "done"
+
+        with caplog.at_level(logging.WARNING):
+            my_agent()
+        provider.disconnect()
+
+        events = capture_trace["events"]
+        tool = find_event(events, "tool.call")["payload"]
+        assert tool["tool_name"] == "get_weather"
+        invoke = find_event(events, "model.invoke")["payload"]
+        warnings = [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
+        if capture_content:
+            assert len(warnings) == 1, warnings
+            assert tool["arguments"] == malformed
+            assert invoke["output_message"]["tool_calls"][0]["arguments"] == malformed
+        else:
+            assert warnings == []
+            assert "arguments" not in tool
+            assert "output_message" not in invoke
+            assert sentinel not in json.dumps(events)
+
     def test_provider_tag_does_not_depend_on_the_event_name(self):
         """The billing tag is decided explicitly, not by splitting a string.
 
@@ -310,6 +348,37 @@ class TestProviderCost:
         assert (cost["prompt_tokens"], cost["completion_tokens"], cost["total_tokens"]) == (14, 7, 21)
         # The gateway's raw usage vocabulary must not leak into the nested block.
         assert "cost" not in cost
+
+    def test_cache_write_tokens_ride_the_invoke_and_the_reported_cost(self, mock_client, capture_trace):
+        """OpenRouter reports prompt-cache writes as
+        ``prompt_tokens_details.cache_write_tokens``; the counts here are the
+        example in https://openrouter.ai/docs/use-cases/usage-accounting (prompt
+        194, written 100). The adapter inherits OpenAIProvider.extract_meta, so the
+        count must ride along (LAY-4259); the price stays the gateway's own charge."""
+        body = _chat_json(prompt_tokens=194, completion_tokens=2, cost=0.0004)
+        body["usage"]["prompt_tokens_details"] = {"cached_tokens": 0, "cache_write_tokens": 100, "audio_tokens": 0}
+        client, _ = _make_client(body)
+        OpenRouterProvider().connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            client.chat.completions.create(model=_ROUTED_SLUG, messages=[{"role": "user", "content": "Hi"}])
+            return "done"
+
+        my_agent()
+        events = capture_trace["events"]
+        mi = find_event(events, "model.invoke")["payload"]
+        assert mi["usage"] == {
+            "prompt_tokens": 194,
+            "completion_tokens": 2,
+            "total_tokens": 196,
+            "cached_tokens": 0,
+            "cache_write_tokens": 100,
+        }
+        cost = find_event(events, "cost.record")["payload"]
+        assert cost["cache_write_tokens"] == 100
+        assert cost["cost_usd"] == pytest.approx(0.0004)
+        assert cost["cost_source"] == "provider"
 
     def test_no_cost_record_when_gateway_reports_no_cost(self, mock_client, capture_trace):
         """Usage accounting off => the charge is unknowable => emit NOTHING.

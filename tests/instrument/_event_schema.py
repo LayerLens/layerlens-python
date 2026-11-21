@@ -131,6 +131,8 @@ USAGE_KEYS = frozenset(
         "thinking_tokens",
         "cache_read_input_tokens",
         "cache_creation_input_tokens",
+        # OpenAI's prompt-cache writes (prompt_tokens_details / input_tokens_details).
+        "cache_write_tokens",
     }
 )
 

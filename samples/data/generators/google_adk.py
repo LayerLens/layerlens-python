@@ -55,7 +55,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -88,7 +88,7 @@ def _ensure_gemini_key() -> None:
 # the observer sees a complete replay dict (identity + root + attestation). The
 # adapter owns/creates the collector bound to ``client`` in ``before_run``.
 # --------------------------------------------------------------------------
-def _capture_adk_run(client: Stratix, agent, user_text: str, *, app_name: str) -> dict:
+def _capture_adk_run(client: LayerLens, agent, user_text: str, *, app_name: str) -> dict:
     from google.genai import types
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
@@ -195,7 +195,7 @@ def _lookup_destination_guide(city: str) -> dict:
     }
 
 
-def generate_google_adk_single(client: Stratix) -> dict:
+def generate_google_adk_single(client: LayerLens) -> dict:
     """Record a single live Gemini travel-concierge turn (Agent = travel_concierge)."""
     _ensure_gemini_key()
     from google.adk.agents import Agent
@@ -274,7 +274,7 @@ def _search_hotels(city: str, checkin: str, checkout: str, budget_per_night_usd:
     return {"city": city, "checkin": checkin, "checkout": checkout, "options": options}
 
 
-def generate_google_adk_multi(client: Stratix) -> dict:
+def generate_google_adk_multi(client: LayerLens) -> dict:
     """Record a live hierarchical trip-planner delegation (multi-agent DAG)."""
     _ensure_gemini_key()
     from google.adk.agents import Agent
@@ -339,6 +339,6 @@ def generate_google_adk_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_google_adk_single(_client)
     generate_google_adk_multi(_client)

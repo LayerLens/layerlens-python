@@ -27,11 +27,14 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from typing import Any, Dict, List
 
 import pytest
 
-boto3 = pytest.importorskip("boto3")
+from tests._optional_deps import importorskip
+
+boto3 = importorskip("boto3")
 from botocore.stub import ANY, Stubber  # noqa: E402
 from botocore.response import StreamingBody  # noqa: E402
 
@@ -567,3 +570,101 @@ class TestConverseToolUse:
         assert cost["payload"]["cost_usd"] is not None and cost["payload"]["cost_usd"] > 0
         assert cost["span_id"] == mi["span_id"]
         provider.disconnect()
+
+
+# ===========================================================================
+# An invoke_model body nested deeper than Python's JSON decoder recurses
+# ===========================================================================
+
+
+@pytest.mark.parametrize("capture_content", [False, True])
+def test_invoke_model_body_past_the_decoders_limit_does_not_fail_the_call(
+    mock_client, capture_trace, caplog, capture_content
+):
+    # The request succeeded; reading its body for the trace must not raise into the
+    # caller. The call is recorded without what only the body holds, and the caller
+    # still reads the whole body.
+    tool_input = "[" * 50_000 + "]" * 50_000
+    body = (
+        '{"id": "msg_bdrk_deep", "type": "message", "role": "assistant", "content": '
+        '[{"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"a": ' + tool_input + "}}], "
+        '"stop_reason": "tool_use", "usage": {"input_tokens": 5, "output_tokens": 7}}'
+    ).encode("utf-8")
+    client = _make_client()
+    provider, stubber = _connect(client)
+    stubber.add_response("invoke_model", _invoke_stub_response(body), {"modelId": _ANTHROPIC_MODEL, "body": ANY})
+
+    @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+    def run():
+        r = client.invoke_model(
+            modelId=_ANTHROPIC_MODEL,
+            body=json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 64, "messages": []}),
+        )
+        return len(r["body"].read())
+
+    with caplog.at_level(logging.WARNING):
+        assert run() == len(body)
+    provider.disconnect()
+
+    invoke = find_event(capture_trace["events"], "model.invoke")["payload"]
+    assert invoke["name"] == "aws_bedrock.invoke_model"
+    assert "usage" not in invoke
+    assert any(r.levelno == logging.WARNING and "aws_bedrock.invoke_model" in r.getMessage() for r in caplog.records), [
+        r.getMessage() for r in caplog.records
+    ]
+
+
+# ===========================================================================
+# An invoke_model request body nested deeper than Python's JSON decoder recurses
+# ===========================================================================
+
+
+@pytest.mark.parametrize("method", ["invoke_model", "invoke_model_with_response_stream"])
+def test_request_body_past_the_decoders_limit_does_not_fail_the_call(mock_client, capture_trace, caplog, method):
+    # The trace reads the request body for the input messages (before the request
+    # for invoke_model, after it for the stream); one the decoder cannot read must
+    # not raise into the caller. The call is recorded without its messages.
+    deep_body = (
+        '{"anthropic_version": "bedrock-2023-05-31", "max_tokens": 64, "messages": [], "metadata": '
+        + "[" * 50_000
+        + "]" * 50_000
+        + "}"
+    )
+    streaming = method == "invoke_model_with_response_stream"
+    client = _make_client()
+    provider, stubber = _connect(client, streaming=streaming)
+    if streaming:
+        stubber.add_response(method, _anthropic_invoke_stream_body(), {"modelId": _ANTHROPIC_MODEL, "body": ANY})
+    else:
+        body = json.dumps(
+            {
+                "id": "msg_bdrk_01",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Hello"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 5, "output_tokens": 7},
+            }
+        ).encode("utf-8")
+        stubber.add_response(method, _invoke_stub_response(body), {"modelId": _ANTHROPIC_MODEL, "body": ANY})
+
+    @trace(mock_client, capture_config=CaptureConfig.full())
+    def run():
+        r = getattr(client, method)(modelId=_ANTHROPIC_MODEL, body=deep_body)
+        return len(list(r["body"])) if streaming else len(r["body"].read())
+
+    with caplog.at_level(logging.WARNING):
+        assert run() > 0
+    provider.disconnect()
+    stubber.assert_no_pending_responses()
+
+    invoke = find_event(capture_trace["events"], "model.invoke")["payload"]
+    assert invoke["name"] == f"aws_bedrock.{method}"
+    assert invoke.get("messages") is None
+    assert invoke["usage"]["prompt_tokens"] == (12 if streaming else 5)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert [m for m in warnings if "request body" in m] == [
+        f"layerlens: could not decode the aws_bedrock.{method} request body (RecursionError); "
+        "recording the call without its input messages"
+    ]
+    assert not [m for m in warnings if "hook failed" in m], warnings

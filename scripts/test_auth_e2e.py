@@ -12,7 +12,7 @@ The device-code step will still fail (no real Cognito) but it validates
 that config discovery, credential storage, and the CLI plumbing all work.
 
 To test against the real staging/production backend, set:
-    LAYERLENS_STRATIX_BASE_URL=https://api.layerlens.ai/api/v1 layerlens login
+    LAYERLENS_BASE_URL=https://api.layerlens.ai/api/v1 layerlens login
 """
 
 import json
@@ -126,7 +126,7 @@ def main():
 
     import os
 
-    os.environ["LAYERLENS_STRATIX_BASE_URL"] = base_url
+    os.environ["LAYERLENS_BASE_URL"] = base_url
     auth_mod._cached_auth_config = None  # clear cache
 
     from layerlens.cli._auth import cli_login

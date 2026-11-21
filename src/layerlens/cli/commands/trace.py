@@ -2,32 +2,68 @@ from __future__ import annotations
 
 import sys
 import json
+from typing import Any, List, Tuple, Callable
 
 import click
 
 from .._client import get_client, handle_errors
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
 from .._formatter import to_dict, format_output
 from .._completions import complete_trace
 
+# Agent and Tags come last, so a script that cuts the first columns keeps working.
 TRACE_COLUMNS = [
     ("id", "ID"),
     ("created_at", "Created"),
     ("filename", "Filename"),
     ("evaluations_count", "Evaluations"),
+    ("agent", "Agent"),
+    ("tags", "Tags"),
 ]
 
 
-@click.group()
+def _listed(ctx: click.Context, traces: List[Any]) -> str:
+    """The traces as the chosen format shows them; in a table, tags read as ``a, b``, not JSON."""
+    if ctx.obj["output_format"] == "json":
+        return format_output(traces, "json")
+    rows = []
+    for t in traces:
+        row = to_dict(t)
+        row["tags"] = ", ".join(row.get("tags") or []) or None
+        rows.append(row)
+    return format_output(rows, "table", TRACE_COLUMNS)
+
+
+def _tags(ctx: click.Context, param: click.Parameter, value: Tuple[str, ...]) -> List[str]:
+    # A blank tag (an unset variable in `--tag "$GIT_SHA"`) would be ignored by the API,
+    # which would then list every trace in the project as if it were the run's.
+    if any(not tag.strip() for tag in value):
+        raise click.BadParameter("a tag cannot be empty", ctx=ctx, param=param)
+    return list(value)
+
+
+def _tag_option(fn: Callable[..., Any]) -> Callable[..., Any]:
+    return click.option(
+        "--tag",
+        "tags",
+        multiple=True,
+        callback=_tags,
+        help="Only traces with this tag. Repeat it for traces with every one.",
+    )(fn)
+
+
+@click.group(cls=LayerLensGroup)
 def trace() -> None:
     """Manage traces.
 
     \b
     Examples:
-      stratix trace list
-      stratix trace get <trace-id>
-      stratix trace search "user login"
-      stratix trace export <trace-id> --output trace.json
-      stratix trace delete <trace-id> --yes
+      layerlens trace list
+      layerlens trace get <trace-id>
+      layerlens trace search "user login"
+      layerlens trace export <trace-id> --output trace.json
+      layerlens trace delete <trace-id> --yes
     """
 
 
@@ -36,6 +72,7 @@ def trace() -> None:
 @click.option("--page-size", default=None, type=int, help="Results per page.")
 @click.option("--source", default=None, help="Filter by source.")
 @click.option("--status", default=None, help="Filter by status.")
+@_tag_option
 @click.option("--sort-by", default=None, help="Sort field.")
 @click.option("--sort-order", default=None, type=click.Choice(["asc", "desc"]), help="Sort order.")
 @click.pass_context
@@ -46,6 +83,7 @@ def list_traces(
     page_size: int | None,
     source: str | None,
     status: str | None,
+    tags: List[str],
     sort_by: str | None,
     sort_order: str | None,
 ) -> None:
@@ -53,9 +91,10 @@ def list_traces(
 
     \b
     Examples:
-      stratix trace list
-      stratix trace list --page-size 10
-      stratix trace list --source sdk --sort-by created_at --sort-order desc
+      layerlens trace list
+      layerlens trace list --page-size 10
+      layerlens trace list --source sdk --sort-by created_at --sort-order desc
+      layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"
     """
     client = get_client(ctx)
     result = client.traces.get_many(
@@ -63,18 +102,20 @@ def list_traces(
         page_size=page_size,
         source=source,
         status=status,
+        tags=tags,
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    if result is None or not result.traces:
-        click.echo("No traces found.")
+    if result is None:
+        exit_unreadable("the trace list")
+    if not result.traces:
+        echo_empty(ctx, "No traces found.")
         return
 
     if ctx.obj["verbose"]:
         click.echo(f"Showing {result.count} of {result.total_count} traces", err=True)
 
-    output = format_output(result.traces, ctx.obj["output_format"], TRACE_COLUMNS)
-    click.echo(output)
+    click.echo(_listed(ctx, result.traces))
 
 
 @trace.command("get")
@@ -86,8 +127,8 @@ def get_trace(ctx: click.Context, id: str) -> None:
 
     \b
     Examples:
-      stratix trace get abc123-def4-5678-ghij-klmnopqrstuv
-      stratix trace get abc123 --format json
+      layerlens trace get abc123-def4-5678-ghij-klmnopqrstuv
+      layerlens trace get abc123 --format json
     """
     client = get_client(ctx)
     trace = client.traces.get(id)
@@ -105,6 +146,7 @@ def get_trace(ctx: click.Context, id: str) -> None:
 @click.option("--page-size", default=None, type=int, help="Results per page.")
 @click.option("--source", default=None, help="Filter by source.")
 @click.option("--status", default=None, help="Filter by status.")
+@_tag_option
 @click.option("--sort-by", default=None, help="Sort field.")
 @click.option("--sort-order", default=None, type=click.Choice(["asc", "desc"]), help="Sort order.")
 @click.pass_context
@@ -116,6 +158,7 @@ def search_traces(
     page_size: int | None,
     source: str | None,
     status: str | None,
+    tags: List[str],
     sort_by: str | None,
     sort_order: str | None,
 ) -> None:
@@ -123,8 +166,9 @@ def search_traces(
 
     \b
     Examples:
-      stratix trace search "user login"
-      stratix trace search "error" --source sdk --page-size 5
+      layerlens trace search "user login"
+      layerlens trace search "error" --source sdk --page-size 5
+      layerlens trace search "refund" --tag support-desk
     """
     client = get_client(ctx)
     result = client.traces.get_many(
@@ -133,18 +177,20 @@ def search_traces(
         page_size=page_size,
         source=source,
         status=status,
+        tags=tags,
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    if result is None or not result.traces:
-        click.echo("No traces found matching your query.")
+    if result is None:
+        exit_unreadable("the trace search results")
+    if not result.traces:
+        echo_empty(ctx, "No traces found matching your query.")
         return
 
     if ctx.obj["verbose"]:
         click.echo(f"Found {result.count} of {result.total_count} traces", err=True)
 
-    output = format_output(result.traces, ctx.obj["output_format"], TRACE_COLUMNS)
-    click.echo(output)
+    click.echo(_listed(ctx, result.traces))
 
 
 @trace.command("export")
@@ -164,8 +210,8 @@ def export_trace(ctx: click.Context, id: str, output_file: str | None) -> None:
 
     \b
     Examples:
-      stratix trace export abc123
-      stratix trace export abc123 --output trace.json
+      layerlens trace export abc123
+      layerlens trace export abc123 --output trace.json
     """
     client = get_client(ctx)
     trace = client.traces.get(id)
@@ -176,9 +222,14 @@ def export_trace(ctx: click.Context, id: str, output_file: str | None) -> None:
     json_str = json.dumps(to_dict(trace), indent=2, default=str)
 
     if output_file:
-        with open(output_file, "w") as f:
-            f.write(json_str)
-        click.echo(f"Trace exported to {output_file}")
+        try:
+            with open(output_file, "w") as f:
+                f.write(json_str)
+        except OSError as err:
+            # A folder that is not there is the user's to fix: a sentence, not "Unexpected error".
+            click.echo(f"Error: the trace could not be written to {output_file}: {err.strerror or err}", err=True)
+            sys.exit(1)
+        echo_status(ctx, f"Trace exported to {output_file}")
     else:
         click.echo(json_str)
 
@@ -193,16 +244,17 @@ def delete_trace(ctx: click.Context, id: str, yes: bool) -> None:
 
     \b
     Examples:
-      stratix trace delete abc123
-      stratix trace delete abc123 --yes
+      layerlens trace delete abc123
+      layerlens trace delete abc123 --yes
     """
     if not yes:
-        click.confirm(f"Are you sure you want to delete trace {id}?", abort=True)
+        # On stderr: a prompt is not output, and stdout may be JSON.
+        click.confirm(f"Are you sure you want to delete trace {id}?", abort=True, err=True)
 
     client = get_client(ctx)
     success = client.traces.delete(id)
     if success:
-        click.echo(f"Trace {id} deleted.")
+        echo_status(ctx, f"Trace {id} deleted.")
     else:
         click.echo(f"Failed to delete trace {id}.", err=True)
         sys.exit(1)

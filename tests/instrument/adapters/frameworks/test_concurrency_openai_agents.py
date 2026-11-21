@@ -19,14 +19,13 @@ from collections import Counter
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
 if sys.version_info < (3, 10):
     pytest.skip("openai-agents requires Python >= 3.10", allow_module_level=True)
-try:
-    import agents  # noqa: F401
-except (ImportError, Exception):
-    pytest.skip("openai-agents not installed or incompatible", allow_module_level=True)
+importorskip("agents")
 
 from agents.tracing import TracingProcessor, set_trace_processors  # noqa: E402
 from agents.tracing.spans import SpanImpl  # noqa: E402
@@ -40,6 +39,8 @@ from agents.tracing.span_data import (  # noqa: E402
 from layerlens.instrument.adapters.frameworks.openai_agents import (  # noqa: E402
     OpenAIAgentsAdapter,
 )
+
+from ._openai_agents_support import make_span  # noqa: E402
 
 # -- Helpers (copied from test_openai_agents.py — do not import private
 #    helpers across test modules) --
@@ -84,13 +85,7 @@ def _make_span(trace_id: str, span_id: str, span_data: Any, parent_id: Optional[
     span.start()/finish() therefore don't double-trigger the adapter;
     tests call adapter.on_span_end() manually.
     """
-    return SpanImpl(
-        trace_id=trace_id,
-        span_id=span_id,
-        parent_id=parent_id,
-        processor=_noop,
-        span_data=span_data,
-    )
+    return make_span(trace_id, span_id, span_data, _noop, parent_id)
 
 
 def _collect_traces(mock_client: Any) -> List[Dict[str, Any]]:

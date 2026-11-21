@@ -9,10 +9,10 @@ script for any CI system, and a pre-commit hook for local development.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
-- A valid `LAYERLENS_STRATIX_API_KEY` set as an environment variable (locally or as a CI secret)
+- A valid `LAYERLENS_API_KEY` set as an environment variable (locally or as a CI secret)
 - For the GitHub Actions workflow: repository write access to add workflow files
 - For the pre-commit hook: a local Git repository
 
@@ -21,7 +21,7 @@ pip install layerlens --index-url https://sdk.layerlens.ai/package
 Run the quality gate script locally to verify your current evaluation pass rate:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 python quality_gate.py --threshold 0.85
 ```
 
@@ -34,6 +34,7 @@ aggregate pass rate, and exits with code 0 (pass) or 1 (fail) based on the thres
 |------|----------|-------------|
 | `quality_gate.py` | CI/CD engineers adding AI quality checks to any pipeline | Evaluates recent traces against all judges and exits non-zero if the pass rate falls below a configurable threshold. Designed to be called from any CI system. |
 | `github_actions_gate.yml` | Teams using GitHub Actions for pull request validation | A complete GitHub Actions workflow that runs the quality gate on every pull request. Copy to `.github/workflows/ai-quality-gate.yml` in your repository. |
+| `agent_eval.yml` | Teams grading their own agent against a LayerLens environment | A GitHub Actions job that creates the environment if needed, runs the agent once per task with `layerlens env run exec`, and fails below a pass rate. See [`../environments/`](../environments/README.md). |
 | `pre_commit_hook.py` | Developers catching issues before committing | A Git pre-commit hook that runs a quick safety evaluation on staged changes. Prevents commits that introduce safety regressions. |
 
 ## Installation
@@ -44,7 +45,7 @@ aggregate pass rate, and exits with code 0 (pass) or 1 (fail) based on the thres
 cp samples/cicd/github_actions_gate.yml .github/workflows/ai-quality-gate.yml
 ```
 
-Add `LAYERLENS_STRATIX_API_KEY` as a repository secret in your GitHub settings.
+Add `LAYERLENS_API_KEY` as a repository secret in your GitHub settings.
 
 ### Pre-Commit Hook
 
@@ -57,4 +58,6 @@ chmod +x .git/hooks/pre-commit
 
 The quality gate script outputs a pass/fail summary with per-judge breakdown. In CI, a
 failing gate will cause the pipeline step to exit non-zero, blocking the merge. The
-pre-commit hook runs silently on success and prints a warning message on failure.
+pre-commit hook prints a summary box (the pass rate and the threshold) and allows or blocks
+the commit. When LayerLens can't be reached, or no evaluation gives a verdict, it logs why
+and allows the commit.

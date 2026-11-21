@@ -7,16 +7,21 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Literal
+from typing import TYPE_CHECKING, List, Literal, Optional
 
 import httpx
 
+from ._deprecation import module_getattr
 
-class StratixError(Exception):
+if TYPE_CHECKING:
+    from .models.environment import EnvironmentBuild
+
+
+class LayerLensError(Exception):
     pass
 
 
-class APIError(StratixError):
+class APIError(LayerLensError):
     message: str
     request: httpx.Request
 
@@ -59,7 +64,8 @@ class APIResponseValidationError(APIError):
 
 
 class APIStatusError(APIError):
-    """Raised when an API response has a status code of 4xx or 5xx."""
+    """Raised when an API response has a status code of 4xx or 5xx, or a file upload's storage
+    service answers anything but 2xx."""
 
     response: httpx.Response
     status_code: int
@@ -90,6 +96,17 @@ class AuthenticationError(APIStatusError):
     status_code: Literal[HTTPStatus.UNAUTHORIZED] = HTTPStatus.UNAUTHORIZED
 
 
+class PaymentRequiredError(APIStatusError):
+    """402: the organization has no credit left for this request.
+
+    Credit-gated requests (benchmark and trace evaluations, judge optimizations, synthetic
+    jobs) answer 402 when the organization's balance, less what running evaluations hold,
+    cannot cover them. Top up, or wait for running evaluations to finish.
+    """
+
+    status_code: Literal[HTTPStatus.PAYMENT_REQUIRED] = HTTPStatus.PAYMENT_REQUIRED
+
+
 class PermissionDeniedError(APIStatusError):
     status_code: Literal[HTTPStatus.FORBIDDEN] = HTTPStatus.FORBIDDEN
 
@@ -114,5 +131,59 @@ class InternalServerError(APIStatusError):
     pass
 
 
-# Backward-compatibility alias
-AtlasError = StratixError
+class EnvironmentConflictError(ConflictError):
+    """``POST /worlds`` answered 409: the name is taken by an environment this request cannot reuse.
+
+    With ``if_not_exists``, ``differences`` names the inputs that differ from the
+    existing environment's (``type``, ``seed``, ``description``, ``config``, ...),
+    never their values. ``project_id`` is set when the name is taken in another
+    project of the organization. Both are empty when the conflict is about something
+    else, such as an agent-built environment whose build failed, which has to be
+    deleted and created again; the message says what.
+    """
+
+    differences: List[str]
+    project_id: Optional[str]
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        response: httpx.Response,
+        body: object | None,
+        differences: List[str],
+        project_id: Optional[str],
+    ) -> None:
+        super().__init__(message, response=response, body=body)
+        self.differences = differences
+        self.project_id = project_id
+
+
+class EnvironmentBuildError(LayerLensError):
+    """An environment's build ended without a world to serve."""
+
+    environment_id: str
+    refused_because: Optional[str]
+    build: EnvironmentBuild
+
+    def __init__(self, environment_id: str, build: EnvironmentBuild) -> None:
+        self.environment_id = environment_id
+        self.refused_because = build.refused_because
+        self.build = build
+        reason = build.refused_because or "it recorded no reason"
+        super().__init__(f"the build of environment {environment_id} failed: {reason}")
+
+
+# Deprecated names (LAY-4220): the same class as ``LayerLensError``.
+if TYPE_CHECKING:
+    StratixError = LayerLensError
+    AtlasError = LayerLensError
+else:
+    __getattr__ = module_getattr(
+        __name__,
+        {
+            "StratixError": ("LayerLensError", "layerlens.LayerLensError"),
+            "AtlasError": ("LayerLensError", "layerlens.LayerLensError"),
+        },
+        globals(),
+    )

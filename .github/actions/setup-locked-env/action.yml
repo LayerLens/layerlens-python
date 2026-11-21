@@ -1,0 +1,68 @@
+# Install EXACTLY the committed uv.lock for one Python version, and prove it.
+#
+# Every CI job that needs the dev environment uses this action, so what CI
+# installs is decided in one place: uv.lock. Nothing here resolves dependencies.
+# `uv sync --locked` fails when uv.lock is stale against pyproject.toml instead
+# of re-locking, so an upstream release can no longer change what CI installs.
+# Moving to newer versions is a deliberate PR that updates uv.lock (see
+# CONTRIBUTING.md > "Dependencies and the lock").
+
+name: Set up the locked dev environment
+description: Install the pinned uv, then exactly uv.lock (all extras and the dev group) for one Python version.
+
+inputs:
+  python-version:
+    description: Python version to run on. Empty uses .python-version.
+    required: false
+    default: ""
+  groups:
+    description: Dependency groups to install on top of dev, space-separated (for example "mutation").
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        # No `version`: the action reads [tool.uv] required-version from
+        # pyproject.toml, and "lowest" turns its ">=X" floor into exactly X.
+        resolution-strategy: lowest
+        python-version: ${{ inputs.python-version }}
+        enable-cache: true
+        cache-dependency-glob: uv.lock
+
+    - name: Install exactly uv.lock
+      shell: bash
+      env:
+        DEP_GROUPS: ${{ inputs.groups }}
+      run: |
+        set -euo pipefail
+        # uv-managed CPython only: with uv pinned, "3.10" is always the same patch release.
+        echo "UV_MANAGED_PYTHON=1" >> "$GITHUB_ENV"
+        export UV_MANAGED_PYTHON=1
+        args=(--locked --all-extras)
+        for g in $DEP_GROUPS; do args+=(--group "$g"); done
+        uv sync "${args[@]}"
+        # Prove it: --check exits non-zero if the environment differs from uv.lock in any way.
+        uv sync "${args[@]}" --check
+        # Later steps run in this environment as-is: `uv run` must never re-sync or re-lock.
+        echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
+
+    - name: Record installed versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        python_version="$(uv run python -c 'import platform; print(platform.python_version())')"
+        uv pip freeze --python .venv/bin/python > "$RUNNER_TEMP/installed.txt"
+        echo "Installed from uv.lock on CPython ${python_version} ($(wc -l < "$RUNNER_TEMP/installed.txt") packages):"
+        cat "$RUNNER_TEMP/installed.txt"
+        {
+          echo "<details><summary>Installed from uv.lock on CPython ${python_version}</summary>"
+          echo
+          echo '```'
+          cat "$RUNNER_TEMP/installed.txt"
+          echo '```'
+          echo "</details>"
+        } >> "$GITHUB_STEP_SUMMARY"

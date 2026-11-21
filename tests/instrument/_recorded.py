@@ -42,8 +42,11 @@ import os
 import re
 import json
 import base64
-from typing import Any, Dict, List, Tuple, Optional
+import threading
+from typing import Any, Dict, List, Tuple, Iterator, Optional
 from pathlib import Path
+from contextlib import contextmanager
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 import httpx
 
@@ -190,21 +193,24 @@ def _scrub_str(s: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def mock_transport(fixture: Dict[str, Any]) -> Tuple[httpx.MockTransport, List[httpx.Request]]:
+def mock_transport(fixture: Dict[str, Any], http: Any = httpx) -> Tuple[Any, List[Any]]:
     """Build an ``httpx.MockTransport`` that serves a fixture's recorded HTTP
     interactions in order, recording each outgoing request for assertions.
 
     The returned transport is injected through the SDK's ``http_client=`` seam
     so the *real* client does its real routing + deserialization against the
     recorded body. Identical principle to ``test_azure_openai._make_client``.
+
+    ``http`` is the HTTP library the SDK is built on: ``httpx`` by default, or
+    ``httpx2`` (same API), which anthropic >= 1.0 requires for ``http_client``.
     """
     interactions = fixture["interactions"]
     if not interactions:
         raise ValueError("http fixture has no interactions")
-    requests: List[httpx.Request] = []
+    requests: List[Any] = []
     state = {"i": 0}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: Any) -> Any:
         requests.append(request)
         idx = min(state["i"], len(interactions) - 1)
         state["i"] += 1
@@ -212,16 +218,76 @@ def mock_transport(fixture: Dict[str, Any]) -> Tuple[httpx.MockTransport, List[h
         status = resp.get("status_code", 200)
         headers = resp.get("headers") or {}
         if "json" in resp and resp["json"] is not None:
-            return httpx.Response(status, json=resp["json"], headers=headers)
-        return httpx.Response(status, text=resp.get("text", ""), headers=headers)
+            return http.Response(status, json=resp["json"], headers=headers)
+        return http.Response(status, text=resp.get("text", ""), headers=headers)
 
-    return httpx.MockTransport(handler), requests
+    return http.MockTransport(handler), requests
 
 
 def recorded_http_client(fixture: Dict[str, Any]) -> Tuple[httpx.Client, List[httpx.Request]]:
     """Convenience: a real ``httpx.Client`` bound to the fixture's MockTransport."""
     transport, requests = mock_transport(fixture)
     return httpx.Client(transport=transport), requests
+
+
+@contextmanager
+def recorded_http_server(fixture: Dict[str, Any]) -> Iterator[Tuple[str, List[Dict[str, Any]]]]:
+    """Serve a fixture's recorded HTTP interactions from a real server on localhost.
+
+    For SDKs that don't take an injected HTTP client: dspy >= 3.4 deep-copies an
+    LM's kwargs, so a ``client=`` object holding a lock can't pass through. Point
+    the SDK's base URL (``api_base``) at the yielded address instead; its own HTTP
+    stack then makes a real request and parses the recorded body. Interactions are
+    served in order (the last one repeats), and each request is recorded as
+    ``{"method", "path", "body", "json"}`` (``json`` is None for a non-JSON body).
+    """
+    interactions = fixture["interactions"]
+    if not interactions:
+        raise ValueError("http fixture has no interactions")
+    requests: List[Dict[str, Any]] = []
+    lock = threading.Lock()
+
+    class _Handler(BaseHTTPRequestHandler):
+        def _serve(self) -> None:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            with lock:
+                text = raw.decode("utf-8", "replace")
+                try:
+                    parsed = json.loads(text) if text else None
+                except ValueError:
+                    parsed = None
+                requests.append({"method": self.command, "path": self.path, "body": text, "json": parsed})
+                resp = interactions[min(len(requests), len(interactions)) - 1]["response"]
+            if resp.get("json") is not None:
+                body = json.dumps(resp["json"]).encode()
+                content_type = "application/json"
+            else:
+                body = resp.get("text", "").encode()
+                content_type = "text/plain"
+            self.send_response(resp.get("status_code", 200))
+            for name, value in (resp.get("headers") or {}).items():
+                if name.lower() not in ("content-length", "content-type", "transfer-encoding", "content-encoding"):
+                    self.send_header(name, value)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_GET = do_POST = _serve
+
+        def log_message(self, *args: Any) -> None:
+            pass  # keep the test output clean
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 # ---------------------------------------------------------------------------

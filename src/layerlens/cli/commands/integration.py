@@ -4,8 +4,11 @@ import sys
 
 import click
 
-from .._client import get_client, handle_errors
+from .._client import get_client, handle_errors, api_error_text
+from .._output import echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
 from .._formatter import format_output
+from ..._exceptions import AuthenticationError, InternalServerError, UnprocessableEntityError
 from .._completions import complete_integration
 
 INTEGRATION_COLUMNS = [
@@ -17,14 +20,14 @@ INTEGRATION_COLUMNS = [
 ]
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def integration() -> None:
     """Manage integrations.
 
     \b
     Examples:
-      stratix integration list
-      stratix integration test <integration-id>
+      layerlens integration list
+      layerlens integration test <integration-id>
     """
 
 
@@ -38,13 +41,15 @@ def list_integrations(ctx: click.Context, page: int | None, page_size: int | Non
 
     \b
     Examples:
-      stratix integration list
-      stratix integration list --page-size 10
+      layerlens integration list
+      layerlens integration list --page-size 10
     """
     client = get_client(ctx)
     result = client.integrations.get_many(page=page, page_size=page_size)
-    if result is None or not result.integrations:
-        click.echo("No integrations found.")
+    if result is None:
+        exit_unreadable("the integration list")
+    if not result.integrations:
+        echo_empty(ctx, "No integrations found.")
         return
 
     if ctx.obj["verbose"]:
@@ -63,23 +68,39 @@ def test_integration(ctx: click.Context, id: str) -> None:
 
     \b
     Examples:
-      stratix integration test abc123
-      stratix integration test abc123 --format json
+      layerlens integration test abc123
+      layerlens integration test abc123 --format json
     """
     client = get_client(ctx)
-    result = client.integrations.test(id)
+    try:
+        result = client.integrations.test(id)
+    except UnprocessableEntityError as err:
+        # 422: the integration's vendor refused its stored credentials; the API's sentence says why.
+        click.echo(f"Error: the stored credentials of integration {id} were refused: {api_error_text(err)}", err=True)
+        sys.exit(1)
+    except (AuthenticationError, InternalServerError) as err:
+        # 401 is LayerLens refusing this caller (get_client has checked the key, so a role: an owner's
+        # or admin's key tests integrations), 502 a vendor it could not reach. Neither says the stored
+        # credentials are wrong; an API older than the 422 answered a vendor's refusal with 401 too, and
+        # its sentence says so. The API's sentence, as it is.
+        click.echo(f"Error: integration {id} could not be tested: {api_error_text(err)}", err=True)
+        sys.exit(1)
     if result is None:
         click.echo(f"Failed to test integration {id}.", err=True)
         sys.exit(1)
 
     if result.success:
-        click.echo(f"Integration {id}: OK")
+        echo_status(ctx, f"Integration {id}: OK")
     else:
-        click.echo(f"Integration {id}: FAILED")
+        echo_status(ctx, f"Integration {id}: FAILED")
 
     if result.message:
-        click.echo(f"Message: {result.message}")
+        echo_status(ctx, f"Message: {result.message}")
 
     if ctx.obj["output_format"] == "json":
         output = format_output(result, "json")
         click.echo(output)
+
+    # A failed check is a failure for a script too, not only for the reader.
+    if not result.success:
+        sys.exit(1)

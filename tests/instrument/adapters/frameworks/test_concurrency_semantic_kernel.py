@@ -25,9 +25,11 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
-sk = pytest.importorskip("semantic_kernel")
+sk = importorskip("semantic_kernel")
 
 from semantic_kernel import Kernel  # noqa: E402
 from semantic_kernel.functions import kernel_function  # noqa: E402

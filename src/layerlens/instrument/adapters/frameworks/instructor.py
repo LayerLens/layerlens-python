@@ -42,6 +42,7 @@ from contextvars import ContextVar
 from ._utils import truncate, safe_serialize
 from ..._context import _current_run, _current_collector
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -532,7 +533,7 @@ class InstructorAdapter(FrameworkAdapter):
         if hook:
             payload["hook"] = hook
         if error is not None:
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
         error_text = str(error) if error is not None else ""
         if error_text:
             # A Pydantic ValidationError renders the offending value verbatim
@@ -756,7 +757,7 @@ class InstructorAdapter(FrameworkAdapter):
             # failed extraction stays distinguishable from a success even when the
             # free-text error is stripped — and even when str(exc) renders empty.
             payload["status"] = "error"
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
             error_text = str(error)
             if error_text:
                 self._set_if_capturing(payload, "error", truncate(error_text, 400))

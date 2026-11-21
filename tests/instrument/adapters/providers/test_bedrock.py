@@ -23,7 +23,9 @@ from typing import Any, Dict
 
 import pytest
 
-boto3 = pytest.importorskip("boto3")
+from tests._optional_deps import importorskip
+
+boto3 = importorskip("boto3")
 from botocore.stub import ANY, Stubber  # noqa: E402
 from anthropic.types import Usage, Message, TextBlock  # noqa: E402
 from botocore.response import StreamingBody  # noqa: E402

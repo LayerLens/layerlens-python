@@ -1,4 +1,4 @@
-__version__ = "1.11.0"
+__version__ = "2.0.0"
 
 # Will be templated during the build
 __git_commit__ = "__GIT_COMMIT__"

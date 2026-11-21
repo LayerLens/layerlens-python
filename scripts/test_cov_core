@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Core-scoped coverage gate (LAY-3614 / W3): enforces a floor on the shared core
+# machinery only (see tests/coverage-core.ini). fail_under lives in that config.
+echo "==> Running tests with the core coverage gate"
+uv run --all-extras pytest tests/ --cov=src/layerlens --cov-config=tests/coverage-core.ini --cov-report=term-missing --tb=short "$@"

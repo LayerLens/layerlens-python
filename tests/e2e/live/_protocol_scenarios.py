@@ -4,7 +4,7 @@ Protocols are mostly LLM-free. Each runner mirrors the corresponding
 ``samples/adapters/protocols/*`` flow using an in-process fake client/stream, so
 no external protocol server is required. Must run inside the harness's active
 ``TraceCollector``. Imports are lazy so collection never requires an optional
-protocol package (``mcp``, ``a2a-sdk``) to be installed.
+protocol package (such as the ``ap2`` SDK) to be installed.
 """
 
 from __future__ import annotations
@@ -44,20 +44,19 @@ def run_a2ui(flow: str) -> None:  # noqa: ARG001
 
 def run_ap2(flow: str) -> None:  # noqa: ARG001
     # Real AP2 v0.2 mandate chain (LAY-3625). Built from the pinned ``ap2`` SDK's
-    # own pydantic models so the live workload matches the real wire shape; lazy
-    # import + graceful no-op if ap2 is not installed in the runner env.
-    try:
-        from ap2.models.mandate import CartMandate, CartContents, IntentMandate, PaymentMandate, PaymentMandateContents
-        from ap2.models.payment_request import (
-            PaymentItem,
-            PaymentRequest,
-            PaymentResponse,
-            PaymentMethodData,
-            PaymentDetailsInit,
-            PaymentCurrencyAmount,
-        )
-    except ImportError:
-        return
+    # own pydantic models so the live workload matches the real wire shape. The
+    # import is lazy so collection never needs ap2. Do not catch its ImportError:
+    # the case gates on ``ap2``, so a missing SDK already skips the lane, and a
+    # swallowed import error would let the lane run without the adapter (LAY-4260).
+    from ap2.models.mandate import CartMandate, CartContents, IntentMandate, PaymentMandate, PaymentMandateContents
+    from ap2.models.payment_request import (
+        PaymentItem,
+        PaymentRequest,
+        PaymentResponse,
+        PaymentMethodData,
+        PaymentDetailsInit,
+        PaymentCurrencyAmount,
+    )
 
     from layerlens.instrument.adapters.protocols.ap2 import AP2Guardrails, instrument_ap2, uninstrument_ap2
 
@@ -83,7 +82,10 @@ def run_ap2(flow: str) -> None:  # noqa: ARG001
             payment_details_id="pd-1",
             payment_details_total=PaymentItem(label="Total", amount=PaymentCurrencyAmount(currency="USD", value=value)),
             payment_response=PaymentResponse(request_id="pd-1", method_name="card"),
-            merchant_agent=merchant,
+            # AP2 defines merchant_agent as the merchant's IDENTIFIER (its name is
+            # CartContents.merchant_name), and the adapter keeps identifiers under
+            # capture_content=False (S15/F8), so this carries an id, not SENTINEL.
+            merchant_agent="bookstore-merchant-agent",
         )
         return PaymentMandate(payment_mandate_contents=contents, user_authorization="eyJ.user-vp.zzz")
 

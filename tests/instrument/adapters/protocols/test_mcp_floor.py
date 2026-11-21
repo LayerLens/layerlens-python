@@ -15,7 +15,7 @@ biting floor:
   reconstructs and ``verify_chain(...)`` returns valid over EVERY event
   (money + consent events included), with a TAMPER control that breaks link 1 so
   the pass is not vacuous.
-* **Real error-shape** — a REAL ``mcp.shared.exceptions.McpError`` (built from a
+* **Real error-shape** — a REAL ``mcp.shared.exceptions.McpError`` (``MCPError`` from mcp 2.0; built from a
   real ``mcp.types.ErrorData``) is raised the real way through the wrapped
   ``call_tool`` and surfaces as ``agent.error`` with ``source == "mcp"``,
   ``error_type == "McpError"`` (the real SDK class name, not a synthetic
@@ -47,11 +47,12 @@ from typing import Any, Dict
 import anyio
 import pytest
 
-pytest.importorskip("mcp")
+from tests._optional_deps import importorskip
+
+importorskip("mcp")
 
 from mcp import types  # noqa: E402
 from mcp.client.session import ClientSession  # noqa: E402
-from mcp.shared.exceptions import McpError  # noqa: E402
 
 from layerlens.instrument import trace  # noqa: E402
 from layerlens.attestation._verify import verify_chain  # noqa: E402
@@ -62,6 +63,7 @@ from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.protocols.mcp.adapter import MCPProtocolAdapter  # noqa: E402
 
 from ...conftest import find_events  # noqa: E402
+from ._mcp_support import MCP_ERROR, mcp_error, output_schema  # noqa: E402
 
 # The floor guards privacy / observability / attestation / cost contracts — it
 # belongs in the fast, REQUIRED Invariant Gates job (shift-left), like the
@@ -161,7 +163,7 @@ def _drive_full_session(
     # seed the real ClientSession output-schema cache exactly as list_tools does.
     session.call_tool = call_tool  # type: ignore[method-assign]
     session.list_tools = list_tools  # type: ignore[method-assign]
-    session._tool_output_schemas["weather"] = weather_tool().outputSchema
+    session._tool_output_schemas["weather"] = output_schema(weather_tool())
 
     adapter = MCPProtocolAdapter(capture_config=config)
     adapter.connect(target=session)
@@ -229,8 +231,8 @@ class TestRealErrorShape:
     def test_real_mcp_error_surfaces_as_agent_error(self, mock_client, capture_trace):
         # A genuine mcp SDK exception — an McpError built from a real ErrorData, the
         # shape the mcp client raises on a JSON-RPC error. NOT a synthetic RuntimeError.
-        err = McpError(types.ErrorData(code=-32603, message="MCP tool 'charge' failed: upstream service 502"))
-        assert type(err).__name__ == "McpError"
+        err = mcp_error(-32603, "MCP tool 'charge' failed: upstream service 502")
+        assert type(err) is MCP_ERROR
         assert isinstance(err, Exception)
         real_message = str(err)
 
@@ -247,7 +249,7 @@ class TestRealErrorShape:
         async def agent() -> str:
             try:
                 await session.call_tool("charge", {"amount": 499})
-            except McpError:
+            except MCP_ERROR:
                 pass  # handled — the caller catches; the adapter already recorded it
             return "handled"
 
@@ -258,7 +260,7 @@ class TestRealErrorShape:
         assert len(mcp_errors) == 1, f"expected exactly one mcp agent.error, saw {find_events(events, 'agent.error')}"
         payload = mcp_errors[0]
         # The REAL SDK class name — not the synthetic RuntimeError the base suite uses.
-        assert payload["error_type"] == "McpError"
+        assert payload["error_type"] == MCP_ERROR.__name__  # "McpError", or "MCPError" from mcp 2.0
         assert payload["source"] == "mcp"
         # The real exception message flows through verbatim (bite: dropped/mangled text).
         assert payload["error"] == real_message

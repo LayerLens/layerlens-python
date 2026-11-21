@@ -2,14 +2,37 @@
 
 ## Requirements
 
-- Python 3.8 or higher
-- pip package manager
+- Python 3.8 or higher; some extras need 3.9 or 3.10 (see [Python versions](#python-versions))
+- [uv](https://docs.astral.sh/uv/) (`pip install uv`), or pip (see [With pip](#with-pip))
 
-## Install from LayerLens Package Registry
+`layerlens` is hosted on the LayerLens package index during early access. The
+`layerlens` package on public PyPI is an unrelated project, so the commands below
+make sure the SDK comes from the LayerLens index.
+
+## Install from the LayerLens package index
+
+In a virtual environment:
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
+
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
+
+uv takes each package from the first index that has it, so `layerlens` comes only
+from the LayerLens index and its dependencies from PyPI. Add an extra the same way,
+for example `"layerlens[cli]"` for the command-line tool.
+
+## Python versions
+
+The SDK and its CLI install on Python 3.8 and later. Some extras need a newer Python:
+
+| Python | Extras |
+| --- | --- |
+| 3.9 or later | `litellm`, `providers-litellm`, `all-providers`, `langgraph`, `all-frameworks`, `pydantic-ai`, `openai-agents`, `instructor`: they fail to install on 3.8. `pydantic-ai` resolves pydantic-ai 0.8.1 on 3.9 |
+| 3.10 or later | `crewai`, `autogen`, `semantic-kernel`, `mcp`, `a2a`, `all-protocols`, `dspy`, `marvin`, `mirascope`: on 3.8 and 3.9 they install nothing, and their adapters stay unusable |
 
 ## Verify Installation
 
@@ -24,24 +47,37 @@ The SDK installs the following dependencies automatically:
 
 - `httpx` - HTTP client for API requests
 - `pydantic` - Data validation and serialization
-- `requests` - Used for file uploads (presigned S3 URLs)
+
+The `cli` extra adds `click`.
 
 ## Upgrading
 
 To upgrade to the latest version:
 
 ```bash
-pip install --upgrade layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --upgrade --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
-## Virtual Environment (Recommended)
+Upgrading from 1.11.0 or earlier to 2.0.0? Read [Migrating from Stratix](../migrating-from-stratix.md) first: a few things change, such as `layerlens ci report` needing a selector.
 
-It's recommended to install the SDK in a virtual environment to avoid dependency conflicts:
+## With pip
+
+pip merges every index it is given and installs whichever `layerlens` has the
+higher version. Today that is this SDK, as the unrelated PyPI project is at 0.1.x, but
+a later release of that project with a higher version would replace it, so don't give
+pip `--extra-index-url` for `layerlens`. `--index-url` on its own doesn't work either: the LayerLens index hosts
+only `layerlens`, so pip can't find its dependencies.
+
+Install `layerlens` itself from the LayerLens index, then its dependencies:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
-
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+pip install --no-deps --index-url https://sdk.layerlens.ai/package layerlens
+pip install layerlens
 ```
+
+The second command keeps the `layerlens` you just installed and adds its
+dependencies from PyPI. To add an extra, name it in the second command:
+`"layerlens[cli]"` instead of `layerlens`.
+
+To upgrade, add `--upgrade` to the first command (it reads only the LayerLens
+index), never to the second, then run the second again.

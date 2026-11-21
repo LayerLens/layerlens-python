@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-import pytest
+from tests._optional_deps import importorskip
 
 # Real langgraph or skip.
-langgraph_graph = pytest.importorskip("langgraph.graph")
+langgraph_graph = importorskip("langgraph.graph")
 StateGraph = langgraph_graph.StateGraph
 END = langgraph_graph.END
 START = langgraph_graph.START

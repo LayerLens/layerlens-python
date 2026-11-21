@@ -12,6 +12,7 @@ payload, including ``prompt_filter_results`` / ``content_filter_results``.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -262,6 +263,70 @@ class TestEmitsEvents:
         # The model.invoke still lands alongside the tool.call.
         mi = find_event(events, "model.invoke")
         assert mi["payload"]["finish_reason"] == "tool_calls"
+        provider.disconnect()
+
+    @pytest.mark.parametrize("capture_content", [False, True])
+    def test_malformed_tool_arguments_are_parsed_and_logged_only_with_capture_content(
+        self, mock_client, capture_trace, caplog, capture_content
+    ):
+        # Azure reuses the OpenAI tool-call hooks, so it follows the same rule: the
+        # arguments are content, decoded once and only when content is captured.
+        sentinel = "LL-SENTINEL-4267"
+        malformed = '{"city": "' + sentinel
+        client, _ = _make_client(response_json=_chat_completion_with_tool_calls_json(arguments=malformed))
+        provider = AzureOpenAIProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+        def my_agent():
+            client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": "Weather?"}])
+            return "done"
+
+        with caplog.at_level(logging.WARNING):
+            my_agent()
+        provider.disconnect()
+
+        events = capture_trace["events"]
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_weather"
+        invoke = find_event(events, "model.invoke")["payload"]
+        warnings = [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
+        if capture_content:
+            assert len(warnings) == 1, warnings
+            assert tool_call["arguments"] == malformed
+            assert invoke["output_message"]["tool_calls"][0]["arguments"] == malformed
+        else:
+            assert warnings == []
+            assert "arguments" not in tool_call
+            assert "output_message" not in invoke
+            assert sentinel not in json.dumps(events)
+
+    def test_cache_write_tokens_flow_through_and_are_priced_once(self, mock_client, capture_trace):
+        """Azure reuses OpenAIProvider.extract_meta, so OpenAI's prompt-cache writes
+        (``prompt_tokens_details.cache_write_tokens``, LAY-4259) must reach Azure
+        traces too, priced from AZURE_PRICING without being counted twice."""
+        body = _chat_completion_json(prompt_tokens=1536, completion_tokens=6)
+        body["usage"]["prompt_tokens_details"] = {"audio_tokens": 0, "cache_write_tokens": 1024, "cached_tokens": 0}
+        client, _ = _make_client(response_json=body)
+        provider = AzureOpenAIProvider()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": "Hello?"}])
+            return "done"
+
+        my_agent()
+        events = capture_trace["events"]
+        mi = find_event(events, "model.invoke")["payload"]
+        assert mi["usage"]["cache_write_tokens"] == 1024
+        assert mi["usage"]["prompt_tokens"] == 1536
+
+        cost = find_event(events, "cost.record")["payload"]
+        assert cost["cache_write_tokens"] == 1024
+        # gpt-4o predates GPT-5.6, so its writes bill as plain input: all 1,536
+        # input tokens at the Azure gpt-4o rate, once. 1536 * 0.00275/1k + 6 * 0.011/1k.
+        assert cost["cost_usd"] == pytest.approx(0.00429)
         provider.disconnect()
 
     def test_error_emits_agent_error(self, mock_client, capture_trace):

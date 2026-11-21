@@ -9,8 +9,8 @@ two seams of its public surface (LAY-3567 B2):
   ``ToolReturnPart`` echoed back on the following request.
 - ``run`` / ``run_sync`` / ``run_stream`` are wrapped on the agent *instance*
   (reentrancy-guarded — ``run_sync`` delegates to ``run`` internally) to emit
-  ``agent.input`` / ``agent.output`` / ``agent.error`` and one ``cost.record``
-  per run.
+  ``agent.input`` / ``agent.output`` / ``agent.error``, and one ``cost.record``
+  per run that reports token counts.
 
 Concurrent runs on the same agent are safe: per-run state (collector,
 timers, tool spans) lives in ContextVars, isolated per ``asyncio.Task``.
@@ -33,6 +33,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 from ._utils import safe_serialize
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -50,6 +51,20 @@ except ImportError:
 
 #: Agent entry points wrapped on the instance during connect().
 _RUN_METHODS = ("run", "run_sync", "run_stream")
+
+#: The token counts ``_extract_usage`` can report; a cost.record needs at least one.
+_TOKEN_KEYS = frozenset({"tokens_prompt", "tokens_completion", "tokens_total"})
+
+
+def _usage_method(usage: Any) -> bool:
+    """Whether ``usage`` is the method that returns the usage (pydantic-ai before 2), not the usage.
+
+    pydantic-ai 2.x made ``usage`` a property and kept ``RunUsage.__call__`` for V1-style
+    ``result.usage()``, with a PydanticAIDeprecationWarning on every call: calling whatever was
+    callable printed that warning on every run.
+    """
+    return callable(usage) and not hasattr(usage, "input_tokens")
+
 
 #: Sentinel distinguishing "no pre-resolved output supplied" (read it off the
 #: result) from a genuine ``None`` output — the streaming path resolves the
@@ -289,7 +304,11 @@ class PydanticAIAdapter(FrameworkAdapter):
             span_name=f"pydantic_ai:{self._span_label(self._target)}",
         )
 
-        if usage:
+        # ``usage`` also carries ``model_requests``, which pydantic-ai reports even
+        # when it has no token counts (a provider that omits usage, or 1.9-1.94
+        # with genai-prices >= 0.1, which loses usage inside pydantic-ai). A
+        # cost.record with nothing to price is not a cost; emit one only with tokens.
+        if _TOKEN_KEYS & usage.keys():
             cost_payload = self._payload()
             if model_name:
                 cost_payload["model"] = model_name
@@ -305,7 +324,7 @@ class PydanticAIAdapter(FrameworkAdapter):
 
         payload = self._payload(
             error=str(error),
-            error_type=type(error).__name__,
+            **error_category(error),
         )
         if agent_name:
             payload["agent_name"] = agent_name
@@ -377,7 +396,7 @@ class PydanticAIAdapter(FrameworkAdapter):
     def _emit_model_error(self, error: BaseException, latency_ms: float) -> None:
         payload = self._payload(
             error=str(error),
-            error_type=type(error).__name__,
+            **error_category(error),
             latency_ms=latency_ms,
         )
         self._emit("agent.error", payload)
@@ -430,7 +449,7 @@ class PydanticAIAdapter(FrameworkAdapter):
         if usage is None:
             return tokens
 
-        if callable(usage):
+        if _usage_method(usage):
             try:
                 usage = usage()
             except Exception:
@@ -508,7 +527,7 @@ class _InstrumentedModel(WrapperModel):  # type: ignore[misc,valid-type]
             payload["model"] = str(model_name)
         payload["latency_ms"] = latency_ms
         usage = getattr(streamed, "usage", None)
-        if callable(usage):
+        if _usage_method(usage):
             try:
                 usage = usage()
             except Exception:

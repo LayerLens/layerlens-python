@@ -24,7 +24,7 @@ from http import HTTPStatus
 import httpx
 import pytest
 
-from layerlens._client import Stratix
+from layerlens._client import LayerLens
 from layerlens._exceptions import (
     ConflictError,
     NotFoundError,
@@ -95,7 +95,7 @@ def test_recorded_atlas_error_maps_to_taxonomy(name, fixture):
     )
     # _make_status_error[_from_response] uses no instance state, so bypass __init__
     # (which would hit the network) to exercise the real mapping.
-    client = object.__new__(Stratix)
+    client = object.__new__(LayerLens)
     exc = client._make_status_error_from_response(response)
     expected = _expected_exc(status)
     assert isinstance(exc, expected), f"{name}: status {status} -> {type(exc).__name__}, expected {expected.__name__}"

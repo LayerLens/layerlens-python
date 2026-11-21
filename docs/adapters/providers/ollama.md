@@ -8,7 +8,7 @@ and (optionally) attributes compute time as infra cost.
 ## Install
 
 ```bash
-pip install layerlens[providers-ollama]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-ollama]"
 ```
 
 Pulls `ollama>=0.1`. The `ollama` extra is kept as an alias for prior
@@ -48,17 +48,26 @@ the SDK is pointed at — no auth, just an HTTP daemon.
 
 ```python
 import ollama
+from layerlens import LayerLens
+from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers import OllamaProvider
 
+layerlens_client = LayerLens()
 client = ollama.Client()                        # honours OLLAMA_HOST
 provider = OllamaProvider(cost_per_second=0.0001)  # optional, see below
 provider.connect(client)                        # patches chat / generate / embeddings / embed
 
-response = client.chat(
-    model="llama3",
-    messages=[{"role": "user", "content": "Hi"}],
-)
-print(response["message"]["content"])
+# The adapter records into the trace a call runs in (here, my_agent's): outside a trace,
+# a call is recorded nowhere.
+@trace(layerlens_client)
+def my_agent(question: str) -> str:
+    response = client.chat(
+        model="llama3",
+        messages=[{"role": "user", "content": question}],
+    )
+    return response["message"]["content"]
+
+print(my_agent("Hi"))
 ```
 
 ## Event surface

@@ -9,6 +9,7 @@ from ._utils import truncate, safe_serialize
 from ..._context import RunState, _current_collector
 from ..._identity import honest_agent_type
 from ..._collector import TraceCollector
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -474,7 +475,7 @@ class AutoGenAdapter(FrameworkAdapter):
         exc = _get_field(event, "exception")
         payload = self._payload(
             error=str(exc) if exc else "unknown error",
-            error_type=(type(exc).__name__ if isinstance(exc, BaseException) else "Exception"),
+            **(error_category(exc) if isinstance(exc, BaseException) else {"error_type": "Exception"}),
             status="error",  # uniform agent.error shape across all 3 paths (S20e)
         )
         if agent_id is not None:
@@ -489,7 +490,7 @@ class AutoGenAdapter(FrameworkAdapter):
         exc = _get_field(event, "exception")
         payload = self._payload(
             error=str(exc) if exc else "construction failed",
-            error_type=(type(exc).__name__ if isinstance(exc, BaseException) else "Exception"),
+            **(error_category(exc) if isinstance(exc, BaseException) else {"error_type": "Exception"}),
             status="error",  # uniform agent.error shape across all 3 paths (S20e)
         )
         if agent_id is not None:

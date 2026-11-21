@@ -6,7 +6,7 @@ kernels via the SK filter API (semantic-kernel ≥ 1.0).
 ## Install
 
 ```bash
-pip install layerlens[semantic-kernel]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[semantic-kernel]"
 ```
 
 Pulls `semantic-kernel>=1.0.0`. Semantic Kernel requires Python 3.10+.

@@ -25,11 +25,17 @@ class JudgeSnapshot(BaseModel):
 
 
 class TraceEvaluation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     trace_id: str
     judge_id: str
     status: TraceEvaluationStatus
-    judge_snapshot: Optional[JudgeSnapshot] = None
+    # Why the evaluation failed; set when status is "failure".
+    status_description: Optional[str] = None
+    # atlas-app sends this one key in camelCase, and the snapshot's own fields in snake_case
+    # (JudgeSnapshot reads those by name).
+    judge_snapshot: Optional[JudgeSnapshot] = Field(None, alias="judgeSnapshot")
     created_at: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None

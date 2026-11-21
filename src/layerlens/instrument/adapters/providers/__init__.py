@@ -2,8 +2,8 @@
 
 Per the M3 ticket ACs (LAY-3453 Vertex / LAY-3454 Ollama) and the same PEP 562
 ``__getattr__`` pattern used for frameworks, the per-provider adapter classes
-are imported lazily so ``pip install layerlens`` never pulls a provider SDK
-into the default install. Each extra (``providers-vertex``, ``providers-ollama``,
+are imported lazily so the default install of ``layerlens`` never pulls a
+provider SDK. Each extra (``providers-vertex``, ``providers-ollama``,
 ``openai``, ``anthropic``, etc.) adds only the SDK that user actually needs.
 
 Constants and the base class import eagerly because they have no heavy

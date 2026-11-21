@@ -1,0 +1,18 @@
+{
+  "_recorded": {
+    "method": "POST",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/external-runs/{id}/attempts/{id}/submit",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6af31090280c73a1bc845644",
+      "task_id": "6af30e45b124e9198e97638f",
+      "attempt_id": "6af31090280c73a1bc845642",
+      "answered": 1,
+      "total": 2,
+      "finished": false
+    }
+  }
+}

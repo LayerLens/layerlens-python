@@ -22,9 +22,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
-llama_index_core = pytest.importorskip("llama_index.core")
+llama_index_core = importorskip("llama_index.core")
 
 from llama_index.core.base.llms.types import (  # noqa: E402
     ChatMessage,

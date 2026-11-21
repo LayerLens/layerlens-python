@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Iterable, Optional, Protocol, Sequence
+from typing import Any, Set, Dict, List, Iterable, Optional, Protocol, Sequence
 from datetime import datetime, timezone
 
 from .models import Dataset, DatasetItem, DatasetVersion, DatasetVisibility
@@ -155,12 +155,20 @@ class InMemoryDatasetStore:
         *,
         note: Optional[str] = None,
     ) -> Optional[DatasetVersion]:
-        """Convenience: publish a new version from raw dicts."""
+        """Convenience: publish a new version from raw dicts.
+
+        An item without an ``id`` is ``item_{idx}``, its place in the list, so every import of the
+        same items gives it the same id: ``evaluations compare`` matches two runs' items by id. It
+        used to carry a random suffix, new on every run, and compare never named an item. A place
+        whose ``item_{idx}`` another item has as its own id takes ``item_{idx}_2`` (``_3``, ...).
+        """
+        raws = list(raw_items)
+        given = {str(raw.get("id")) for raw in raws if raw.get("id")}
         coerced: List[DatasetItem] = []
-        for idx, raw in enumerate(raw_items):
+        for idx, raw in enumerate(raws):
             coerced.append(
                 DatasetItem(
-                    id=str(raw.get("id") or f"item_{idx}_{uuid.uuid4().hex[:8]}"),
+                    id=str(raw.get("id") or _id_for_place(idx, given)),
                     input=raw.get("input"),
                     expected_output=raw.get("expected_output"),
                     metadata=dict(raw.get("metadata") or {}),
@@ -168,3 +176,13 @@ class InMemoryDatasetStore:
                 )
             )
         return self.publish_version(dataset_id, coerced, note=note)
+
+
+def _id_for_place(idx: int, given: Set[str]) -> str:
+    """``item_{idx}``, or the first ``item_{idx}_{n}`` (n from 2) that no item has as its own id."""
+    candidate = f"item_{idx}"
+    n = 2
+    while candidate in given:
+        candidate = f"item_{idx}_{n}"
+        n += 1
+    return candidate

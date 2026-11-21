@@ -8,9 +8,11 @@ from typing_extensions import Annotated
 import httpx
 from pydantic import Field, BaseModel, ConfigDict, BeforeValidator
 
+from .._constants import NOT_GIVEN, NotGiven
+
 if TYPE_CHECKING:
     from .api import ResultsResponse
-    from .._client import Stratix, AsyncStratix
+    from .._client import LayerLens, AsyncLayerLens
 
 
 class EvaluationStatus(str, Enum):
@@ -21,6 +23,17 @@ class EvaluationStatus(str, Enum):
     SUCCESS = "success"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+
+
+#: The statuses in which an evaluation has ended: the API's ``EvaluationStatus.IsFinished``.
+_FINISHED = frozenset(
+    {
+        EvaluationStatus.SUCCESS,
+        EvaluationStatus.FAILURE,
+        EvaluationStatus.TIMEOUT,
+        EvaluationStatus.CANCELLED,
+    }
+)
 
 
 class EvaluationMetric(BaseModel):
@@ -120,20 +133,18 @@ class Evaluation(BaseModel):
     avg_output_tokens_per_prompt: Optional[float] = None
     summary: Optional[EvaluationSummary] = None
 
-    _client: "Optional[Stratix | AsyncStratix]" = None
+    _client: "Optional[LayerLens | AsyncLayerLens]" = None
 
-    def attach_client(self, client: "Stratix | AsyncStratix") -> "Evaluation":
+    def attach_client(self, client: "LayerLens | AsyncLayerLens") -> "Evaluation":
         self._client = client
         return self
 
     @property
     def is_finished(self) -> bool:
-        """Return True if evaluation is done (success, failure, or timeout)."""
-        return self.status in {
-            EvaluationStatus.SUCCESS,
-            EvaluationStatus.FAILURE,
-            EvaluationStatus.TIMEOUT,
-        }
+        """Return True if the evaluation has ended, whatever the outcome: success, failure,
+        timeout or cancelled, the statuses the API itself calls finished. ``wait_for_completion``
+        returns on them; it polled a cancelled evaluation forever before."""
+        return self.status in _FINISHED
 
     @property
     def is_success(self) -> bool:
@@ -145,14 +156,17 @@ class Evaluation(BaseModel):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ResultsResponse]:
-        """Fetch results synchronously if a sync client is attached."""
-        from .._client import AsyncStratix
+        """Fetch a page of results synchronously if a sync client is attached.
+
+        ``timeout`` is the client's unless given; ``None`` waits without a limit.
+        """
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if isinstance(self._client, AsyncStratix):
+        if isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `await get_results_async()` with an async client")
 
         return self._client.results.get(evaluation=self, page=page, page_size=page_size, timeout=timeout)
@@ -160,15 +174,18 @@ class Evaluation(BaseModel):
     def get_all_results(
         self,
         *,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
-        """Fetch results synchronously if a sync client is attached."""
-        from .._client import AsyncStratix
+        """Fetch every result synchronously if a sync client is attached.
+
+        ``timeout`` is the client's unless given, for each page; ``None`` waits without a limit.
+        """
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if isinstance(self._client, AsyncStratix):
-            raise RuntimeError("Use `await get_results_async()` with an async client")
+        if isinstance(self._client, AsyncLayerLens):
+            raise RuntimeError("Use `await get_all_results_async()` with an async client")
 
         return self._client.results.get_all(evaluation=self, timeout=timeout)
 
@@ -177,14 +194,17 @@ class Evaluation(BaseModel):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ResultsResponse]:
-        """Fetch results asynchronously if an async client is attached."""
-        from .._client import AsyncStratix
+        """Fetch a page of results asynchronously if an async client is attached.
+
+        ``timeout`` is the client's unless given; ``None`` waits without a limit.
+        """
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if not isinstance(self._client, AsyncStratix):
+        if not isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `get_results()` with a sync client")
 
         return await self._client.results.get(evaluation=self, page=page, page_size=page_size, timeout=timeout)
@@ -192,15 +212,18 @@ class Evaluation(BaseModel):
     async def get_all_results_async(
         self,
         *,
-        timeout: float | httpx.Timeout | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> List[Result]:
-        """Fetch results asynchronously if an async client is attached."""
-        from .._client import AsyncStratix
+        """Fetch every result asynchronously if an async client is attached.
+
+        ``timeout`` is the client's unless given, for each page; ``None`` waits without a limit.
+        """
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if not isinstance(self._client, AsyncStratix):
-            raise RuntimeError("Use `get_results()` with a sync client")
+        if not isinstance(self._client, AsyncLayerLens):
+            raise RuntimeError("Use `get_all_results()` with a sync client")
 
         return await self._client.results.get_all(evaluation=self, timeout=timeout)
 
@@ -208,11 +231,11 @@ class Evaluation(BaseModel):
         self, *, interval_seconds: int = 30, timeout_seconds: Optional[int] = None
     ) -> Optional["Evaluation"]:
         """Sync polling using a sync client."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if isinstance(self._client, AsyncStratix):
+        if isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `wait_for_completion_async()` with an async client")
 
         evaluation = self._client.evaluations.wait_for_completion(
@@ -240,11 +263,11 @@ class Evaluation(BaseModel):
         self, *, interval_seconds: int = 30, timeout_seconds: Optional[int] = None
     ) -> Optional["Evaluation"]:
         """Async polling using an async client."""
-        from .._client import AsyncStratix
+        from .._client import AsyncLayerLens
 
         if self._client is None:
             raise ValueError("No client attached")
-        if not isinstance(self._client, AsyncStratix):
+        if not isinstance(self._client, AsyncLayerLens):
             raise RuntimeError("Use `wait_for_completion()` with a sync client")
 
         evaluation = await self._client.evaluations.wait_for_completion(
@@ -311,7 +334,11 @@ class Result(BaseModel):
     result: str
     truth: str
     duration: Annotated[timedelta, BeforeValidator(_nanoseconds_to_timedelta)]
-    score: float
+    # None when the scorer could not grade the prompt (judge unreachable,
+    # scorer crash); score_error then says why. Such prompts are excluded from
+    # the evaluation's accuracy, so None must never be read as a 0.
+    score: Optional[float]
+    score_error: Optional[str] = None
     # Two shapes, because the API sends two. Built-in metrics are a flat map of
     # floats; an evaluation run with custom scorers instead gets one ScorerResult
     # object per scorer, keyed by scorer ID. The field is nullable and optional

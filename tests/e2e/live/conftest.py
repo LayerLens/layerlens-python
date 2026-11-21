@@ -47,21 +47,24 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.fixture
-def stratix_live_client() -> Any:
-    """A real Stratix client pointed at staging.
+def layerlens_live_client() -> Any:
+    """A real LayerLens client pointed at staging.
 
-    Skips BEFORE constructing the client because ``Stratix.__init__`` makes a real
+    Skips BEFORE constructing the client because ``LayerLens.__init__`` makes a real
     org/project network call. Requires both the API key and an explicit staging base
     URL — we never run against the default (prod) base URL.
     """
-    if not os.environ.get("LAYERLENS_STRATIX_API_KEY"):
-        pytest.skip("LAYERLENS_STRATIX_API_KEY not set")
-    if not os.environ.get("LAYERLENS_STRATIX_BASE_URL"):
-        pytest.skip("LAYERLENS_STRATIX_BASE_URL not set (refusing to run against the default/prod base URL)")
+    # find_* accept the LAYERLENS_STRATIX_* names too, so existing local .env files keep working.
+    from layerlens._env import find_api_key, find_base_url
 
-    from layerlens import Stratix
+    if find_api_key() is None:
+        pytest.skip("LAYERLENS_API_KEY not set")
+    if find_base_url() is None:
+        pytest.skip("LAYERLENS_BASE_URL not set (refusing to run against the default/prod base URL)")
 
-    return Stratix()
+    from layerlens import LayerLens
+
+    return LayerLens()
 
 
 @pytest.fixture

@@ -52,6 +52,7 @@ from ...._events import (
 )
 from ...._context import _current_span_id
 from .elicitation import ElicitationTracker
+from ...._error_code import error_category
 from .._base_protocol import BaseProtocolAdapter
 from .structured_output import (
     compute_output_hash,
@@ -148,7 +149,7 @@ class MCPProtocolAdapter(BaseProtocolAdapter):
                     "tool_name": name,
                     "arguments": arguments,
                     "error": str(exc),
-                    "error_type": type(exc).__name__,
+                    **error_category(exc),
                     "status": "error",
                     "latency_ms": (time.time() - start) * 1000,
                 },
@@ -163,7 +164,7 @@ class MCPProtocolAdapter(BaseProtocolAdapter):
                     "tool_name": name,
                     "source": "mcp",
                     "error": str(exc),
-                    "error_type": type(exc).__name__,
+                    **error_category(exc),
                 },
                 parent_span_id=parent,
             )
@@ -475,7 +476,7 @@ class MCPProtocolAdapter(BaseProtocolAdapter):
                     MCP_SAMPLING,
                     {
                         "status": "error",
-                        "error_type": type(exc).__name__,
+                        **error_category(exc),
                         "latency_ms": (time.time() - start) * 1000,
                     },
                     parent_span_id=parent,

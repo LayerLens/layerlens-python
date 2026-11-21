@@ -49,7 +49,7 @@ export interface EvaluationCardProps {
   scores: Score[];
   trendData?: TrendPoint[];
   status: EvaluationStatus;
-  /** Base URL of the Stratix dashboard. When omitted the footer link
+  /** Base URL of the LayerLens dashboard. When omitted the footer link
    *  is hidden — use this when the dashboard route is not yet
    *  deployed. */
   dashboardBaseUrl?: string;

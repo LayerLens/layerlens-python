@@ -50,23 +50,17 @@ import logging
 
 import pytest
 
-# Mirror test_autogen.py's env guards: autogen-core needs py>=3.10, and its
-# import can raise TypeError on incompatible versions. importorskip only catches
-# ImportError, so guard explicitly.
+from tests._optional_deps import importorskip
+
+# Mirror test_autogen.py's env guards: autogen-core needs py>=3.10.
 if sys.version_info < (3, 10):
     pytest.skip("autogen-core requires Python >= 3.10", allow_module_level=True)
-try:
-    import autogen_core  # noqa: F401
-except (ImportError, TypeError):  # pragma: no cover - env guard
-    pytest.skip("autogen-core not installed or incompatible", allow_module_level=True)
-try:
-    from autogen_core.models import UserMessage
-    from autogen_ext.models.openai import OpenAIChatCompletionClient
-except (ImportError, Exception):  # pragma: no cover - env guard
-    pytest.skip("autogen not installed or incompatible", allow_module_level=True)
+importorskip("autogen_core")
+importorskip("autogen_ext.models.openai")
 
 import httpx  # noqa: E402
 from autogen_core import EVENT_LOGGER_NAME, AgentId  # noqa: E402
+from autogen_core.models import UserMessage  # noqa: E402
 from autogen_core.logging import (  # noqa: E402
     MessageKind,
     LLMCallEvent,
@@ -77,6 +71,7 @@ from autogen_core.logging import (  # noqa: E402
     MessageHandlerExceptionEvent,
     AgentConstructionExceptionEvent,
 )
+from autogen_ext.models.openai import OpenAIChatCompletionClient  # noqa: E402
 
 from layerlens.attestation._verify import verify_chain  # noqa: E402
 from layerlens.attestation._envelope import HashScope, AttestationEnvelope  # noqa: E402

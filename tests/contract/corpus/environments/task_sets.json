@@ -1,0 +1,22 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/task-sets",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "task_sets": [
+        {
+          "name": "scenario",
+          "size": 3
+        },
+        {
+          "name": "sdk-generated",
+          "size": 3
+        }
+      ]
+    }
+  }
+}

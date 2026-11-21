@@ -4,6 +4,11 @@
 # discover B2/B5/B6-class upstream breaks before customers do. Failures never
 # block PRs or redden main: every row is continue-on-error and this workflow
 # has no PR trigger. Read the per-row verdicts in the run's step summary.
+#
+# A red row reaches a person anyway (LAY-4242): each row records its result, and
+# the report job opens a "drift-canary" tracking issue (or comments on the open
+# one) listing the red rows, their versions and this run. A green run makes no
+# GitHub call. To test the alert, run this workflow by hand with force_red_row.
 
 name: Adapter Drift Canary
 
@@ -11,9 +16,19 @@ on:
   schedule:
     - cron: "41 5 * * 1" # weekly, Monday 05:41 UTC
   workflow_dispatch:
+    inputs:
+      force_red_row:
+        description: "Test the alert: report this row (a frameworks.toml row name) red without running it"
+        required: false
+        default: ""
 
 permissions:
   contents: read
+
+# One run at a time, so two runs can't both find no open issue and open two.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   plan:
@@ -24,9 +39,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: List rows
         id: list
+        env:
+          FORCED: ${{ inputs.force_red_row }}
         run: |
           ROWS=$(python3 tests/matrix/run_matrix.py --list)
           echo "frameworks=${ROWS}" >> "$GITHUB_OUTPUT"
+          # A force_red_row that names no row would force nothing, and the alert test would pass silently.
+          if [ -n "$FORCED" ] && ! python3 -c 'import json, sys; sys.exit(sys.argv[1] not in json.loads(sys.argv[2]))' "$FORCED" "$ROWS"; then
+            echo "::error title=Unknown force_red_row::'$FORCED' is not a row; rows: $ROWS"
+            exit 1
+          fi
 
   canary:
     needs: plan
@@ -39,11 +61,61 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        # A forced row runs no uv, and setup-uv's cache save fails on a cache it never filled.
+        if: inputs.force_red_row != matrix.framework
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           enable-cache: true
           cache-dependency-glob: "tests/matrix/frameworks.toml"
 
       - name: Run row against latest upstream
+        if: inputs.force_red_row != matrix.framework
         continue-on-error: true # advisory: a red canary never blocks anything
-        run: python3 tests/matrix/run_matrix.py --framework "${{ matrix.framework }}" --latest
+        run: python3 tests/matrix/run_matrix.py --framework "${{ matrix.framework }}" --latest --result-json "$RUNNER_TEMP/${{ matrix.framework }}.json"
+
+      - name: Report this row red (alert test, workflow_dispatch only)
+        if: inputs.force_red_row == matrix.framework
+        env:
+          ROW: ${{ matrix.framework }}
+        run: python3 scripts/drift_canary_report.py record --out "$RUNNER_TEMP/$ROW.json" --row "$ROW" --red --verdict "FAIL (forced by workflow_dispatch to test the alert; the row did not run)"
+
+      - name: Upload the row result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-result-${{ matrix.framework }}
+          path: ${{ runner.temp }}/${{ matrix.framework }}.json
+          if-no-files-found: ignore # the report counts a missing result as red
+
+  report:
+    needs: [plan, canary]
+    # Also after a failed or timed-out row; not when the run was cancelled or planning failed.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open or comment on the tracking issue
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the row results
+        # One directory per row under results/. A failed download leaves results/
+        # empty, so every row reports as red below.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: drift-result-*
+          path: results
+
+      - name: Notify on red rows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ROWS: ${{ needs.plan.outputs.frameworks }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ASSIGNEES: ${{ vars.DRIFT_CANARY_ASSIGNEES }}
+        run: |
+          set -o pipefail # a failed notification must fail this job, not vanish into tee
+          mkdir -p results
+          python3 scripts/drift_canary_report.py notify --canary "Adapter Drift Canary" --results results \
+            --expect-json "$ROWS" --run-url "$RUN_URL" --assignees "$ASSIGNEES" | tee -a "$GITHUB_STEP_SUMMARY"

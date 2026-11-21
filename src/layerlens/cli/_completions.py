@@ -1,27 +1,29 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any, List
 
 import click
 
 
 def _get_client_silent(ctx: click.Context) -> Any:
-    """Try to create a Stratix client for autocompletion, returning None on failure."""
+    """Try to create a LayerLens client for autocompletion, returning None on failure."""
     try:
-        from .._client import Stratix
+        from .._client import LayerLens
+        from ._command import base_url_for
 
-        api_key = ctx.params.get("api_key") or None
-        base_url = None
-        host = ctx.params.get("host")
-        port = ctx.params.get("port")
-        if host:
-            scheme = "https" if port in (None, 443) else "http"
-            if port and port not in (80, 443):
-                base_url = f"{scheme}://{host}:{port}/api/v1"
-            else:
-                base_url = f"{scheme}://{host}/api/v1"
+        # Completion parses the command line without running the root group, so
+        # options given before the command are in the root's params, and those
+        # given after it in ctx.obj (see _command); the later ones win.
+        given = {**ctx.find_root().params}
+        given.update({k: v for k, v in (ctx.obj or {}).items() if k in ("api_key", "host", "port")})
 
-        return Stratix(api_key=api_key, base_url=base_url)
+        # The shell calls the program on every TAB: a warning printed here would land in the prompt.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return LayerLens(
+                api_key=given.get("api_key") or None, base_url=base_url_for(given.get("host"), given.get("port"))
+            )
     except Exception:
         return None
 

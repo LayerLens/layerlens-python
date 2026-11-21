@@ -8,8 +8,8 @@ When LayerLens credentials are present in the environment, the captured trace is
 ALSO uploaded to the backend and verified, so the samples exercise the real
 send path end-to-end. Enable real upload with::
 
-    export LAYERLENS_STRATIX_API_KEY=sk-stx-...
-    export LAYERLENS_STRATIX_BASE_URL=https://api.layerlens.ai/api/v1   # optional
+    export LAYERLENS_API_KEY=sk-stx-...
+    export LAYERLENS_BASE_URL=https://api.layerlens.ai/api/v1   # optional
 
 Without those vars the helper is a clean no-op uploader (prints events only) — it
 never fabricates a successful send. The upload ingests and attests the trace
@@ -27,6 +27,7 @@ import tempfile
 from typing import Any, Optional, Generator
 from contextlib import contextmanager
 
+from layerlens._env import find_api_key
 from layerlens.instrument._context import _pop_span, _push_span, _current_collector
 from layerlens.instrument._collector import TraceCollector
 from layerlens.instrument._capture_config import CaptureConfig
@@ -40,13 +41,24 @@ class _StubClient:
 
 
 def _build_client() -> Optional[Any]:
-    """Return a real LayerLens client iff credentials are configured, else ``None``."""
-    if not (os.environ.get("LAYERLENS_STRATIX_API_KEY") or os.environ.get("LAYERLENS_ATLAS_API_KEY")):
+    """Return a real LayerLens client iff credentials are configured, else ``None``.
+
+    ``find_api_key`` applies the SDK's own lookup, so a key set under the
+    pre-rename variable name still enables the upload.
+    """
+    if find_api_key() is None:
         return None
     try:
-        from layerlens import Stratix
+        from layerlens import LayerLens, APIConnectionError
 
-        return Stratix()
+        client = LayerLens()
+        try:
+            client.organization_id  # checks the key and URL now: building the client makes no request
+        except APIConnectionError as exc:
+            # LayerLens may be back by the time the block ends: keep the client, and the
+            # upload after the block tries again (and reports "[upload failed]" if not).
+            print(f"[upload deferred] LayerLens not reachable yet: {exc}")
+        return client
     except Exception as exc:  # noqa: BLE001 -- a sample must not hard-fail on client init
         print(f"[upload skipped] could not initialize LayerLens client: {exc}")
         return None

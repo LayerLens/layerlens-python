@@ -1,7 +1,7 @@
 """End-to-end tests for ALL 58 SDK sample demos.
 
 Tests every sample in six modes:
-1. TestAllSamplesWithMockedSDK -- mocked Stratix client (all 58)
+1. TestAllSamplesWithMockedSDK -- mocked LayerLens client (all 58)
 2. TestAllSamplesLiveAPI -- real API via subprocess (all 58, @pytest.mark.live)
 3. TestOpenClawOfflineMode -- --no-sdk flag (11 OpenClaw demos)
 4. TestWithoutAPIKey -- graceful failure without credentials (all 58)
@@ -25,8 +25,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import layerlens
+from tests._optional_deps import importorskip
+
 SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+# The sys.path entry this session imports ``layerlens`` from: under ``uv sync``, the
+# editable ``src`` of this checkout, whatever the checkout directory is called.
+LAYERLENS_IMPORT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(layerlens.__file__)))
 
 # ---- Sample file lists (all 58) ----
 
@@ -194,7 +200,7 @@ OPENCLAW_RUNNER_DEMOS = [
     "soul_redteam",
 ]
 
-# Demos that directly use Stratix() and require an API key
+# Demos that directly use LayerLens() and require an API key
 OPENCLAW_DIRECT_DEMOS = [
     "compare_agent_models",
     "evaluate_skill_output",
@@ -205,7 +211,7 @@ OPENCLAW_DIRECT_DEMOS = [
 OPENCLAW_SKILL_SCRIPT = "layerlens_skill/scripts/evaluate"
 
 # Loopback discard port, used to make SDK initialization fail deterministically.
-# Stratix() fetches /organizations from its constructor, so a fake-but-non-empty
+# LayerLens() fetches /organizations from its constructor, so a fake-but-non-empty
 # key sends a live request to the production API; that request's own 30s timeout
 # equals _run_openclaw_demo's entire subprocess budget, leaving no headroom.
 # Pointing at a closed local port refuses instantly instead of racing the network.
@@ -240,7 +246,7 @@ ALL_SAMPLE_PATHS = (
     + ["openclaw/layerlens_skill/scripts/evaluate.py"]
 )
 
-# Async core samples that need AsyncStratix mocking
+# Async core samples that need AsyncLayerLens mocking
 _ASYNC_CORE_SAMPLES = {"async_results", "async_workflow"}
 
 # Samples that require external provider SDKs (openai, langchain, etc.)
@@ -288,8 +294,8 @@ _SPECIAL_PATCHES[("cicd", "pre_commit_hook")] = {
 
 
 @pytest.fixture
-def mock_stratix():
-    """Create a fully mocked Stratix client that returns realistic responses."""
+def mock_layerlens():
+    """Create a fully mocked LayerLens client that returns realistic responses."""
     client = MagicMock()
     client.organization_id = "org-test-123"
     client.project_id = "proj-test-456"
@@ -574,8 +580,8 @@ def mock_stratix():
 
 
 @pytest.fixture
-def mock_async_stratix(mock_stratix):
-    """Create a fully mocked AsyncStratix client that mirrors mock_stratix but with async methods."""
+def mock_async_layerlens(mock_layerlens):
+    """Create a fully mocked AsyncLayerLens client that mirrors mock_layerlens but with async methods."""
     client = AsyncMock()
     client.organization_id = "org-test-123"
     client.project_id = "proj-test-456"
@@ -700,7 +706,7 @@ def _import_and_run_sync(
 
     Args:
         module_path: Relative path from SAMPLES_DIR (e.g. 'core/quickstart.py').
-        mock_client: The mocked Stratix client.
+        mock_client: The mocked LayerLens client.
         extra_patches: Additional patches to apply (target -> value).
         argv: sys.argv override for samples that use argparse.
 
@@ -725,7 +731,7 @@ def _import_and_run_sync(
         mock_public = mock_client.public
 
         patches = {
-            "layerlens.Stratix": MagicMock(return_value=mock_client),
+            "layerlens.LayerLens": MagicMock(return_value=mock_client),
             "layerlens.PublicClient": MagicMock(return_value=mock_public),
             "time.sleep": MagicMock(),  # Prevent real sleeps in polling loops
         }
@@ -734,7 +740,7 @@ def _import_and_run_sync(
 
         argv_val = argv or ["test"]
 
-        with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
+        with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
             with patch("sys.argv", argv_val):
                 ctx_managers = [patch(target, val) for target, val in patches.items()]
                 for cm in ctx_managers:
@@ -792,15 +798,15 @@ def _import_and_run_async(
         mod = importlib.util.module_from_spec(spec)
 
         patches = {
-            "layerlens.Stratix": MagicMock(return_value=mock_sync_client),
-            "layerlens.AsyncStratix": MagicMock(return_value=mock_async_client),
+            "layerlens.LayerLens": MagicMock(return_value=mock_sync_client),
+            "layerlens.AsyncLayerLens": MagicMock(return_value=mock_async_client),
             "time.sleep": MagicMock(),
             "asyncio.sleep": AsyncMock(),
         }
         if extra_patches:
             patches.update(extra_patches)
 
-        with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
+        with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
             with patch("sys.argv", ["test"]):
                 ctx_managers = [patch(target, val) for target, val in patches.items()]
                 for cm in ctx_managers:
@@ -863,15 +869,20 @@ def _run_openclaw_demo(
     since openclaw demos use relative imports.
     """
     args_list = extra_args or []
-    # Write a temporary runner script to handle relative imports properly
+    # Write a temporary runner script to handle relative imports properly. It must
+    # import ``samples`` from this checkout and ``layerlens`` from where this session
+    # imported it, never another copy on the interpreter's path. Python takes the
+    # first match, so putting both locations first is enough and nothing is removed.
+    # The runner used to drop every entry naming "layerlens" but not
+    # "stratix-python": that removed the venv and the editable src of any checkout
+    # under ~/code/layerlens/ with another name, and kept a copy anywhere else
+    # (LAY-4267).
     script_content = (
         f"import sys\n"
         f"import os\n"
         f"sys.argv = ['test'] + {args_list!r}\n"
-        f"# Ensure our project root is first in sys.path\n"
         f"project_root = {PROJECT_ROOT!r}\n"
-        f"sys.path = [p for p in sys.path if 'layerlens' not in p.replace(os.sep, '/').lower() or 'stratix-python' in p.replace(os.sep, '/').lower()]\n"
-        f"sys.path.insert(0, project_root)\n"
+        f"sys.path[:0] = [project_root, {LAYERLENS_IMPORT_ROOT!r}]\n"
         f"# Create samples/__init__.py if missing (needed for package imports)\n"
         f"init_path = os.path.join(project_root, 'samples', '__init__.py')\n"
         f"created = not os.path.exists(init_path)\n"
@@ -897,12 +908,7 @@ def _run_openclaw_demo(
     # values on top. Scrubbing only in the no-override branch meant a caller
     # passing env_override inherited the developer's key and base URL, so the
     # same test could talk to a different backend locally than it does in CI.
-    for _var in (
-        "LAYERLENS_STRATIX_API_KEY",
-        "LAYERLENS_ATLAS_API_KEY",
-        "LAYERLENS_STRATIX_BASE_URL",
-        "LAYERLENS_ATLAS_BASE_URL",
-    ):
+    for _var in _LAYERLENS_CONFIG_VARS:
         env.pop(_var, None)
     if env_override:
         env.update(env_override)
@@ -920,14 +926,36 @@ def _run_openclaw_demo(
             os.unlink(script_path)
 
 
+# Every variable that configures a LayerLens client, canonical and legacy (LAY-4220).
+_LAYERLENS_CONFIG_VARS = (
+    "LAYERLENS_API_KEY",
+    "LAYERLENS_BASE_URL",
+    "LAYERLENS_STRATIX_API_KEY",
+    "LAYERLENS_STRATIX_BASE_URL",
+    "LAYERLENS_ATLAS_API_KEY",
+    "LAYERLENS_ATLAS_BASE_URL",
+)
+
+
+def _env_without_layerlens_config() -> dict[str, str]:
+    """``os.environ`` minus every LayerLens credential, so a sample runs with none."""
+    return {k: v for k, v in os.environ.items() if k not in _LAYERLENS_CONFIG_VARS}
+
+
 def _run_live(
     sample_path: str,
     args: list[str] | None = None,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess:
     """Run a sample against the real API via subprocess."""
+    from layerlens._env import find_api_key, find_base_url
+
     cmd = [sys.executable, sample_path] + (args or [])
     env = dict(os.environ)
+    # Samples read the canonical names; carry a legacy-only configuration over to them.
+    for found, name in ((find_api_key(), "LAYERLENS_API_KEY"), (find_base_url(), "LAYERLENS_BASE_URL")):
+        if found is not None:
+            env[name] = found.value
     return subprocess.run(
         cmd,
         capture_output=True,
@@ -973,7 +1001,7 @@ def _verify_sample_behavior(
     change that accidentally removes an SDK call from a sample will be caught.
 
     Args:
-        mock_client: The mocked Stratix client used during the run.
+        mock_client: The mocked LayerLens client used during the run.
         category: Sample category (e.g. "core", "industry").
         name: Sample filename stem (e.g. "quickstart", "financial_fraud").
         captured_output: The stdout captured during the sample run.
@@ -1185,7 +1213,7 @@ def _verify_async_sample_behavior(
     """Verify async samples called the expected SDK methods.
 
     Args:
-        mock_async_client: The mocked AsyncStratix client used during the run.
+        mock_async_client: The mocked AsyncLayerLens client used during the run.
         name: Sample filename stem (e.g. "async_results", "async_workflow").
         captured_output: The stdout captured during the sample run.
     """
@@ -1208,7 +1236,7 @@ def _verify_async_sample_behavior(
 
 
 class TestAllSamplesWithMockedSDK:
-    """Test every single sample (all 58) with a fully mocked Stratix client."""
+    """Test every single sample (all 58) with a fully mocked LayerLens client."""
 
     # Samples importable directly (no relative imports / blocking stdin)
     _DIRECT_IMPORT_SAMPLES = [
@@ -1226,7 +1254,7 @@ class TestAllSamplesWithMockedSDK:
         _DIRECT_IMPORT_SAMPLES,
         ids=[f"{cat}/{name}" for cat, name in _DIRECT_IMPORT_SAMPLES],
     )
-    def test_sync_sample_mocked(self, category, name, mock_stratix, capsys):
+    def test_sync_sample_mocked(self, category, name, mock_layerlens, capsys):
         """Every directly-importable sync sample runs to completion with mocked SDK."""
         key = (category, name)
         argv = _SPECIAL_ARGV.get(key)
@@ -1241,26 +1269,26 @@ class TestAllSamplesWithMockedSDK:
             with patch.dict("os.environ", env_extra):
                 output = _import_and_run_sync(
                     f"{category}/{name}.py",
-                    mock_stratix,
+                    mock_layerlens,
                     extra_patches=extra_patches,
                     argv=argv,
                 )
         else:
             output = _import_and_run_sync(
                 f"{category}/{name}.py",
-                mock_stratix,
+                mock_layerlens,
                 extra_patches=extra_patches,
                 argv=argv,
             )
 
-        _verify_sample_behavior(mock_stratix, category, name, output)
+        _verify_sample_behavior(mock_layerlens, category, name, output)
 
     @pytest.mark.parametrize("demo", OPENCLAW_RUNNER_DEMOS)
     def test_openclaw_runner_sdk_init_failure(self, demo):
         """DemoRunner demos degrade to offline mode when SDK init fails.
 
         Covers the ``except`` branch of ``DemoRunner._init_sdk`` -- a key *is*
-        set, but constructing ``Stratix()`` fails. That is distinct from the
+        set, but constructing ``LayerLens()`` fails. That is distinct from the
         ``--no-sdk`` early return exercised by ``TestOpenClawOfflineMode``, and
         it is the path a user with a wrong or expired key actually hits.
         """
@@ -1268,8 +1296,8 @@ class TestAllSamplesWithMockedSDK:
             demo,
             extra_args=["--json"],
             env_override={
-                "LAYERLENS_STRATIX_API_KEY": "fake-test-key-12345",
-                "LAYERLENS_STRATIX_BASE_URL": _UNREACHABLE_BASE_URL,
+                "LAYERLENS_API_KEY": "fake-test-key-12345",
+                "LAYERLENS_BASE_URL": _UNREACHABLE_BASE_URL,
             },
         )
         assert result.returncode == 0, (
@@ -1285,16 +1313,16 @@ class TestAllSamplesWithMockedSDK:
         assert result.stdout.strip(), f"OpenClaw demo {demo} produced no stdout.\nstderr: {result.stderr[:500]}"
 
     @pytest.mark.parametrize("name", sorted(_ASYNC_CORE_SAMPLES))
-    def test_async_sample_mocked(self, name, mock_stratix, mock_async_stratix, capsys):
+    def test_async_sample_mocked(self, name, mock_layerlens, mock_async_layerlens, capsys):
         """Every async sample runs to completion with mocked SDK."""
         output = _import_and_run_async(
             f"core/{name}.py",
-            mock_stratix,
-            mock_async_stratix,
+            mock_layerlens,
+            mock_async_layerlens,
         )
-        _verify_async_sample_behavior(mock_async_stratix, name, output)
+        _verify_async_sample_behavior(mock_async_layerlens, name, output)
 
-    def test_mcp_server_import(self, mock_stratix):
+    def test_mcp_server_import(self, mock_layerlens):
         """MCP server: verify create_server() can be imported (cannot run main -- blocks on stdin)."""
         full_path = os.path.join(SAMPLES_DIR, "mcp", "layerlens_server.py")
         sample_dir = os.path.dirname(full_path)
@@ -1312,7 +1340,7 @@ class TestAllSamplesWithMockedSDK:
             mock_mcp_types.TextContent = MagicMock
             mock_mcp_types.Tool = MagicMock
 
-            with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
+            with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
                 with patch.dict(
                     "sys.modules",
                     {
@@ -1322,7 +1350,7 @@ class TestAllSamplesWithMockedSDK:
                         "mcp.types": mock_mcp_types,
                     },
                 ):
-                    with patch("layerlens.Stratix", MagicMock(return_value=mock_stratix)):
+                    with patch("layerlens.LayerLens", MagicMock(return_value=mock_layerlens)):
                         spec.loader.exec_module(mod)
                         assert hasattr(mod, "create_server"), "MCP server should expose create_server()"
                         assert hasattr(mod, "main"), "MCP server should expose main()"
@@ -1331,7 +1359,7 @@ class TestAllSamplesWithMockedSDK:
                 sys.path.remove(sample_dir)
 
     @pytest.mark.parametrize("name", COPILOTKIT_SAMPLES)
-    def test_copilotkit_agent_import(self, name, mock_stratix):
+    def test_copilotkit_agent_import(self, name, mock_layerlens):
         """CopilotKit agents: verify main() prints usage without crashing.
 
         These agents require langchain/langgraph/copilotkit; we mock those.
@@ -1375,9 +1403,9 @@ class TestAllSamplesWithMockedSDK:
                 "pydantic": MagicMock(),
             }
 
-            with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
+            with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
                 with patch.dict("sys.modules", mock_modules):
-                    with patch("layerlens.Stratix", MagicMock(return_value=mock_stratix)):
+                    with patch("layerlens.LayerLens", MagicMock(return_value=mock_layerlens)):
                         spec.loader.exec_module(mod)
                         assert hasattr(mod, "main"), f"CopilotKit agent {name} should have main()"
                         # main() just prints usage -- call it
@@ -1389,7 +1417,7 @@ class TestAllSamplesWithMockedSDK:
 
     def test_copilotkit_evaluator_tools(self):
         """Each backend tool on the evaluator agent produces the expected shape
-        against a patched Stratix client.
+        against a patched LayerLens client.
 
         This is the regression for the current HITL architecture: the
         evaluator is a ``create_agent`` + ``CopilotKitMiddleware`` graph with
@@ -1399,8 +1427,8 @@ class TestAllSamplesWithMockedSDK:
         via ``useCopilotAction``). No ``interrupt()``, so no ag-ui-langgraph
         protocol bugs to work around.
         """
-        pytest.importorskip("langchain")
-        pytest.importorskip("langchain_core")
+        importorskip("langchain")
+        importorskip("langchain_core")
 
         from types import SimpleNamespace
 
@@ -1445,11 +1473,11 @@ class TestAllSamplesWithMockedSDK:
             with patch.dict(
                 "os.environ",
                 {
-                    "LAYERLENS_STRATIX_API_KEY": "test-key",
+                    "LAYERLENS_API_KEY": "test-key",
                     "OPENAI_API_KEY": "test-openai",
                 },
             ):
-                with patch("layerlens.Stratix", MagicMock(return_value=fake_client)):
+                with patch("layerlens.LayerLens", MagicMock(return_value=fake_client)):
                     spec = importlib.util.spec_from_file_location(
                         mod_name,
                         os.path.join(sample_dir, "evaluator_agent.py"),
@@ -1539,12 +1567,12 @@ class TestAllSamplesWithMockedSDK:
         the rollout plan) actually works against a real LLM, not just
         against mocks.
         """
-        pytest.importorskip("ag_ui_langgraph")
-        pytest.importorskip("copilotkit")
-        pytest.importorskip("fastapi")
-        pytest.importorskip("httpx")
-        pytest.importorskip("langchain")
-        pytest.importorskip("langchain_openai")
+        importorskip("ag_ui_langgraph")
+        importorskip("copilotkit")
+        importorskip("fastapi")
+        importorskip("httpx")
+        importorskip("langchain")
+        importorskip("langchain_openai")
 
         # Load env from any local .env files.
         candidate_envs = [
@@ -1619,10 +1647,10 @@ class TestAllSamplesWithMockedSDK:
         try:
             with patch.dict(
                 "os.environ",
-                {"LAYERLENS_STRATIX_API_KEY": "test-key"},
+                {"LAYERLENS_API_KEY": "test-key"},
             ):
                 with patch(
-                    "layerlens.Stratix",
+                    "layerlens.LayerLens",
                     MagicMock(return_value=fake_client),
                 ):
                     spec = importlib.util.spec_from_file_location(
@@ -1753,12 +1781,9 @@ class TestAllSamplesWithMockedSDK:
 
 
 @pytest.fixture
-def api_key():
-    """Get real API key or skip."""
-    key = os.environ.get("LAYERLENS_STRATIX_API_KEY")
-    if not key:
-        pytest.skip("LAYERLENS_STRATIX_API_KEY not set")
-    return key
+def api_key(live_api_key: str) -> str:
+    """A real API key; skips unless selected with ``-m live`` (see ``tests/conftest.py``)."""
+    return live_api_key
 
 
 # Live test args per sample path
@@ -1783,7 +1808,7 @@ _LIVE_SKIP: set[str] = {
 class TestAllSamplesLiveAPI:
     """Run every sample against the real LayerLens API.
 
-    Requires LAYERLENS_STRATIX_API_KEY to be set.
+    Requires LAYERLENS_API_KEY to be set.
     Run with: pytest tests/test_samples_e2e.py -m live
     """
 
@@ -1936,11 +1961,41 @@ class TestOpenClawOfflineMode:
             f"OpenClaw demo {demo} failed in verbose offline mode.\nstderr: {result.stderr[:500]}"
         )
 
+    def test_runner_imports_this_checkout_ahead_of_any_other_copy(self, tmp_path_factory):
+        """The runner imports ``samples`` from this checkout and ``layerlens`` from where
+        this session imported it, even with another copy of either on PYTHONPATH (an
+        installed ``layerlens``, another checkout). Both copies here refuse to import,
+        so a demo that loaded either one exits non-zero.
+
+        The copies sit in a directory whose path names no project. The runner used to
+        filter ``sys.path`` by directory name, which let such a copy through and, in a
+        worktree under ``~/code/layerlens/``, removed this checkout's own environment
+        instead (LAY-4267).
+        """
+        shadow = tmp_path_factory.mktemp("shadow")
+        for package in ("layerlens", "samples"):
+            (shadow / package).mkdir()
+            (shadow / package / "__init__.py").write_text(f"raise ImportError('imported the shadow {package}')\n")
+        pythonpath = os.pathsep.join(filter(None, [str(shadow), os.environ.get("PYTHONPATH")]))
+
+        result = _run_openclaw_demo(
+            "cage_match", extra_args=["--no-sdk", "--json"], env_override={"PYTHONPATH": pythonpath}
+        )
+
+        assert result.returncode == 0, f"the demo did not run from this checkout.\nstderr: {result.stderr[-800:]}"
+        assert "imported the shadow" not in result.stderr
+
     @pytest.mark.parametrize("demo", OPENCLAW_DIRECT_DEMOS)
     def test_direct_without_key(self, demo):
-        """Direct Stratix OpenClaw demos should fail gracefully without API key."""
+        """Direct LayerLens OpenClaw demos should fail gracefully without API key."""
         result = _run_openclaw_demo(demo)
         assert result.returncode != 0, f"Expected {demo} to fail without API key but it exited 0"
+        # Its own missing-key exit, not a crash before it: a demo that cannot even
+        # import layerlens exits non-zero too, and this test used to pass on that.
+        assert "ERROR: Failed to initialize LayerLens client" in result.stdout, (
+            f"{demo} did not report a failed client init.\nstdout: {result.stdout[-500:]}\nstderr: {result.stderr[-500:]}"
+        )
+        assert "LAYERLENS_API_KEY" in result.stdout, f"{demo} failed for a reason other than the missing key"
 
     def test_skill_script_without_key(self):
         """OpenClaw skill evaluate.py should fail gracefully without API key."""
@@ -1951,9 +2006,7 @@ class TestOpenClawOfflineMode:
             "scripts",
             "evaluate.py",
         )
-        env = dict(os.environ)
-        env.pop("LAYERLENS_STRATIX_API_KEY", None)
-        env.pop("LAYERLENS_ATLAS_API_KEY", None)
+        env = _env_without_layerlens_config()
         result = subprocess.run(
             [
                 sys.executable,
@@ -1999,9 +2052,7 @@ class TestWithoutAPIKey:
     def test_no_api_key(self, sample_path):
         """Samples should exit non-zero without API key (or succeed for offline-capable ones)."""
         full_path = os.path.join(SAMPLES_DIR, sample_path)
-        env = dict(os.environ)
-        env.pop("LAYERLENS_STRATIX_API_KEY", None)
-        env.pop("LAYERLENS_ATLAS_API_KEY", None)
+        env = _env_without_layerlens_config()
 
         # OpenClaw skill evaluate.py needs args
         args = []
@@ -2025,7 +2076,7 @@ class TestWithoutAPIKey:
                 f"stderr: {result.stderr[:300]}"
             )
         else:
-            # Should exit non-zero (can't init Stratix) -- graceful failure
+            # Should exit non-zero (can't init LayerLens) -- graceful failure
             assert result.returncode != 0, (
                 f"Expected {sample_path} to fail without API key but it exited 0.\nstdout: {result.stdout[:300]}"
             )
@@ -2042,9 +2093,7 @@ class TestWithoutAPIKey:
     def test_copilotkit_no_key(self, name):
         """CopilotKit agents should print usage even without API key."""
         full_path = os.path.join(SAMPLES_DIR, "copilotkit", "agents", f"{name}.py")
-        env = dict(os.environ)
-        env.pop("LAYERLENS_STRATIX_API_KEY", None)
-        env.pop("LAYERLENS_ATLAS_API_KEY", None)
+        env = _env_without_layerlens_config()
 
         result = subprocess.run(
             [sys.executable, full_path],
@@ -2071,34 +2120,34 @@ class TestWithoutAPIKey:
 class TestMissingDependencies:
     """Verify samples handle missing optional dependencies gracefully."""
 
-    def _assert_exits_without_fake_work(self, module_path, mock_stratix, env):
+    def _assert_exits_without_fake_work(self, module_path, mock_layerlens, env):
         """A traced integration sample must exit(1) -- not fabricate data -- when
         its required provider key is missing, and must not do any judge/trace work."""
         with patch.dict("os.environ", env):
             with pytest.raises(SystemExit) as exc:
-                _import_and_run_sync(module_path, mock_stratix)
+                _import_and_run_sync(module_path, mock_layerlens)
         assert exc.value.code == 1, f"{module_path} should exit 1 when the provider key is missing"
-        assert not mock_stratix.judges.create.called, (
+        assert not mock_layerlens.judges.create.called, (
             f"{module_path} must not create judges when the provider key is missing (no fake work)"
         )
-        assert not mock_stratix.traces.upload.called, (
+        assert not mock_layerlens.traces.upload.called, (
             f"{module_path} must not upload a fabricated trace when the provider key is missing"
         )
 
-    def test_openai_traced_without_openai_key(self, mock_stratix):
+    def test_openai_traced_without_openai_key(self, mock_layerlens):
         """openai_traced exits honestly (no simulated fallback) when OPENAI_API_KEY is missing."""
         self._assert_exits_without_fake_work(
             "integrations/openai_traced.py",
-            mock_stratix,
-            {"LAYERLENS_STRATIX_API_KEY": "test-key", "OPENAI_API_KEY": ""},
+            mock_layerlens,
+            {"LAYERLENS_API_KEY": "test-key", "OPENAI_API_KEY": ""},
         )
 
-    def test_anthropic_traced_without_anthropic_key(self, mock_stratix):
+    def test_anthropic_traced_without_anthropic_key(self, mock_layerlens):
         """anthropic_traced exits honestly (no simulated fallback) when ANTHROPIC_API_KEY is missing."""
         self._assert_exits_without_fake_work(
             "integrations/anthropic_traced.py",
-            mock_stratix,
-            {"LAYERLENS_STRATIX_API_KEY": "test-key", "ANTHROPIC_API_KEY": ""},
+            mock_layerlens,
+            {"LAYERLENS_API_KEY": "test-key", "ANTHROPIC_API_KEY": ""},
         )
 
     def test_openclaw_demos_without_openclaw(self):
@@ -2110,7 +2159,7 @@ class TestMissingDependencies:
             )
 
     @pytest.mark.parametrize("name", COPILOTKIT_SAMPLES)
-    def test_copilotkit_without_langchain(self, name, mock_stratix):
+    def test_copilotkit_without_langchain(self, name, mock_layerlens):
         """CopilotKit agents should be importable with mocked langchain/copilotkit."""
         full_path = os.path.join(SAMPLES_DIR, "copilotkit", "agents", f"{name}.py")
         sample_dir = os.path.dirname(full_path)
@@ -2148,11 +2197,11 @@ class TestMissingDependencies:
                 "pydantic": MagicMock(),
             }
 
-            with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
+            with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
                 with patch.dict("sys.modules", mock_modules):
                     with patch(
-                        "layerlens.Stratix",
-                        MagicMock(return_value=mock_stratix),
+                        "layerlens.LayerLens",
+                        MagicMock(return_value=mock_layerlens),
                     ):
                         spec.loader.exec_module(mod)
                         assert hasattr(mod, "main")
@@ -2162,7 +2211,7 @@ class TestMissingDependencies:
             if sample_dir in sys.path:
                 sys.path.remove(sample_dir)
 
-    def test_mcp_server_without_mcp_package(self, mock_stratix):
+    def test_mcp_server_without_mcp_package(self, mock_layerlens):
         """MCP server should be importable with mocked mcp package."""
         full_path = os.path.join(SAMPLES_DIR, "mcp", "layerlens_server.py")
         sample_dir = os.path.dirname(full_path)
@@ -2177,7 +2226,7 @@ class TestMissingDependencies:
             mock_mcp_types.TextContent = MagicMock
             mock_mcp_types.Tool = MagicMock
 
-            with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
+            with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
                 with patch.dict(
                     "sys.modules",
                     {
@@ -2188,8 +2237,8 @@ class TestMissingDependencies:
                     },
                 ):
                     with patch(
-                        "layerlens.Stratix",
-                        MagicMock(return_value=mock_stratix),
+                        "layerlens.LayerLens",
+                        MagicMock(return_value=mock_layerlens),
                     ):
                         spec.loader.exec_module(mod)
                         assert hasattr(mod, "create_server")
@@ -2197,11 +2246,11 @@ class TestMissingDependencies:
             if sample_dir in sys.path:
                 sys.path.remove(sample_dir)
 
-    def test_openclaw_skill_script_with_mocked_sdk(self, mock_stratix):
+    def test_openclaw_skill_script_with_mocked_sdk(self, mock_layerlens):
         """OpenClaw skill evaluate.py should run with mocked SDK."""
         _import_and_run_sync(
             "openclaw/layerlens_skill/scripts/evaluate.py",
-            mock_stratix,
+            mock_layerlens,
             argv=[
                 "test",
                 "--input",
@@ -2348,3 +2397,68 @@ class TestSampleCompleteness:
         assert len(ALL_MOCKED_SAMPLES) == 125, (
             f"Expected 125 mocked entries, got {len(ALL_MOCKED_SAMPLES)}.\nEntries: {ALL_MOCKED_SAMPLES}"
         )
+
+
+# ---------------------------------------------------------------------------
+# The trace records the core samples write are ones the API takes
+# ---------------------------------------------------------------------------
+
+#: A trace record the API reads must carry one of these (layerlens-app's traces_create.go); one
+#: with none is refused: ``400 trace record 0 is not a valid trace: expected at least one of [...]``.
+_TRACE_RECORD_FIELDS = (
+    "events",
+    "spans",
+    "attestation",
+    "trace_id",
+    "metadata",
+    "name",
+    "framework",
+    "agent_name",
+    "agent_id",
+    "event_count",
+)
+
+
+class TestSampleTraceRecords:
+    """``samples/core/quickstart.py`` uploaded ``{input, output}`` alone, and the API refused it
+    (docs E2E 2026-11-10, L7 AD-23). Every record a core sample writes to upload carries a field the
+    API reads a trace by."""
+
+    def test_every_record_the_core_samples_upload_is_one_the_api_takes(self, mock_layerlens: MagicMock) -> None:
+        accepted = mock_layerlens.traces.upload.return_value
+        for name in ("quickstart", "basic_trace", "trace_evaluation"):
+            records: list[dict[str, Any]] = []
+
+            def upload(path: str, records: list[dict[str, Any]] = records) -> Any:
+                with open(path) as f:
+                    records.extend(json.loads(line) for line in f if line.strip())
+                return accepted
+
+            mock_layerlens.traces.upload.side_effect = upload
+            _import_and_run_sync(f"core/{name}.py", mock_layerlens)
+            assert records, f"core/{name}.py uploaded nothing"
+            refused = [r for r in records if not any(field in r for field in _TRACE_RECORD_FIELDS)]
+            assert refused == [], f"core/{name}.py uploads records the API refuses: {refused}"
+
+    def test_every_bundled_trace_file_holds_records_the_api_takes(self) -> None:
+        """``samples/data/traces/example_traces.jsonl``, which ``core/async_results.py`` uploads, held
+        ``{input, output, model, …}`` records the API refuses as the quickstart's was (docs re-run
+        2026-11-10, TS-02)."""
+        traces_dir = os.path.join(SAMPLES_DIR, "data", "traces")
+        refused: dict[str, int] = {}
+        for folder, _dirs, files in os.walk(traces_dir):
+            for file_name in files:
+                if not file_name.endswith((".json", ".jsonl")):
+                    continue
+                path = os.path.join(folder, file_name)
+                with open(path) as f:
+                    text = f.read().strip()
+                try:
+                    loaded = json.loads(text)
+                    records = loaded if isinstance(loaded, list) else [loaded]
+                except json.JSONDecodeError:
+                    records = [json.loads(line) for line in text.splitlines() if line.strip()]
+                bad = [r for r in records if not any(field in r for field in _TRACE_RECORD_FIELDS)]
+                if bad:
+                    refused[os.path.relpath(path, SAMPLES_DIR)] = len(bad)
+        assert refused == {}, f"records the API refuses: {refused}"

@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from layerlens.models import Trace, TracesResponse, CreateTracesResponse
-from layerlens._constants import DEFAULT_TIMEOUT
-from layerlens._exceptions import StratixError
+from layerlens._constants import NOT_GIVEN
+from layerlens._exceptions import LayerLensError
 from layerlens.resources.traces.traces import Traces
 
 
@@ -15,7 +15,7 @@ class TestTraces:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -87,7 +87,7 @@ class TestTraces:
 
         traces_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/traces/trace-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -186,7 +186,7 @@ class TestTraces:
 
         traces_resource._delete.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/traces/trace-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
         )
 
     def test_delete_trace_none_response(self, traces_resource):
@@ -229,7 +229,7 @@ class TestTracesUpload:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -350,7 +350,7 @@ class TestTracesUpload:
         try:
             traces_resource._post.side_effect = [{"url": "http://169.254.169.254/latest/meta-data/"}]
             with patch("layerlens.resources.traces.traces.httpx.put") as mock_put:
-                with pytest.raises(StratixError):
+                with pytest.raises(LayerLensError):
                     traces_resource.upload(tmp_path)
                 mock_put.assert_not_called()
         finally:
@@ -362,7 +362,7 @@ class TestTracesErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -409,7 +409,7 @@ class TestTracesURLConstruction:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "custom-org"
         client.project_id = "custom-proj"

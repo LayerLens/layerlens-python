@@ -29,7 +29,7 @@ flowchart TD
     subgraph SDK["layerlens SDK (under test)"]
         ADP["provider adapter<br/>instrument_*"]
         COL["TraceCollector"]
-        CLI["Stratix client<br/>traces.upload / get / delete"]
+        CLI["LayerLens client<br/>traces.upload / get / delete"]
         PRC["pricing.calculate_cost"]
         ATT["attestation.verify_chain"]
     end
@@ -63,21 +63,24 @@ flowchart TD
 
 ## 1. Prerequisites
 
-Install the provider extras you want to exercise, e.g.:
+Install this checkout with the provider extras you want to exercise, e.g.:
 
 ```bash
-pip install 'layerlens[anthropic]' 'layerlens[openai]'   # etc.
+uv sync --locked --extra anthropic --extra openai   # etc.; --all-extras for every provider
 ```
+
+(This suite tests the SDK in this repository; a `layerlens` installed from a package
+index would be a different version.)
 
 LayerLens (staging) + suite controls:
 
-| Env var | Purpose |
-| --- | --- |
-| `LAYERLENS_LIVE=1` | Opt the suite in (or pass `-m live`). Without it every test skips. |
-| `LAYERLENS_STRATIX_API_KEY` | Staging API key. |
-| `LAYERLENS_STRATIX_BASE_URL` | **Staging** base URL. Required — the suite refuses to run against the default (prod) URL. |
-| `LAYERLENS_APP_BASE_URL` | UI base for report deep-links (default `https://stratix.layerlens.ai`). |
-| `LAYERLENS_LIVE_COST_CAP_USD` | Per-test spend ceiling (default `0.25`); a test fails if its run exceeds it. |
+| Env var                       | Purpose                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| `LAYERLENS_LIVE=1`            | Opt the suite in (or pass `-m live`). Without it every test skips.                        |
+| `LAYERLENS_API_KEY`           | Staging API key.                                                                          |
+| `LAYERLENS_BASE_URL`          | **Staging** base URL. Required — the suite refuses to run against the default (prod) URL. |
+| `LAYERLENS_APP_BASE_URL`      | UI base for report deep-links (default `https://app.layerlens.ai`).                       |
+| `LAYERLENS_LIVE_COST_CAP_USD` | Per-test spend ceiling (default `0.25`); a test fails if its run exceeds it.              |
 
 Per provider (set the key(s) for the providers you want; others skip):
 
@@ -97,7 +100,7 @@ One provider:
 
 ```bash
 LAYERLENS_LIVE=1 \
-LAYERLENS_STRATIX_BASE_URL=<staging-url> LAYERLENS_STRATIX_API_KEY=<key> \
+LAYERLENS_BASE_URL=<staging-url> LAYERLENS_API_KEY=<key> \
 ANTHROPIC_API_KEY=<key> \
 ./scripts/test tests/e2e/live -k anthropic
 ```
@@ -105,7 +108,7 @@ ANTHROPIC_API_KEY=<key> \
 Everything available:
 
 ```bash
-LAYERLENS_LIVE=1 LAYERLENS_STRATIX_BASE_URL=<staging-url> LAYERLENS_STRATIX_API_KEY=<key> \
+LAYERLENS_LIVE=1 LAYERLENS_BASE_URL=<staging-url> LAYERLENS_API_KEY=<key> \
   <provider keys...> ./scripts/test tests/e2e/live
 ```
 
@@ -164,8 +167,8 @@ Human judgment (not automated — this is the point of L3):
   `LAYERLENS_PRICING_TABLE`. (ollama is expected to be unpriced and is tolerated.)
 - **`run cost exceeded cap`** — a scenario used more tokens than expected; check the prompts or
   raise `LAYERLENS_LIVE_COST_CAP_USD`.
-- **auth / base-url errors at fixture setup** — `LAYERLENS_STRATIX_API_KEY` /
-  `LAYERLENS_STRATIX_BASE_URL` missing or wrong.
+- **auth / base-url errors at fixture setup** — `LAYERLENS_API_KEY` /
+  `LAYERLENS_BASE_URL` missing or wrong.
 
 ## 6. Record results
 
@@ -197,12 +200,12 @@ integration it matches). Same opt-in gating (`LAYERLENS_LIVE=1`), same `upload �
 
 ### Extra env (beyond §1)
 
-| Env var | Purpose |
-| --- | --- |
-| `LAYERLENS_STRATIX_BASE_URL` | Must include the API prefix, e.g. `http://localhost:8080/api/v1`. |
-| `LAYERLENS_LIVE_INTEGRATION_ID` | Optional. When set, every uploaded trace must link to this `sdk_adapter` integration id and (unless disabled) its status must reach `Healthy`. Unset ⇒ linkage is recorded, not asserted (keeps the suite green where no integration is registered). |
-| `LAYERLENS_LIVE_LINKAGE_POLL_STATUS` | Set `0` to assert only the `integration_id` match and skip the `Healthy` status poll. |
-| `LAYERLENS_LIVE_KEEP_TRACES` | Set `1` to skip teardown (keep uploaded traces). |
+| Env var                              | Purpose                                                                                                                                                                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LAYERLENS_BASE_URL`                 | Must include the API prefix, e.g. `http://localhost:8080/api/v1`.                                                                                                                                                                                    |
+| `LAYERLENS_LIVE_INTEGRATION_ID`      | Optional. When set, every uploaded trace must link to this `sdk_adapter` integration id and (unless disabled) its status must reach `Healthy`. Unset ⇒ linkage is recorded, not asserted (keeps the suite green where no integration is registered). |
+| `LAYERLENS_LIVE_LINKAGE_POLL_STATUS` | Set `0` to assert only the `integration_id` match and skip the `Healthy` status poll.                                                                                                                                                                |
+| `LAYERLENS_LIVE_KEEP_TRACES`         | Set `1` to skip teardown (keep uploaded traces).                                                                                                                                                                                                     |
 
 ### Register an `sdk_adapter` integration (for linkage assertions)
 
@@ -247,6 +250,7 @@ Use the documented extras where they exist; the rest install the upstream packag
 | ms_agent_framework | `layerlens[semantic-kernel]` (instruments SK `AgentGroupChat`) | **3.10+** |
 | autogen | `layerlens[autogen]` + `'autogen-ext[openai]'` | **3.10+** |
 | mcp, a2a | `layerlens[mcp]` / `[a2a]` | **3.10+** |
+| ap2 | `"ap2 @ git+https://github.com/google-agentic-commerce/AP2@b4587ac1d055888a73b4b21750973cffba961793"` (the pinned AP2 SDK; not on PyPI). The lane skips where it is missing | **3.11+** |
 | llamaindex, haystack, vector_store | `llama-index` / `haystack-ai` / `chromadb` | 3.8+ |
 | smolagents, agno | `smolagents openai` / `agno openai` (no extra) | 3.10+ |
 | strands | `'strands-agents[openai]'` (no extra) | 3.10+ |
@@ -257,6 +261,7 @@ Heavy adapters conflict — give each its own venv:
 
 ```bash
 uv venv --python 3.11 .venv-crewai && uv pip install --python .venv-crewai/bin/python -e . 'crewai>=0.30'
+uv venv --python 3.11 .venv-ap2 && uv pip install --python .venv-ap2/bin/python -e . pytest "ap2 @ git+https://github.com/google-agentic-commerce/AP2@b4587ac1d055888a73b4b21750973cffba961793"
 ```
 
 ### Run
@@ -277,11 +282,12 @@ set -a; source tests/e2e/live/.env; set +a   # LAYERLENS_LIVE=1, base .../api/v1
   routes them to `run_self_flushing_case` (it drains the background upload queue). Framework
   adapters gate content on their **own** `capture_config`, so the redaction variant constructs the
   adapter with `capture_content=False`.
-- **Apple Silicon arch.** If your base interpreter is x86_64 (e.g. a Rosetta `rye` 3.9) but the
+- **Apple Silicon arch.** If your base interpreter is x86_64 (e.g. a Rosetta Python 3.9) but the
   per-adapter venvs are arm64, launch them with `arch -arm64 <venv>/bin/python …` (or run from a
   native-arm64 interpreter) — otherwise native extensions fail with `incompatible architecture`.
-- **`rye sync` toolchain floor.** Building the dev lock compiles `temporalio` from source (via
-  `pydantic-ai-slim`) → needs Rust ≥1.85 (`rustup update stable`) and `protoc`.
+- **`uv sync` toolchain floor.** On macOS x86_64 with Python 3.9, the locked `temporalio` (via
+  `pydantic-ai-slim`) has no wheel and compiles from source → needs Rust ≥1.85
+  (`rustup update stable`) and `protoc`.
 
 ### Troubleshooting (beyond §5)
 
@@ -301,7 +307,7 @@ this sequence and reads the report.
 ### Prerequisites
 
 - **Local dockerized platform** up and healthy, with the API at
-  `http://localhost:8080/api/v1` (that full prefix goes in `LAYERLENS_STRATIX_BASE_URL` — §7).
+  `http://localhost:8080/api/v1` (that full prefix goes in `LAYERLENS_BASE_URL` — §7).
 - **Gitignored env file** `tests/e2e/live/.env` holding `LAYERLENS_LIVE=1`, the base URL, the
   app API key, optional `LAYERLENS_LIVE_INTEGRATION_ID`, and the provider/framework keys
   (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, Langfuse keys, `OLLAMA_HOST`, …).
@@ -319,7 +325,8 @@ set -a; source tests/e2e/live/.env; set +a
 # 1. Base venv: providers (incl. async variants) + protocols + py3.9 frameworks
 ./scripts/test tests/e2e/live
 
-# 2. Each isolated framework venv, one at a time (3.10+ / conflicting deps)
+# 2. Each isolated framework venv, one at a time (3.10+ / conflicting deps);
+#    the ap2 protocol lane runs from the ap2 venv (§7 Install) and skips in the base venv
 arch -arm64 .venv-<framework>/bin/python -m pytest tests/e2e/live -k <framework>
 
 # 3. Read the report: tests/e2e/live/.report/live-run-<UTC>.md (+ terminal summary)

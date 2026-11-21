@@ -1,12 +1,13 @@
 # LLM Provider Instrumentation
 
-Provider adapters automatically capture LLM spans when SDK methods are called inside a `@trace` context. No changes to your LLM calling code are needed.
+Provider adapters record every LLM call made inside a trace (a `@trace` function or a
+`trace_context` block). No changes to your LLM calling code are needed.
 
 ## Supported Providers
 
 | Provider | Adapter | Wraps |
 | -------- | ------- | ----- |
-| OpenAI | `instrument_openai(client)` | `client.chat.completions.create` |
+| OpenAI | `instrument_openai(client)` | `client.chat.completions.create`, `client.responses.create` |
 | Anthropic | `instrument_anthropic(client)` | `client.messages.create` |
 | LiteLLM | `instrument_litellm()` | `litellm.completion`, `litellm.acompletion` |
 
@@ -17,18 +18,18 @@ LiteLLM provides a unified interface to 100+ providers (Azure, Google, Cohere, M
 ### Installation
 
 ```bash
-pip install layerlens[openai]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]"
 ```
 
 ### Usage
 
 ```python
 import openai
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers.openai import instrument_openai
 
-client = Stratix()
+client = LayerLens()
 openai_client = openai.OpenAI()
 
 # Instrument the client instance
@@ -45,24 +46,61 @@ def my_agent(question: str):
 my_agent("What is Python?")
 ```
 
-The adapter captures:
+Each call records:
 
-- **Span name**: `openai.chat.completions.create`
-- **Kind**: `llm`
-- **Input**: Messages array
-- **Output**: Assistant message content
-- **Metadata**: `model`, `temperature`, `max_tokens`, `usage` (prompt/completion/total tokens)
+- **`model.invoke`** named `openai.chat.completions.create`: the `model`, the request `parameters`
+  (`temperature`, `max_tokens`, ...), token `usage`, `latency_ms`, `finish_reason` and the response's
+  id; with content capture, the `messages` and the reply
+- **`tool.call`** for each tool the model asks to call: its name, and its arguments with content capture
+- **`cost.record`**: the token counts and the call's `cost_usd`, when the response reports token usage
+  (a Chat Completions stream does only with `stream_options={"include_usage": True}`; a Responses
+  API stream does in its last event, `response.completed`)
+
+A streamed call (`stream=True`) records these once its stream has been read to the end, in the
+trace and span the call was made in, wherever the stream is read. A `@trace` function that returns
+the stream keeps its trace open until the caller has read it, and uploads it then:
+
+```python
+@trace(client)
+def answer(question):
+    return openai_client.chat.completions.create(model="gpt-4o-mini", messages=[...], stream=True,
+                                                 stream_options={"include_usage": True})
+
+for chunk in answer("..."):  # the trace uploads, with model.invoke and cost.record, after the last chunk
+    ...
+```
+
+The function's `agent.output` is the stream's reply, as `model.invoke` records it, written once
+the caller has read the stream; a stream that fails as it is read ends the trace with `agent.error`
+instead, as a function that raises does, and records no `agent.output`. A stream closed before its end, dropped unread, or still open when
+the process exits lets its trace upload without that call, and with no output; one closed before
+its first chunk was read does so when it is collected, or at exit. `layerlens.instrument.flush()` does not wait for a trace still
+waiting for its stream: the exit queues it. A stream the garbage collector ends is released on the SDK's
+`layerlens-stream-release` thread, never inside the collection, which can run while the SDK holds that
+trace's lock; `flush()` and the exit wait for those releases before they wait for the uploads.
 
 ### Disconnect
+
+`instrument_openai` returns the adapter; its `disconnect()` restores the client's original methods:
+
+```python
+from layerlens.instrument.adapters.providers.openai import instrument_openai, uninstrument_openai
+
+provider = instrument_openai(openai_client)
+
+# Later, restore original methods:
+provider.disconnect()  # or uninstrument_openai()
+```
+
+`instrument_openai` instruments one client at a time: calling it with another client restores the
+first, and `uninstrument_openai()` restores the last one. Every `instrument_<provider>()` works this
+way. To trace several clients at once, connect an adapter to each:
 
 ```python
 from layerlens.instrument.adapters.providers.openai import OpenAIProvider
 
-provider = OpenAIProvider()
-provider.connect_client(openai_client)
-
-# Later, restore original methods:
-provider.disconnect()
+for c in (openai_client, other_openai_client):
+    OpenAIProvider().connect(c)  # keep the adapters; each one's disconnect() restores its client
 ```
 
 ## Anthropic
@@ -70,18 +108,18 @@ provider.disconnect()
 ### Installation
 
 ```bash
-pip install layerlens[anthropic]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[anthropic]"
 ```
 
 ### Usage
 
 ```python
 import anthropic
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers.anthropic import instrument_anthropic
 
-client = Stratix()
+client = LayerLens()
 anthropic_client = anthropic.Anthropic()
 
 instrument_anthropic(anthropic_client)
@@ -98,22 +136,17 @@ def my_agent(question: str):
 my_agent("What is Python?")
 ```
 
-The adapter captures:
-
-- **Span name**: `anthropic.messages.create`
-- **Kind**: `llm`
-- **Input**: Messages array
-- **Output**: Response content blocks
-- **Metadata**: `model`, `usage` (input/output tokens), `stop_reason`
+Each call records `model.invoke` named `anthropic.messages.create` (the `model`, the request
+`parameters`, token `usage`, `stop_reason`, `latency_ms`, the count of each kind of content block;
+with content capture, the messages and the reply), a `tool.call` for each tool use, and `cost.record`.
 
 ### Disconnect
 
 ```python
-from layerlens.instrument.adapters.providers.anthropic import AnthropicProvider
+from layerlens.instrument.adapters.providers.anthropic import instrument_anthropic, uninstrument_anthropic
 
-provider = AnthropicProvider()
-provider.connect_client(anthropic_client)
-provider.disconnect()
+provider = instrument_anthropic(anthropic_client)
+provider.disconnect()  # or uninstrument_anthropic()
 ```
 
 ## LiteLLM
@@ -123,18 +156,18 @@ LiteLLM works differently from OpenAI/Anthropic — it patches module-level func
 ### Installation
 
 ```bash
-pip install layerlens[litellm]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"
 ```
 
 ### Usage
 
 ```python
 import litellm
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers.litellm import instrument_litellm
 
-client = Stratix()
+client = LayerLens()
 
 # Patch litellm module (call once at startup)
 instrument_litellm()
@@ -157,7 +190,7 @@ instrument_litellm()
 
 @trace(client)
 def multi_provider():
-    # All of these generate LLM spans
+    # Each of these records model.invoke and cost.record
     litellm.completion(model="gpt-4o", messages=[...])
     litellm.completion(model="claude-sonnet-4-20250514", messages=[...])
     litellm.completion(model="gemini/gemini-pro", messages=[...])
@@ -171,13 +204,12 @@ from layerlens.instrument.adapters.providers.litellm import uninstrument_litellm
 uninstrument_litellm()
 ```
 
-## Captured Metadata
+## Captured Parameters
 
-All provider adapters capture these request parameters when present:
+All provider adapters record these request parameters, when present, in `model.invoke`'s `parameters`:
 
 | Parameter | Description |
 | --------- | ----------- |
-| `model` | Model name/ID |
 | `temperature` | Sampling temperature |
 | `max_tokens` | Maximum response tokens |
 | `top_p` | Nucleus sampling parameter |
@@ -189,7 +221,7 @@ Response metadata varies by provider but always includes token usage when availa
 
 ## Passthrough Behavior
 
-When called **outside** a `@trace` context, all adapters pass through to the original SDK method with zero overhead. This means you can instrument at startup and leave it on — it only activates when a trace is running.
+When called **outside** a trace, all adapters pass through to the original SDK method with zero overhead. This means you can instrument at startup and leave it on — it only records while a trace is running.
 
 ```python
 instrument_openai(openai_client)
@@ -199,24 +231,27 @@ openai_client.chat.completions.create(model="gpt-4o", messages=[...])
 
 @trace(client)
 def traced_call():
-    # Active trace — generates an LLM span
+    # Active trace — records model.invoke and cost.record
     openai_client.chat.completions.create(model="gpt-4o", messages=[...])
 ```
 
 ## Error Handling
 
-If an LLM call raises an exception inside a `@trace`, the adapter records the error on the span and re-raises the exception:
+If an LLM call raises inside a trace, the adapter records `agent.error` and re-raises the exception:
 
 ```python
 @trace(client)
 def my_agent():
     try:
         openai_client.chat.completions.create(model="gpt-4o", messages=[...])
-    except openai.APIError:
-        pass  # Span is recorded with status="error"
+    except openai.RateLimitError:
+        pass  # agent.error: error_type="RateLimitError", error_code="rate_limit_exceeded"
 ```
+
+`error_code` is the provider's own reason for the failure, read off the exception, so it is kept
+when the error's text is not (the default records no content) and whatever the SDK's text says.
 
 ## Next Steps
 
 - [Agent Frameworks](frameworks.md) — LangChain and LangGraph callback handlers
-- [Quick Start](quickstart.md) — Manual instrumentation with `@trace` and `span()`
+- [Quick Start](quickstart.md) — Manual instrumentation with `@trace`, `span()` and `emit()`

@@ -9,10 +9,10 @@ pattern = '__version__ = "(?P<version>[^"]+)"'
 [project]
 name = "layerlens"
 dynamic = ["version"]
-description = "The official Python library for the LayerLens Stratix API"
+description = "The official Python library for the LayerLens API"
 license = "Apache-2.0"
 authors = [{ name = "LayerLens", email = "support@layerlens.ai" }]
-dependencies = ["httpx>=0.23.0, <1", "pydantic>=1.9.0, <3"]
+dependencies = ["httpx>=0.23.0, <1", "pydantic>=2.0.1, <3"]
 requires-python = ">= 3.8"
 classifiers = [
   "Typing :: Typed",
@@ -62,12 +62,20 @@ agentforce = ["httpx>=0.27.0"]
 litellm = ["litellm>=1.0.0"]
 # Canonical M3 name; `litellm` kept as alias for prior installs.
 providers-litellm = ["litellm>=1.0.0"]
-pydantic-ai = ["pydantic-ai>=0.8.1,<2"]
-openai-agents = ["openai-agents>=0.1.0"]
+# No upper bound: the adapter is verified on 0.8.1 through 2.x. With genai-prices >= 0.1,
+# pydantic-ai 2.0-2.16 report zero tokens for responses that include a reasoning-token
+# count, as OpenAI chat completions do (an upstream bug, fixed in 2.17). A fresh install
+# does not resolve those: it gets 0.8.1 on Python 3.9 and 2.17 or later on 3.10+.
+pydantic-ai = ["pydantic-ai>=0.8.1"]
+# On Python 3.9, openai-agents resolves 0.8.x with a pydantic that evaluates its `float | None`
+# annotations only with eval-type-backport installed: without it `import agents` raised TypeError.
+openai-agents = ["openai-agents>=0.1.0", "eval-type-backport>=0.2.0; python_version < '3.10'"]
 semantic-kernel = ["semantic-kernel>=1.0.0; python_version >= '3.10'"]
 # mcp SDK requires Python 3.10+, so we gate the optional-dep on the interpreter
-# version rather than bumping the library's overall requires-python.
-mcp = ["mcp>=0.9; python_version >= '3.10'"]
+# version rather than bumping the library's overall requires-python. Bounded to what the
+# adapter is verified on: 1.23 (older releases don't import with current pydantic, or lack
+# the elicitation types the adapter handles) through 2.x (2.3.0 the latest checked).
+mcp = ["mcp>=1.23,<3; python_version >= '3.10'"]
 a2a = ["a2a-sdk>=0.1; python_version >= '3.10'"]
 agui = []
 # DSPy renamed its distribution from ``dspy-ai`` to ``dspy`` at 2.6; 3.x requires
@@ -82,9 +90,18 @@ instructor = ["instructor>=1.3.0"]
 # 1.95.0 first-broken. Cap here until marvin corrects its own metadata; this is
 # deliberately NOT added to ``all-frameworks``, so the bound cannot leak onto
 # users who only wanted the pydantic-ai adapter.
+#
+# genai-prices is capped for the same reason (LAY-4241). pydantic-ai < 1.107.7
+# declares ``genai-prices>=...`` with no upper bound, but genai-prices 0.1.0 added
+# ``Usage.output_reasoning_tokens`` and pydantic-ai 1.9-1.94 then raises TypeError
+# extracting usage and swallows it: every run reports zero tokens. pydantic-ai
+# 1.107.7 caps it ``<0.1`` itself; the pydantic-ai cap above keeps marvin installs
+# below that release, so mirror its cap here. Drop both once marvin supports
+# pydantic-ai >= 1.95.
 marvin = [
   "marvin>=3.0; python_version >= '3.10'",
   "pydantic-ai>=1.9,<1.95; python_version >= '3.10'",
+  "genai-prices<0.1; python_version >= '3.10'",
 ]
 # Mirascope v2 relocated the call surface from ``mirascope.core.<provider>.call``
 # to ``mirascope.llm.call``; the adapter targets v2, so exclude the v1 line
@@ -112,7 +129,7 @@ all-providers = [
   "litellm>=1.0.0",
 ]
 all-protocols = [
-  "mcp>=0.9; python_version >= '3.10'",
+  "mcp>=1.23,<3; python_version >= '3.10'",
   "a2a-sdk>=0.1; python_version >= '3.10'",
 ]
 all-frameworks = [
@@ -122,22 +139,24 @@ all-frameworks = [
   "autogen-agentchat>=0.4.0; python_version >= '3.10'",
   "httpx>=0.27.0",
   "semantic-kernel>=1.0.0; python_version >= '3.10'",
-  "pydantic-ai>=0.8.1,<2",
+  "pydantic-ai>=0.8.1",
   "openai-agents>=0.1.0",
+  "eval-type-backport>=0.2.0; python_version < '3.10'",
 ]
 
 [project.urls]
-Homepage = "https://github.com/LayerLens/stratix-python"
-Repository = "https://github.com/LayerLens/stratix-python"
+Homepage = "https://github.com/LayerLens/layerlens-python"
+Repository = "https://github.com/LayerLens/layerlens-python"
 
 [project.scripts]
 layerlens = "layerlens.cli:main"
-stratix = "layerlens.cli:main"
+stratix = "layerlens.cli:legacy_main"
 
-[tool.rye]
-managed = true
-# version pins are in requirements-dev.lock
-dev-dependencies = [
+# Development tooling. Versions are pinned in uv.lock together with every extra above;
+# CI installs exactly that lock (see CONTRIBUTING.md > "Dependencies and the lock").
+# The scripts in scripts/ (lint, format, test, ...) replace the old rye scripts.
+[dependency-groups]
+dev = [
     "mypy",
     "pytest",
     "pyright==1.1.399",
@@ -146,51 +165,68 @@ dev-dependencies = [
     "build",
     "twine==6.1.0",
     "click>=8.0.0",
-    # crewai>=1.14 (the version compatible with openai 2.x) requires Python 3.10+,
-    # so gate it. Pre-3.10 dev envs simply skip crewai-backed tests.
-    "crewai>=0.5.0; python_version >= '3.10'",
     "openai>=2.31.0",
     "anthropic>=0.94.0",
     "langchain-core>=0.3.84",
+    # The openinference suites build real OpenTelemetry spans (and decode OTLP
+    # protobuf). The adapter itself needs neither package, so list them here: on
+    # Python 3.9 they used to arrive only through pydantic-ai's mistral client.
+    "opentelemetry-sdk",
+    "opentelemetry-proto",
+    # Floors that keep the lock on current releases (LAY-4242). One lock holds every
+    # extra, so `uv lock --upgrade` trades versions between them, and without these it
+    # picks semantic-kernel 1.8.0 (which breaks on pydantic >= 2.12), dspy 2.6 and
+    # crewai 1.6, so the dspy-3 and crewai >= 1.14 suites would skip. They bound only
+    # this environment, never what customers install. Every crewai >= 1.14 needs
+    # lancedb, which ships no Intel-mac wheels, so Intel Macs keep an older crewai.
+    "crewai>=1.15.28; python_version >= '3.10' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
+    "dspy>=3.4.1; python_version >= '3.10'",
+    "semantic-kernel>=1.45.0; python_version >= '3.10'",
 ]
+# Mutation testing for the bite-check and nightly mutation workflows. Not a default
+# group: install it with `uv sync --all-extras --group mutation`.
+mutation = ["mutmut==2.5.1"]
 
-[tool.rye.scripts]
-format = { chain = [
-  "format:ruff",
-  "fix:ruff",
-  # run formatting again to fix any inconsistencies when imports are stripped
-  "format:ruff",
-] }
-"format:ruff" = "ruff format"
-
-"lint" = { chain = ["check:ruff", "typecheck:src", "check:importable"] }
-"lint:all" = { chain = ["check:ruff", "typecheck", "check:importable"] }
-"check:ruff" = "ruff check ."
-"fix:ruff" = "ruff check --fix ."
-
-"check:importable" = "python -c 'import layerlens'"
-
-# Core-scoped coverage gate (LAY-3614 / W3): enforces a floor on the shared core
-# machinery only (see tests/coverage-core.ini). fail_under lives in that config.
-"test:cov-core" = "pytest tests/ --cov=src/layerlens --cov-config=tests/coverage-core.ini --cov-report=term-missing --tb=short"
-
-# Type checking for production code only (excludes tests)
-"typecheck:src" = { chain = ["typecheck:pyright:src", "typecheck:mypy:src"] }
-
-# Type checking for all code including tests
-typecheck = { chain = ["typecheck:pyright", "typecheck:mypy"] }
-
-"typecheck:pyright" = "pyright"
-"typecheck:pyright:src" = "pyright src"
-"typecheck:verify-types" = "pyright --verifytypes layerlens --ignoreexternal"
-"typecheck:mypy" = "mypy ."
-"typecheck:mypy:src" = "mypy src"
+[tool.uv]
+# CI pins this exact uv (.github/actions/setup-locked-env); older uv may write the lock
+# differently, so the floor keeps local locks consistent with CI's `uv lock --check`.
+required-version = ">=0.12.23"
+# The environments uv.lock is resolved for: what CI tests (CPython 3.9-3.12 on Linux
+# x86_64) plus where the team develops (Linux aarch64, macOS). This bounds the dev
+# lock only; it does not change requires-python or what customers can install.
+# Machines are listed explicitly because uv otherwise also resolves forks such as
+# Linux ppc64le, where wheel-only dependencies (onnxruntime) have nothing to install.
+environments = [
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "platform_python_implementation == 'CPython' and python_version >= '3.9' and python_version < '3.13' and sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+# Build backends are resolved in isolated build environments, outside uv.lock. Pin
+# the ones CI uses: hatchling for this project (every `uv sync` builds it editable,
+# and `uv build`), setuptools for the locked sdist-only packages (mutmut, pybars4,
+# pymeta3). hatchling >= 1.29 and setuptools 84 need Python 3.10+. A new sdist-only
+# dependency with another backend needs its backend added here.
+build-constraint-dependencies = [
+    "hatchling==1.27.0; python_version < '3.10'",
+    "hatchling==1.32.4; python_version >= '3.10'",
+    "setuptools==82.0.1; python_version < '3.10'",
+    "setuptools==84.0.0; python_version >= '3.10'",
+    "packaging==25.0",
+    "pathspec==0.12.1",
+    "pluggy==1.6.0",
+    "tomli==2.2.1",
+    "tomlkit==0.15.1",
+    "trove-classifiers==2026.9.21.13",
+]
 
 [tool.ruff]
 line-length = 120
 output-format = "grouped"
 target-version = "py37"
-exclude = ["samples"]
+# Markdown stays out of ruff: from 0.17 ruff also formats the Python blocks in .md
+# files, which would rewrite every code example in the docs.
+exclude = ["samples", "*.md"]
 
 [tool.ruff.format]
 docstring-code-format = true

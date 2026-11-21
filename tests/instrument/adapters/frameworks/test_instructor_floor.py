@@ -29,7 +29,9 @@ from typing import Any, Dict, Callable, Optional
 import httpx
 import pytest
 
-instructor = pytest.importorskip("instructor")
+from tests._optional_deps import importorskip
+
+instructor = importorskip("instructor")
 
 from pydantic import BaseModel, field_validator  # noqa: E402
 from instructor.core import InstructorRetryException  # noqa: E402

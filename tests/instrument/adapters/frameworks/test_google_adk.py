@@ -12,9 +12,9 @@ import asyncio
 from typing import Any, Optional
 from unittest.mock import Mock
 
-import pytest
+from tests._optional_deps import importorskip
 
-pytest.importorskip("google.adk")
+importorskip("google.adk")
 
 from google.genai import types as genai_types  # noqa: E402
 from google.adk.plugins import BasePlugin  # noqa: E402

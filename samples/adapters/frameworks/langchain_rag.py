@@ -19,7 +19,7 @@ def main() -> None:
             LangChainCallbackHandler,
         )
     except ImportError:
-        print("Install: pip install 'layerlens[langchain]' langchain-openai")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]" langchain-openai')
         return
 
     handler = LangChainCallbackHandler(None)

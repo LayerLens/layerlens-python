@@ -6,8 +6,11 @@ import sys
 
 import click
 
+from .._command import LayerLensCommand
+from .._formatter import format_output
 
-@click.command()
+
+@click.command(cls=LayerLensCommand)
 @click.pass_context
 def login(ctx: click.Context) -> None:
     """Authenticate with LayerLens using email and password."""
@@ -40,7 +43,7 @@ def login(ctx: click.Context) -> None:
         sys.exit(1)
 
 
-@click.command()
+@click.command(cls=LayerLensCommand)
 def logout() -> None:
     """Clear stored authentication credentials."""
     from .._auth import load_credentials, clear_credentials
@@ -53,21 +56,31 @@ def logout() -> None:
     click.echo("Logged out successfully.", err=True)
 
 
-@click.command()
-def whoami() -> None:
-    """Display the currently authenticated user."""
-    import os
-
+@click.command(cls=LayerLensCommand)
+@click.pass_context
+def whoami(ctx: click.Context) -> None:
+    """Display the currently authenticated user or API key."""
     from .._auth import (
+        SessionError,
         get_user_info,
         get_valid_token,
         load_credentials,
     )
+    from .._client import build_client, resolve_api_key
 
-    # Check env-var API key first
-    env_key = os.environ.get("LAYERLENS_API_KEY")
-    if env_key:
-        click.echo("Authenticated via LAYERLENS_API_KEY environment variable.", err=True)
+    # An API key (--api-key / LAYERLENS_API_KEY / a legacy name) takes precedence,
+    # exactly as in every other command. Building the client fetches the key's
+    # organization, so a rejected key fails here instead of being reported as valid.
+    resolved = resolve_api_key(ctx)
+    if resolved is not None:
+        client = build_client(ctx, resolved.value, use_bearer_auth=False)
+        click.echo(f"Authenticated with an API key from {resolved.source}.", err=True)
+        if ctx.obj["output_format"] == "json":
+            identity = {"organization_id": client.organization_id, "project_id": client.project_id}
+            click.echo(format_output({"auth": "api_key", "source": resolved.source, **identity}, "json"))
+            return
+        click.echo(f"  Organization: {client.organization_id}")
+        click.echo(f"  Project:      {client.project_id}")
         return
 
     creds = load_credentials()
@@ -75,14 +88,23 @@ def whoami() -> None:
         click.echo("Not logged in. Run `layerlens login` to authenticate.", err=True)
         sys.exit(1)
 
-    token = get_valid_token()
+    try:
+        token = get_valid_token()
+    except SessionError as err:
+        click.echo(str(err), err=True)
+        sys.exit(1)
     if token is None:
-        click.echo("Session expired. Run `layerlens login` to re-authenticate.", err=True)
+        click.echo("Not logged in. Run `layerlens login` to authenticate.", err=True)
         sys.exit(1)
 
     info = get_user_info(token)
     if info is None:
         click.echo("Authenticated (could not fetch user details).", err=True)
+        return
+
+    if ctx.obj["output_format"] == "json":
+        user = {"email": info.get("email"), "name": info.get("name") or info.get("given_name"), "id": info.get("sub")}
+        click.echo(format_output({"auth": "login", **user}, "json"))
         return
 
     email = info.get("email", "unknown")

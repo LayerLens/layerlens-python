@@ -11,7 +11,7 @@ caller's single-read `StreamingBody` still works.
 ## Install
 
 ```bash
-pip install layerlens[bedrock]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]"
 ```
 
 Pulls `boto3` for the `bedrock-runtime` client.
@@ -35,23 +35,31 @@ wraps whatever `boto3` client you hand it; standard AWS credential resolution
 
 ```python
 import os, json, boto3
+from layerlens import LayerLens
+from layerlens.instrument import trace
 from layerlens.instrument.adapters.providers import BedrockProvider
 
+layerlens_client = LayerLens()
 client = boto3.client("bedrock-runtime", region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
 provider = BedrockProvider()
 provider.connect(client)   # wraps invoke_model / converse / *_stream
 
-resp = client.invoke_model(
-    modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
-    body=json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 16,
-        "messages": [{"role": "user", "content": "Hi"}],
-    }),
-)
-body = json.loads(resp["body"].read())
-print(body.get("content"))
+# The adapter records into the trace a call runs in (here, my_agent's): outside a trace,
+# a call is recorded nowhere.
+@trace(layerlens_client)
+def my_agent(question: str):
+    resp = client.invoke_model(
+        modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
+        body=json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": question}],
+        }),
+    )
+    return json.loads(resp["body"].read()).get("content")
+
+print(my_agent("Hi"))
 ```
 
 ## Event surface

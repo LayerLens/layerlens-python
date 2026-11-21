@@ -52,7 +52,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -69,7 +69,7 @@ OPENAI_MODEL = _gf.OPENAI_MODEL
 # drive a REAL ``Runner.run_sync``, and observe the flushed payload — mirroring
 # the crewai/autogen recorders in _generate_fixtures.py (self-flushing adapters).
 # --------------------------------------------------------------------------
-def _capture_openai_agents(client: Stratix, root_agent, prompt: str) -> dict:
+def _capture_openai_agents(client: LayerLens, root_agent, prompt: str) -> dict:
     from agents import Runner, set_trace_processors
     from layerlens.instrument.adapters.frameworks.openai_agents import (
         OpenAIAgentsAdapter,
@@ -101,7 +101,7 @@ def _capture_openai_agents(client: Stratix, root_agent, prompt: str) -> dict:
 # --------------------------------------------------------------------------
 # Single agent + one tool (retail order support)
 # --------------------------------------------------------------------------
-def generate_openai_agents_single(client: Stratix) -> dict:
+def generate_openai_agents_single(client: LayerLens) -> dict:
     """Record a single retail ``order-support-agent`` that calls one real tool."""
     from agents import Agent, function_tool, set_default_openai_api, ModelSettings
 
@@ -177,7 +177,7 @@ def generate_openai_agents_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # Multi-agent: triage -> specialist handoff + input guardrail (retail support)
 # --------------------------------------------------------------------------
-def generate_openai_agents_multi(client: Stratix) -> dict:
+def generate_openai_agents_multi(client: LayerLens) -> dict:
     """Record a genuine multi-agent retail support run: a guarded ``triage-agent``
     hands off a product-return request to a ``returns-specialist`` (real
     handoff + input guardrail + a specialist tool call)."""
@@ -283,6 +283,6 @@ def generate_openai_agents_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_openai_agents_single(_client)
     generate_openai_agents_multi(_client)

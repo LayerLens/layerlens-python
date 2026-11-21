@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import time
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterator, Optional, AsyncIterator
 
 from ..._context import _current_collector
-from ._emit_helpers import emit_llm_error, emit_llm_events
+from ._streaming import emit_streamed_events
+from ._emit_helpers import (
+    emit_llm_error,
+    emit_llm_events as emit_llm_events,  # importable from here, as in 1.11.0
+)
 from ._base_provider import MonkeyPatchProvider
 
 log: logging.Logger = logging.getLogger(__name__)
@@ -32,6 +36,12 @@ class AnthropicProvider(MonkeyPatchProvider):
 
     name = "anthropic"
     capture_params = _CAPTURE_PARAMS
+
+    #: A streamed tool_use block's input arrives as JSON fragments, and the stream
+    #: aggregate keeps the joined JSON text; the emit path decodes it, only when
+    #: content is captured. A reply that was not streamed carries the input as an
+    #: object already, and it passes through.
+    tool_arguments_json = True
 
     @staticmethod
     def extract_output(response: Any) -> Any:
@@ -357,6 +367,10 @@ class _StreamedMessage:
     def from_events(cls, events: list[Any]) -> "_StreamedMessage":
         msg = cls()
         current_block: _StreamedMessage._Block | None = None
+        # A tool_use block's input streams as JSON fragments addressed by the block's
+        # index in the message, not among tool_use blocks: a text block before it
+        # (Claude usually writes one) makes the first tool_use block index 1.
+        tool_blocks: dict[int, _StreamedMessage._Block] = {}
         tool_args_buffer: dict[int, str] = {}
         for event in events:
             etype = getattr(event, "type", None)
@@ -384,6 +398,7 @@ class _StreamedMessage:
                 if block is not None and block_type == "tool_use":
                     current_block.id = getattr(block, "id", None)
                     current_block.name = getattr(block, "name", None)
+                    tool_blocks[getattr(event, "index", 0) or 0] = current_block
                 msg.content.append(current_block)
             elif etype == "content_block_delta":
                 if current_block is None:
@@ -417,17 +432,14 @@ class _StreamedMessage:
                 # ``stopped`` so consumers can distinguish a complete stream
                 # from a torn-down iterator.
                 msg.stopped = True
-        # Fold tool-use JSON fragments back onto their blocks.
-        tool_blocks = [b for b in msg.content if b.type == "tool_use"]
-        for idx, block in enumerate(tool_blocks):
+        # Each tool_use block gets the JSON text its fragments join to, as sent. It is
+        # content: the emit path decodes it, and only when the trace captures content
+        # (``tool_arguments_json``). Decoding it here ran for every stream, and input
+        # nested deeper than the JSON decoder recurses raised into the caller's loop.
+        for idx, block in tool_blocks.items():
             raw = tool_args_buffer.get(idx)
             if raw:
-                try:
-                    import json
-
-                    block.input = json.loads(raw)
-                except (ValueError, TypeError):
-                    block.input = raw
+                block.input = raw
         return msg
 
 
@@ -436,6 +448,13 @@ class _TracedMessageStream:
 
     Forwards attribute access and enter/exit to the inner SDK manager while
     tapping every yielded event so we can aggregate on close.
+
+    Every way the anthropic SDK reads a stream goes through one tapped pass over its events:
+    iterating it, ``next()``, ``text_stream``, ``until_done()``, ``get_final_message()`` and
+    ``get_final_text()``, sync and async. Those helpers used to reach the SDK's stream directly,
+    past the tap, so a stream read through them recorded no ``model.invoke`` and no
+    ``cost.record`` (L3 AD-15). The final message and text still come from the SDK's stream,
+    once the tapped pass has read it to the end.
     """
 
     def __init__(
@@ -456,6 +475,10 @@ class _TracedMessageStream:
         self._error: Exception | None = None
         # First content-delta timestamp — drives TTFT.
         self._first_delta_at: float | None = None
+        # The one tapped pass over the SDK stream's events, made on first read.
+        self._pass: Optional[Iterator[Any]] = None
+        self._apass: Optional[AsyncIterator[Any]] = None
+        self._async = False
 
     def __enter__(self) -> "_TracedMessageStream":
         self._stream = self._inner.__enter__()
@@ -463,19 +486,84 @@ class _TracedMessageStream:
 
     async def __aenter__(self) -> "_TracedMessageStream":
         self._stream = await self._inner.__aenter__()
+        self._async = True
         return self
 
-    def __iter__(self) -> Any:
+    def _tapped(self) -> Iterator[Any]:
+        if self._pass is None:
+            self._pass = self._tap()
+        return self._pass
+
+    def _tap(self) -> Iterator[Any]:
         for event in self._stream:
             self._events.append(event)
             self._mark_first_delta(event)
             yield event
 
-    async def __aiter__(self) -> Any:
+    def _atapped(self) -> AsyncIterator[Any]:
+        if self._apass is None:
+            self._apass = self._atap()
+        return self._apass
+
+    async def _atap(self) -> AsyncIterator[Any]:
         async for event in self._stream:
             self._events.append(event)
             self._mark_first_delta(event)
             yield event
+
+    # Iterating the stream, as the SDK's stream does: every read continues the one pass.
+    def __iter__(self) -> Iterator[Any]:
+        return self._tapped()
+
+    def __next__(self) -> Any:
+        return next(self._tapped())
+
+    def __aiter__(self) -> AsyncIterator[Any]:
+        return self._atapped()
+
+    async def __anext__(self) -> Any:
+        return await self._atapped().__anext__()
+
+    # The SDK's helpers, read through the same pass.
+    @property
+    def text_stream(self) -> Any:
+        """The text deltas, as the SDK's ``text_stream`` yields them."""
+        if self._async:
+            return self._atext_stream()
+        return (text for text in map(_text_delta, self._tapped()) if text is not None)
+
+    async def _atext_stream(self) -> AsyncIterator[str]:
+        async for event in self._atapped():
+            text = _text_delta(event)
+            if text is not None:
+                yield text
+
+    def until_done(self) -> Any:
+        if self._async:
+            return self._auntil_done()
+        for _ in self._tapped():
+            pass
+        return None
+
+    async def _auntil_done(self) -> None:
+        async for _ in self._atapped():
+            pass
+
+    def get_final_message(self) -> Any:
+        if self._async:
+            return self._aget_final("get_final_message")
+        self.until_done()
+        return self._stream.get_final_message()
+
+    def get_final_text(self) -> Any:
+        if self._async:
+            return self._aget_final("get_final_text")
+        self.until_done()
+        return self._stream.get_final_text()
+
+    async def _aget_final(self, helper: str) -> Any:
+        await self._auntil_done()
+        return await getattr(self._stream, helper)()
 
     def _mark_first_delta(self, event: Any) -> None:
         # Per LAY-3329 / LAY-3332, TTFT measures time-to-first-content. Anthropic
@@ -520,33 +608,48 @@ class _TracedMessageStream:
             )
             return
         ttft_ms = (self._first_delta_at - self._start) * 1000 if self._first_delta_at else None
-        try:
-            response = AnthropicProvider.aggregate_stream(self._events)
-            if response is None:
-                return
-            emit_llm_events(
-                self._event_name,
-                self._kwargs,
-                response,
-                AnthropicProvider.extract_output,
-                AnthropicProvider.extract_meta,
-                self._provider.capture_params,
-                latency_ms,
-                pricing_table=self._provider.pricing_table,
-                extract_tool_calls=AnthropicProvider.extract_tool_calls,
-                extra_params=AnthropicProvider.derive_params(self._kwargs),
-                ttft_ms=ttft_ms,
-                streaming_duration_ms=latency_ms,
-                framework=self._provider.name,
-            )
-        except Exception:
-            log.debug("Error emitting Anthropic stream events", exc_info=True)
+        # The same never-raising path as ``messages.create(stream=True)``: a stream
+        # that cannot be aggregated is still recorded, and the failure is logged.
+        emit_streamed_events(
+            event_name=self._event_name,
+            kwargs=self._kwargs,
+            chunks=self._events,
+            aggregate=AnthropicProvider.aggregate_stream,
+            extract_output=AnthropicProvider.extract_output,
+            extract_meta=AnthropicProvider.extract_meta,
+            extract_tool_calls=AnthropicProvider.extract_tool_calls,
+            capture_params=self._provider.capture_params,
+            pricing_table=self._provider.pricing_table,
+            extra_params=AnthropicProvider.derive_params(self._kwargs),
+            latency_ms=latency_ms,
+            ttft_ms=ttft_ms,
+            framework=self._provider.name,
+            tool_arguments_json=AnthropicProvider.tool_arguments_json,
+        )
+
+
+def _text_delta(event: Any) -> Optional[str]:
+    """The text of a stream event that carries text, as the SDK's ``text_stream`` picks it."""
+    if getattr(event, "type", None) != "content_block_delta":
+        return None
+    delta = getattr(event, "delta", None)
+    if getattr(delta, "type", None) != "text_delta":
+        return None
+    text = getattr(delta, "text", None)
+    return text if isinstance(text, str) else None
 
 
 # --- Convenience API ---
 
 
 def instrument_anthropic(client: Any) -> AnthropicProvider:
+    """Trace the Anthropic calls ``client`` makes; returns the adapter.
+
+    One client at a time: the client instrumented before is restored first, and
+    :func:`uninstrument_anthropic` restores the last one. To trace several clients at once,
+    connect an adapter to each, ``AnthropicProvider().connect(other_client)``: each adapter's
+    ``disconnect()`` restores its own client.
+    """
     from .._registry import get, register
 
     existing = get("anthropic")

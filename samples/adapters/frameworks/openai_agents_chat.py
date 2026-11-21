@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from adapters._shared import capture_events  # type: ignore[import-not-found]
+from adapters._shared import _build_client, capture_events  # type: ignore[import-not-found]
 
 
 def main() -> None:
@@ -18,12 +18,17 @@ def main() -> None:
             OpenAIAgentsAdapter,
         )
     except ImportError:
-        print("Install: pip install 'layerlens[openai-agents]'")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai-agents]"')
         return
 
     agent = Agent(name="demo", instructions="Answer in one word.")
-    adapter = OpenAIAgentsAdapter(client=agent)
-    adapter.connect()
+    # The adapter's client is the LayerLens client, which uploads each run's trace (not the
+    # agent): without LayerLens credentials there is nothing to upload with.
+    client = _build_client()
+    if client is None:
+        print("LAYERLENS_API_KEY is not set: running the agent without the adapter.")
+    else:
+        OpenAIAgentsAdapter(client).connect()
     with capture_events("openai_agents"):
         result = Runner.run_sync(agent, "What colour is grass?")
         print("reply:", result.final_output)

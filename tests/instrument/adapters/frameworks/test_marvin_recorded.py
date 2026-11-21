@@ -58,6 +58,8 @@ import tempfile
 import httpx
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("marvin requires Python >= 3.10", allow_module_level=True)
 
@@ -69,7 +71,7 @@ os.environ.setdefault(
     "sqlite+aiosqlite:///" + os.path.join(tempfile.mkdtemp(prefix="layerlens-marvin-rec-"), "marvin.db"),
 )
 
-marvin = pytest.importorskip("marvin", reason="marvin not installed")
+marvin = importorskip("marvin", reason="marvin not installed")
 
 from pydantic import Field, BaseModel  # noqa: E402
 from pydantic_ai.models.openai import OpenAIChatModel  # noqa: E402

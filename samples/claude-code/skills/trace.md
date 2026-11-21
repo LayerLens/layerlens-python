@@ -9,8 +9,8 @@ You are helping the user manage traces in the LayerLens platform using the Pytho
 ## SDK Reference
 
 ```python
-from layerlens import Stratix
-client = Stratix()
+from layerlens import LayerLens
+client = LayerLens()
 
 # Upload traces from a JSONL/JSON file (max 50 MB)
 result = client.traces.upload("path/to/traces.jsonl")

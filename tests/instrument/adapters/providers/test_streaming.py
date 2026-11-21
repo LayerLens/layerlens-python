@@ -128,8 +128,9 @@ class TestOpenAIStreamingAggregation:
         tc = tool_calls[0]
         assert tc["id"] == "call_a"
         assert tc["tool_name"] == "lookup"
-        # JSON arguments are concatenated and then parsed.
-        assert tc["arguments"] == {"q": "weather", "city": "sf"}
+        # The fragments concatenated in order: the JSON string the model sent. It is
+        # decoded where the events are emitted, and only when content is captured.
+        assert tc["arguments"] == '{"q": "weather", "city": "sf"}'
 
     def test_parallel_tool_calls_kept_separate_by_index(self):
         chunks = [
@@ -332,11 +333,14 @@ class TestAnthropicStreamingAggregation:
         assert tool_block.type == "tool_use"
         assert tool_block.id == "tool_abc"
         assert tool_block.name == "get_weather"
-        assert tool_block.input == {"city": "sf"}
+        # The fragments joined in order: the JSON text the model sent. It is decoded
+        # where the events are emitted, and only when content is captured
+        # (test_anthropic_stream_tool_input.py).
+        assert tool_block.input == '{"city": "sf"}'
         # extract_tool_calls reads the assembled block.
         tool_calls = AnthropicProvider.extract_tool_calls(msg)
         assert tool_calls == [
-            {"id": "tool_abc", "type": "tool_use", "tool_name": "get_weather", "arguments": {"city": "sf"}}
+            {"id": "tool_abc", "type": "tool_use", "tool_name": "get_weather", "arguments": '{"city": "sf"}'}
         ]
 
     def test_empty_event_list_yields_empty_message(self):
@@ -405,6 +409,7 @@ import time as _time
 import pytest
 
 from layerlens.instrument import trace
+from tests._optional_deps import importorskip
 from tests.instrument.conftest import find_event as _find_event
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.providers.ollama import OllamaProvider as _OLP
@@ -538,36 +543,59 @@ class TestNoToolCallsNoEvents:
 
 class TestMalformedToolCallJSON:
     """LAY-3331 DoD: malformed tool-call arguments JSON logs at WARNING
-    (does not crash, does not silently swallow)."""
+    (does not crash, does not silently swallow).
 
-    def test_malformed_args_logged_at_warning(self, caplog):
+    Driven through the streaming emit path, where the arguments are decoded: once
+    per call, and only when content is captured.
+    """
+
+    @staticmethod
+    def _stream_tool_call(mock_client, arguments: str) -> None:
+        """One streamed chat, under full capture, whose reply requests one tool call."""
+        chunks = [
+            _openai_chunk(
+                role="assistant",
+                model="gpt-4o",
+                response_id="chatcmpl-tool",
+                tool_calls=[_openai_tool_call_fragment(index=0, id="call_x", name="get_x", arguments=arguments)],
+            ),
+            _openai_chunk(finish_reason="tool_calls"),
+        ]
+        openai_client = SimpleNamespace()
+        openai_client.chat = SimpleNamespace()
+        openai_client.chat.completions = SimpleNamespace(create=lambda **kwargs: iter(chunks))
+        provider = _OP()
+        provider.connect(openai_client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            for _ in openai_client.chat.completions.create(model="gpt-4o", messages=[], stream=True):
+                pass
+            return "done"
+
+        try:
+            my_agent()
+        finally:
+            provider.disconnect()
+
+    def test_malformed_args_logged_at_warning(self, mock_client, capture_trace, caplog):
         import logging
 
-        chunk = _openai_chunk(
-            tool_calls=[_openai_tool_call_fragment(index=0, id="call_x", name="get_x", arguments="{not valid json")],
-            finish_reason="tool_calls",
-        )
-        agg = _StreamedChatResponse.from_chunks([chunk])
-        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters.providers.openai"):
-            tool_calls = _OP.extract_tool_calls(agg)
-        # Raw string returned on parse failure — caller still gets *something*.
-        assert tool_calls[0]["arguments"] == "{not valid json"
-        # And we logged a WARNING containing the raw arguments snippet.
-        assert any("malformed tool_call JSON" in r.message and r.levelname == "WARNING" for r in caplog.records), (
-            f"Expected WARNING log; got: {[(r.levelname, r.message) for r in caplog.records]}"
-        )
+        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters._tool_arguments"):
+            self._stream_tool_call(mock_client, "{not valid json")
+        # Raw string kept on parse failure: the call still reaches the trace.
+        assert _find_event(capture_trace["events"], "tool.call")["payload"]["arguments"] == "{not valid json"
+        # And one WARNING (not one per field the call appears in) carries the snippet.
+        warnings = [r for r in caplog.records if "malformed tool_call JSON" in r.message and r.levelname == "WARNING"]
+        assert len(warnings) == 1, f"Expected one WARNING; got: {[(r.levelname, r.message) for r in caplog.records]}"
+        assert "{not valid json" in warnings[0].message
 
-    def test_valid_args_does_not_log(self, caplog):
+    def test_valid_args_does_not_log(self, mock_client, capture_trace, caplog):
         import logging
 
-        chunk = _openai_chunk(
-            tool_calls=[_openai_tool_call_fragment(index=0, id="call_x", name="get_x", arguments='{"x": 1}')],
-            finish_reason="tool_calls",
-        )
-        agg = _StreamedChatResponse.from_chunks([chunk])
-        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters.providers.openai"):
-            tool_calls = _OP.extract_tool_calls(agg)
-        assert tool_calls[0]["arguments"] == {"x": 1}
+        with caplog.at_level(logging.WARNING, logger="layerlens.instrument.adapters._tool_arguments"):
+            self._stream_tool_call(mock_client, '{"x": 1}')
+        assert _find_event(capture_trace["events"], "tool.call")["payload"]["arguments"] == {"x": 1}
         # No warnings emitted for valid JSON.
         assert not any("malformed tool_call JSON" in r.message for r in caplog.records)
 
@@ -836,7 +864,7 @@ class TestAnthropicStreamingTTFT:
 
 class TestOllamaStreaming:
     def test_stream_aggregates_content_usage_and_ttft(self, mock_client, capture_trace):
-        ollama = pytest.importorskip("ollama")
+        ollama = importorskip("ollama")
 
         def fake_stream():
             _time.sleep(0.03)  # measurable pre-first-chunk delay for TTFT
@@ -954,3 +982,155 @@ class TestRealSdkChunkTypes:
         meta = _AP.extract_meta(agg)
         assert meta["usage"]["prompt_tokens"] == 12
         assert meta["usage"]["completion_tokens"] == 5
+
+
+# ---------------------------------------------------------------------------
+# A stream that cannot be aggregated: the caller's loop is never broken
+# ---------------------------------------------------------------------------
+#
+# Aggregation runs after the caller has every chunk, when its loop asks for the
+# next one, so an exception there would surface in the caller's own code over a
+# stream that succeeded. It is logged instead, and the call is recorded with what
+# does not depend on the reply.
+
+
+def _tool_call_sse(arguments: Any) -> str:
+    """A chat.completions stream requesting one tool call whose ``arguments`` delta
+    is *arguments* as sent: a gateway may send an object where OpenAI sends a string."""
+    import json
+
+    head = {"id": "chatcmpl-agg", "object": "chat.completion.chunk", "created": 1, "model": "gpt-4o-mini"}
+    call = {
+        "index": 0,
+        "id": "call_agg",
+        "type": "function",
+        "function": {"name": "get_weather", "arguments": arguments},
+    }
+    chunks = [
+        {
+            **head,
+            "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [call]}, "finish_reason": None}],
+        },
+        {**head, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+    ]
+    return "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+
+
+def _sse_transport(body: str) -> Any:
+    import httpx
+
+    return httpx.MockTransport(
+        lambda request: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+    )
+
+
+def _chunk_ids(chunks: List[Any]) -> List[Any]:
+    return [(c.id, c.choices[0].finish_reason if c.choices else None) for c in chunks]
+
+
+class _AggregationFails(_OP):
+    """An OpenAI provider whose stream aggregation raises, as an aggregator bug would."""
+
+    @staticmethod
+    def aggregate_stream(chunks: list[Any]) -> Any:
+        raise RuntimeError("aggregation failed")
+
+
+class TestAggregationFailure:
+    def test_object_valued_arguments_delta_does_not_break_the_loop(self, mock_client, capture_trace):
+        # OpenAI's aggregator concatenates string fragments; an object from a
+        # gateway raised TypeError into the caller's loop after the last chunk.
+        import httpx
+
+        import openai
+
+        body = _tool_call_sse({"city": "Paris"})
+        plain = openai.OpenAI(api_key="test-key", http_client=httpx.Client(transport=_sse_transport(body)))
+        expected = _chunk_ids(list(plain.chat.completions.create(model="gpt-4o-mini", messages=[], stream=True)))
+        client = openai.OpenAI(api_key="test-key", http_client=httpx.Client(transport=_sse_transport(body)))
+        provider = _OP()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            return _chunk_ids(list(client.chat.completions.create(model="gpt-4o-mini", messages=[], stream=True)))
+
+        try:
+            assert my_agent() == expected
+        finally:
+            provider.disconnect()
+        assert (
+            _find_event(capture_trace["events"], "model.invoke")["payload"]["name"] == "openai.chat.completions.create"
+        )
+
+    def test_sync_stream_is_recorded_without_its_reply(self, mock_client, capture_trace, caplog):
+        import logging
+
+        import httpx
+
+        import openai
+
+        client = openai.OpenAI(
+            api_key="test-key", http_client=httpx.Client(transport=_sse_transport(_tool_call_sse('{"city": "Paris"}')))
+        )
+        provider = _AggregationFails()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            stream = client.chat.completions.create(model="gpt-4o-mini", messages=[], temperature=0.2, stream=True)
+            return len(list(stream))
+
+        with caplog.at_level(logging.WARNING):
+            try:
+                assert my_agent() == 2
+            finally:
+                provider.disconnect()
+        self._assert_recorded_without_reply(capture_trace["events"], caplog)
+
+    def test_async_stream_is_recorded_without_its_reply(self, mock_client, capture_trace, caplog):
+        import asyncio
+        import logging
+
+        import httpx
+
+        import openai
+
+        client = openai.AsyncOpenAI(
+            api_key="test-key",
+            http_client=httpx.AsyncClient(transport=_sse_transport(_tool_call_sse('{"city": "Paris"}'))),
+        )
+        provider = _AggregationFails()
+        provider.connect(client)
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        async def my_agent():
+            stream = await client.chat.completions.create(
+                model="gpt-4o-mini", messages=[], temperature=0.2, stream=True
+            )
+            return len([chunk async for chunk in stream])
+
+        with caplog.at_level(logging.WARNING):
+            try:
+                assert asyncio.run(my_agent()) == 2
+            finally:
+                provider.disconnect()
+        self._assert_recorded_without_reply(capture_trace["events"], caplog)
+
+    @staticmethod
+    def _assert_recorded_without_reply(events: List[Any], caplog: Any) -> None:
+        import logging
+
+        invoke = _find_event(events, "model.invoke")["payload"]
+        # What the request and the clock say is recorded...
+        assert invoke["name"] == "openai.chat.completions.create"
+        assert invoke["model"] == "gpt-4o-mini"
+        assert invoke["parameters"]["temperature"] == 0.2
+        assert invoke["streaming_duration_ms"] == pytest.approx(invoke["latency_ms"], abs=1e-6)
+        assert "ttft_ms" in invoke
+        # ...and nothing that only the reply could have told.
+        assert invoke["output_message"] is None
+        assert "usage" not in invoke
+        assert [e for e in events if e["event_type"] in ("tool.call", "cost.record")] == []
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("openai.chat.completions.create" in w for w in warnings), warnings

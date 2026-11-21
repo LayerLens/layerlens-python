@@ -1,0 +1,80 @@
+# Grade your agent against a LayerLens environment on every pull request.
+#
+# Prerequisites:
+#   - an Automation API key stored as the LAYERLENS_AUTOMATION_KEY secret
+#   - ci/environment.md (the world, in plain words), ci/tasks.jsonl and ci/agent.py
+#     (see samples/environments/README.md)
+#   - requirements.txt, with what ci/agent.py needs
+#
+# Pull requests from forks get no secrets, and Dependabot's get only Dependabot secrets, so
+# on those this job fails at its first LayerLens step, saying it needs a key. That is on
+# purpose: a job skipped with `if:` counts as passed in a required check. Store the key as a
+# Dependabot secret too to grade Dependabot's pull requests. Do not switch to
+# `pull_request_target`: it would run the pull request's agent with the key.
+#
+# Usage:
+#   Copy to .github/workflows/agent-eval.yml
+
+name: Agent evaluation
+
+on:
+  pull_request:
+
+# The agent runs in this job: its token can only read, and checkout does not leave it in
+# .git/config for the agent to find.
+permissions:
+  contents: read
+
+jobs:
+  agent-eval:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commits: a tag can be moved, and the steps below hold an Automation key.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      # `layerlens` on public PyPI is an unrelated project. uv takes a package only from
+      # the first index that has it, so `layerlens` comes from the LayerLens index and its
+      # dependencies from PyPI; pip would take whichever index offers the higher version.
+      - name: Install
+        run: |
+          uv pip install --system --extra-index-url https://sdk.layerlens.ai/package "layerlens[cli]>=2.0.0"
+          uv pip install --system --extra-index-url https://sdk.layerlens.ai/package -r requirements.txt
+
+      # The key is given only to the steps that call LayerLens, never to the whole job.
+      # `run exec` keeps it out of the agent's environment, but an agent running as this
+      # same user can still find it: run an agent you do not trust in a container (see
+      # docs/cli/env.md, "Keeping the key from the agent").
+      - name: Environment
+        env:
+          LAYERLENS_API_KEY: ${{ secrets.LAYERLENS_AUTOMATION_KEY }}
+        run: |
+          layerlens env create --type zendesk --name support-desk \
+            --description-file ci/environment.md --if-not-exists --wait
+
+      # `exec` hands the shell over to layerlens, so a cancelled job's signal reaches it and
+      # it cancels the run; the shell would not pass the signal on. `--label` tags the run's
+      # traces, and the agent's own when it is traced with the LayerLens SDK, so
+      # `layerlens trace list --tag <sha>` lists both. LAYERLENS_EXIT_TIMEOUT is how long the
+      # agent's SDK waits at exit for its traces to upload (exec sets 30 s when it is unset).
+      - name: Run agent
+        env:
+          LAYERLENS_API_KEY: ${{ secrets.LAYERLENS_AUTOMATION_KEY }}
+          LAYERLENS_EXIT_TIMEOUT: "120"
+        run: |
+          exec layerlens env run exec support-desk --tasks-file ci/tasks.jsonl \
+            --agent-name support-agent \
+            --label "${{ github.event.pull_request.head.sha }}" \
+            --parallel 4 --min-pass-rate 0.9 \
+            --junit results.xml --markdown "$GITHUB_STEP_SUMMARY" \
+            -- python ci/agent.py
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: agent-eval
+          path: results.xml

@@ -11,14 +11,14 @@ This guide covers frequently encountered issues when using the LayerLens Python 
 Make sure to include the custom package index:
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 ### Python Version Incompatibility
 
 **Error**: `Requires-Python >=3.8`
 
-The SDK requires Python 3.8 or higher. Check your version:
+The SDK requires Python 3.8 or higher, and some extras 3.9 or 3.10 (see [Python versions](../getting-started/installation.md#python-versions)). Check your version:
 
 ```bash
 python --version
@@ -28,23 +28,23 @@ python --version
 
 ### Missing API Key
 
-**Error**: `StratixError: The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_STRATIX_API_KEY environment variable`
+**Error**: `LayerLensError: The api_key client option must be set either by passing api_key to the client or by setting the LAYERLENS_API_KEY environment variable`
 
 Set the environment variable or pass the key explicitly:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 ```
 
 ```python
-client = Stratix(api_key="your-api-key")
+client = LayerLens(api_key="your-api-key")
 ```
 
 ### Organization Not Found
 
-**Error**: `NotFoundError` during client initialization
+**Error**: `AuthenticationError`, `PermissionDeniedError` (a bare 403 `Forbidden`) or `NotFoundError` from the first call, or from reading `client.organization_id`
 
-Your API key may be invalid or expired. Verify it in the [LayerLens dashboard](https://stratix.layerlens.ai).
+Your API key may be invalid or expired, or `LAYERLENS_BASE_URL` may miss its `/api/v1` path. Building the client makes no request: the key's organization is read by the first call that needs it. To find out at start, read `client.organization_id` right after building the client. Verify the key in the [LayerLens dashboard](https://app.layerlens.ai).
 
 ## Evaluation Issues
 
@@ -53,7 +53,7 @@ Your API key may be invalid or expired. Verify it in the [LayerLens dashboard](h
 If `wait_for_completion` seems to hang, the evaluation may be queued behind other jobs. You can check the status manually:
 
 ```python
-evaluation = client.evaluations.get(evaluation.id)
+evaluation = client.evaluations.get_by_id(evaluation.id)
 print(f"Status: {evaluation.status}")
 ```
 
@@ -83,18 +83,23 @@ Trace uploads accept `.json` and `.jsonl` files only. Ensure your file contains 
 
 **Error**: `APITimeoutError`
 
-The default timeout is 10 minutes. For long-running operations, increase it:
+The default timeout is 10 minutes, with 5 seconds to connect. For long-running operations, increase it. The client's timeout applies to every call, and a call's own `timeout=` overrides it:
 
 ```python
-# Global timeout
-client = Stratix(timeout=1200.0)  # 20 minutes
+# Every call of this client
+client = LayerLens(timeout=1200.0)  # 20 minutes
 
-# Per-request timeout
+# One call
+result = client.evaluations.create(model=model, benchmark=benchmark, timeout=300.0)
+
+# Every call of a copy of the client
 result = client.with_options(timeout=300.0).evaluations.create(
     model=model,
     benchmark=benchmark,
 )
 ```
+
+One read has a limit of its own: the read of the key's organization before the first call (or when you read `client.organization_id`). Each wait within an attempt (to connect, and for each piece of the answer) is limited to 30 seconds, or the client's timeout when shorter, so a large client timeout doesn't lengthen it. See [Client Configuration](../api-reference/client.md#timeout-configuration).
 
 ## Network Issues
 

@@ -24,8 +24,10 @@ from .pricing import BEDROCK_PRICING
 from ..._events import TOOL_CALL, AGENT_ERROR, MODEL_INVOKE
 from ..._context import _current_span_id, _current_collector
 from .token_usage import NormalizedTokenUsage
+from ..._error_code import error_category
 from ._emit_helpers import _emit_cost, _flat_token_fields  # type: ignore[attr-defined]
 from ..._secret_scrub import safe_error
+from .._tool_arguments import parse_tool_arguments
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +102,7 @@ class BedrockProvider(BaseAdapter):
             model_id = kwargs.get("modelId", "")
             family = _family(model_id)
             start = time.time()
-            input_messages = _extract_invoke_messages(kwargs, family)
+            input_messages = _extract_invoke_messages(kwargs, family, method="invoke_model")
             try:
                 response = original(*args, **kwargs)
             except Exception as exc:
@@ -117,7 +119,15 @@ class BedrockProvider(BaseAdapter):
 
             try:
                 body_data = json.loads(body_bytes) if body_bytes else {}
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, RecursionError) as exc:
+                # The request succeeded, so a body the trace cannot decode (malformed,
+                # or nested deeper than the JSON decoder recurses) must not fail the
+                # caller's call. It is recorded without what only the body holds.
+                log.warning(
+                    "layerlens: could not decode the aws_bedrock.invoke_model response body (%s); "
+                    "recording the call without its output and usage",
+                    type(exc).__name__,
+                )
                 body_data = {}
 
             output = _extract_invoke_output(body_data, family)
@@ -222,7 +232,7 @@ class BedrockProvider(BaseAdapter):
             if method == "converse_stream":
                 input_messages = _normalize_converse_messages(kwargs.get("messages"))
             else:
-                input_messages = _extract_invoke_messages(kwargs, family)
+                input_messages = _extract_invoke_messages(kwargs, family, method=method)
             response_id = _bedrock_response_id(response)
 
             def on_complete(chunks: list[Any], first_at: float | None, started: float) -> None:
@@ -368,7 +378,16 @@ def _decode_invoke_stream_chunk(chunk: Any) -> dict[str, Any] | None:
     if isinstance(raw, (bytes, bytearray, str)):
         try:
             decoded = json.loads(raw)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, RecursionError) as exc:
+            # A chunk the trace cannot decode (malformed, or nested deeper than the
+            # JSON decoder recurses) costs only that chunk: the rest of the stream
+            # still aggregates into the call's model.invoke and cost.record. Raising
+            # here failed the on_complete hook, which lost the whole call.
+            log.warning(
+                "layerlens: could not decode an aws_bedrock.invoke_model_with_response_stream chunk (%s); "
+                "leaving it out of the recorded output",
+                type(exc).__name__,
+            )
             return None
         return decoded if isinstance(decoded, dict) else None
     return None
@@ -499,10 +518,12 @@ def _build_stream_tool_calls(tools: dict[int, dict[str, Any]]) -> list[dict[str,
     """Convert accumulated streamed tool-use blocks into tool.call fragments.
 
     Mirrors the non-streaming ``_extract_converse_tool_calls`` contract
-    (``tool_name`` / ``arguments`` / ``tool_use_id``); the streamed ``input``
-    arrives as concatenated JSON fragments, so parse them back to the same
-    object shape the sync path exposes (falling back to the raw string if the
-    fragments don't form valid JSON).
+    (``tool_name`` / ``arguments`` / ``tool_use_id``). The streamed ``input``
+    arrives as JSON fragments; ``arguments`` is the JSON text they join to, as
+    sent. It is content, so :func:`_emit_invoke` decodes it to the object the sync
+    path exposes, and only when the trace captures content. Decoding it here ran
+    for every stream, and input nested deeper than the JSON decoder recurses lost
+    the call's events.
     """
     calls: list[dict[str, Any]] = []
     for idx in sorted(tools):
@@ -511,16 +532,10 @@ def _build_stream_tool_calls(tools: dict[int, dict[str, Any]]) -> list[dict[str,
         if not name:
             continue
         raw = "".join(entry.get("input_parts") or [])
-        arguments: Any = None
-        if raw:
-            try:
-                arguments = json.loads(raw)
-            except (ValueError, TypeError):
-                arguments = raw
         calls.append(
             {
                 "tool_name": name,
-                "arguments": arguments,
+                "arguments": raw or None,
                 "tool_use_id": entry.get("tool_use_id"),
             }
         )
@@ -557,7 +572,7 @@ def _aggregate_converse_stream(
     return output, usage, stop_reason, tool_calls
 
 
-def _extract_invoke_messages(kwargs: Dict[str, Any], family: str) -> list[dict[str, str]] | None:
+def _extract_invoke_messages(kwargs: Dict[str, Any], family: str, *, method: str) -> list[dict[str, str]] | None:
     body = kwargs.get("body")
     if not body:
         return None
@@ -568,7 +583,17 @@ def _extract_invoke_messages(kwargs: Dict[str, Any], family: str) -> list[dict[s
             data = body
         else:
             return None
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError) as exc:
+        # The request body is read for the trace's input messages, before the
+        # request for invoke_model and after it for the stream; one the decoder
+        # cannot read (malformed, or nested deeper than it recurses) must not raise
+        # into the caller. The call is recorded without its messages.
+        log.warning(
+            "layerlens: could not decode the aws_bedrock.%s request body (%s); "
+            "recording the call without its input messages",
+            method,
+            type(exc).__name__,
+        )
         return None
 
     out: list[dict[str, str]] = []
@@ -963,7 +988,13 @@ def _emit_invoke(
     )
     collector.emit(MODEL_INVOKE, payload, span_id=span_id, parent_span_id=parent_span_id)
 
+    capture_content = collector.config.capture_content
     for call in tool_calls or []:
+        if capture_content and isinstance(call.get("arguments"), str):
+            # Streamed tool input is the JSON text the model sent (input that was not
+            # streamed is an object already). It is content: decoded only when the
+            # trace captures it, since a string that does not decode is logged, in part.
+            call = {**call, "arguments": parse_tool_arguments(call["arguments"])}
         collector.emit(
             TOOL_CALL,
             {
@@ -999,7 +1030,7 @@ def _emit_error(event: str, exc: Exception, latency_ms: float) -> None:
         {
             "name": event,
             "error": safe_error(exc),
-            "error_type": type(exc).__name__,
+            **error_category(exc),
             "status": "error",
             "latency_ms": latency_ms,
         },
@@ -1009,6 +1040,13 @@ def _emit_error(event: str, exc: Exception, latency_ms: float) -> None:
 
 
 def instrument_bedrock(client: Any) -> BedrockProvider:
+    """Trace the Bedrock calls ``client`` makes; returns the adapter.
+
+    One client at a time: the client instrumented before is restored first, and
+    :func:`uninstrument_bedrock` restores the last one. To trace several clients at once,
+    connect an adapter to each, ``BedrockProvider().connect(other_client)``: each adapter's
+    ``disconnect()`` restores its own client.
+    """
     from .._registry import get, register
 
     existing = get("aws_bedrock")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import json
 from typing import Any, Dict, List
 from unittest.mock import Mock
@@ -8,7 +9,7 @@ import pytest
 
 from layerlens.models import CreateTracesResponse
 
-from ._secret_scan import scan_for_secrets
+from ._secret_scan import scan_for_secrets, scan_tags_for_secrets
 from ._event_schema import validate_events
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,8 @@ def _enforce_schema_lock():
 
     def _observe(payload: Dict[str, Any]) -> None:
         record_for_schema_lock(payload.get("events", []))
+        # The trace's tags are uploaded beside its events and scrubbed like them (LAY-4449).
+        scan_tags_for_secrets(payload.get("tags", []))
 
     _collector_mod.set_trace_observer(_observe)
     _pending_schema_events.clear()
@@ -71,6 +74,28 @@ def _enforce_schema_lock():
         # Credential-sprawl net: no secret-shaped value may reach an uploaded
         # event (orthogonal to capture_content; runs over every adapter suite).
         scan_for_secrets(events)
+
+
+@pytest.fixture
+def default_int_str_digit_limit():
+    """Pin Python's int/str conversion limit to its default of 4,300 digits.
+
+    The tests that feed a 5,000-digit JSON integer to a tool-argument parser rely on
+    that limit making ``json.loads`` raise ``ValueError``. The limit is tunable
+    (``PYTHONINTMAXSTRDIGITS``, ``sys.set_int_max_str_digits``), so the test pins
+    it for its own duration and restores the caller's value. A Python without the
+    limit (before 3.9.14 / 3.10.7 / 3.11) cannot produce the failure at all, so the
+    test skips there instead of asserting something the runtime cannot do.
+    """
+    setter = getattr(sys, "set_int_max_str_digits", None)
+    if setter is None:
+        pytest.skip("this Python has no int/str digit limit (added in 3.9.14, 3.10.7 and 3.11)")
+    previous = sys.get_int_max_str_digits()
+    setter(4300)
+    try:
+        yield
+    finally:
+        setter(previous)
 
 
 @pytest.fixture

@@ -22,7 +22,7 @@ done
 
 git fetch --tags --prune
 
-REPO_URL="https://github.com/LayerLens/stratix-python"
+REPO_URL="https://github.com/LayerLens/layerlens-python"
 # e.g. v1.0.0, v1.0.1, etc.
 TAG_PREFIX="v"
 COMMIT=$(git rev-parse --short HEAD)
@@ -38,7 +38,7 @@ fi
 LAST_RELEASE=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname | head -n 1)
 
 echo "================================================"
-echo "  Stratix Python SDK Release"
+echo "  LayerLens Python SDK Release"
 echo "================================================"
 echo "version:      ${TAG}"
 echo "commit:       ${COMMIT}"

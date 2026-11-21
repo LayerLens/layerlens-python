@@ -15,7 +15,11 @@ import logging
 from typing import Any, Dict, Callable, Iterator, AsyncIterator
 
 from ...._events import AGUI_STATE, AGENT_ERROR, AGUI_MESSAGE, AGUI_TOOL_CALL, PROTOCOL_STREAM_EVENT
-from .event_mapper import map_agui_to_stratix, build_run_error_payload
+from .event_mapper import (
+    map_agui_to_stratix as map_agui_to_stratix,  # deprecated; importable from here, as in 1.11.0
+    map_agui_to_layerlens,
+    build_run_error_payload,
+)
 from .state_handler import StateDeltaHandler
 from .._base_protocol import BaseProtocolAdapter
 
@@ -145,15 +149,15 @@ class AGUIProtocolAdapter(BaseProtocolAdapter):
                 },
             )
             return
-        # Fallback: use the event-type → stratix-event map so lifecycle + step
+        # Fallback: use the event-type → layerlens-event map so lifecycle + step
         # events still produce telemetry instead of being silently dropped.
         if etype:
-            mapping = map_agui_to_stratix(etype)
+            mapping = map_agui_to_layerlens(etype)
             self.emit(
                 (
                     PROTOCOL_STREAM_EVENT
-                    if mapping["stratix_event"] == "protocol.stream.event"
-                    else mapping["stratix_event"]
+                    if mapping["layerlens_event"] == "protocol.stream.event"
+                    else mapping["layerlens_event"]
                 ),
                 {
                     "agui_event": etype,

@@ -1,11 +1,11 @@
 # CLI — Command Reference
 
-Complete reference for all `stratix` CLI commands.
+Complete reference for all `layerlens` CLI commands.
 
 ## Command tree
 
 ```
-stratix [global-options]
+layerlens [global-options]
 ├── trace
 │   ├── list          List traces
 │   ├── get           Get a trace by ID
@@ -16,11 +16,15 @@ stratix [global-options]
 │   ├── list          List judges
 │   ├── get           Get a judge by ID
 │   ├── create        Create a new judge
-│   └── test          Test a judge against a trace
+│   ├── test          Test a judge against a trace
+│   └── result        Get the result of a judge test
 ├── evaluate
 │   ├── list          List evaluations
 │   ├── get           Get an evaluation by ID
-│   └── run           Run a new evaluation
+│   └── run           Run a new evaluation; with --wait, exit 12 unless it succeeds
+├── evaluations
+│   ├── run           Run a dataset through a target locally
+│   └── compare       Compare two saved runs; exit 1 on a regression
 ├── integration
 │   ├── list          List integrations
 │   └── test          Test an integration
@@ -29,15 +33,22 @@ stratix [global-options]
 │   ├── get           Get a scorer by ID
 │   ├── create        Create a new scorer
 │   └── delete        Delete a scorer
-├── space
-│   ├── list          List evaluation spaces
-│   ├── get           Get a space by ID or slug
-│   ├── create        Create a new space
-│   └── delete        Delete a space
 ├── bulk
 │   └── eval          Run evaluations in bulk
 ├── ci
-│   └── report        Generate a CI summary report
+│   └── report        Summarise the evaluations and runs a CI step names
+├── replay
+│   └── run           Replay a stored or exported trace with overrides
+├── env               Environments: create, run your agent or a model, gate a build (see env.md)
+│   ├── world-types, list, get, create, status, wait, tools, reset, revert, delete
+│   ├── tasks         list, generate, delete
+│   └── run           exec, model, start, submit, finish, status, wait, results, cancel, list, compare
+├── synthetic
+│   ├── templates     List the templates synthetic traces are made from
+│   └── generate      Generate synthetic traces from a template
+├── login             Sign in with your email and password
+├── logout            Remove the stored session
+├── whoami            Show the key or the session a command would use
 └── completion        Print shell completion setup
 ```
 
@@ -45,17 +56,42 @@ stratix [global-options]
 
 ## Global options
 
-These options are available on every command:
+These options are available on every command, either right after `layerlens` or at
+the end of the command (`layerlens --format json judge get <id>` or
+`layerlens judge get <id> --format json`), but not between `judge` and `get`. If you
+give an option in both places, the one at the end wins.
 
 ```
---api-key TEXT         API key (env: LAYERLENS_STRATIX_API_KEY)
---host TEXT            API host
+--api-key TEXT         API key (env: LAYERLENS_API_KEY)
+--api-key-file PATH    Read the API key from this file, or from standard input for -
+--host TEXT            API host, or a URL: https://host[:port] or http://host[:port]
 --port INTEGER         API port
---format [table|json]      Output format (default: table)
---verbose, -v         Enable debug output
---version             Show version and exit
---help                Show help and exit
+--format [table|json]  Output format (default: table)
+--verbose, -v          Enable debug output
+--quiet, -q            Don't show the startup banner
+--help                 Show help and exit
 ```
+
+`--host` and `--port` connect over HTTPS, whatever the port. The CLI speaks plain HTTP only
+to a loopback host (`localhost`, `127.0.0.1` or `::1`) on a port other than 443, or when
+`--host` is an `http://` URL. A `--host` URL can carry a port and a path (the path defaults to
+`/api/v1`); a `--port` that differs from the URL's port is a usage error (exit `2`), and
+nothing is sent. 1.11.0 used HTTP on every port but 443, which sent the API key in clear text;
+see [Getting Started](getting-started.md#custom-host).
+
+`layerlens --version` prints the version and exits. With `--format json`, stdout
+holds only the JSON (`[]` for an empty list) and messages go to stderr, except for
+`login` (interactive) and `completion` (prints shell code).
+
+### Signing in
+
+A command uses the API key from `--api-key`, `--api-key-file` or `LAYERLENS_API_KEY` when
+there is one, and otherwise the session `layerlens login` stored in `~/.layerlens/credentials`.
+A session renews itself through the LayerLens API when its token expires, so it lasts until
+its refresh token does. Once LayerLens ends it, commands say
+``Your `layerlens login` session has ended. Run `layerlens login` to sign in again.``
+A renewal that fails for another reason (LayerLens unreachable, or busy) says why, and the next
+command tries again.
 
 ---
 
@@ -68,7 +104,7 @@ Manage traces.
 List traces with optional filtering and pagination.
 
 ```bash
-stratix trace list [OPTIONS]
+layerlens trace list [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -77,15 +113,27 @@ stratix trace list [OPTIONS]
 | `--page-size` | int | Results per page |
 | `--source` | text | Filter by source |
 | `--status` | text | Filter by status |
+| `--tag` | text | Only traces with this tag. Repeat it for traces with every one; an empty tag is a usage error |
 | `--sort-by` | text | Sort field |
 | `--sort-order` | asc/desc | Sort order |
+
+The table shows each trace's ID, creation time, file name, evaluation count, agent and tags;
+`-` when the API names no agent or the trace has no tags. `--format json` gives every field.
+
+```bash
+# The traces of the environment runs labelled with this commit
+layerlens trace list --tag environment --tag support-desk --tag "$GIT_SHA"
+```
+
+The traces of environment runs are listed only for an Automation key; a Standard key's list
+leaves them out, as it can't open them.
 
 ### `trace get`
 
 Get a single trace by ID.
 
 ```bash
-stratix trace get <ID>
+layerlens trace get <ID>
 ```
 
 ### `trace search`
@@ -93,7 +141,7 @@ stratix trace get <ID>
 Search traces by query string.
 
 ```bash
-stratix trace search <QUERY> [OPTIONS]
+layerlens trace search <QUERY> [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -102,6 +150,7 @@ stratix trace search <QUERY> [OPTIONS]
 | `--page-size` | int | Results per page |
 | `--source` | text | Filter by source |
 | `--status` | text | Filter by status |
+| `--tag` | text | Only traces with this tag; repeatable, as on `trace list` |
 | `--sort-by` | text | Sort field |
 | `--sort-order` | asc/desc | Sort order |
 
@@ -110,7 +159,7 @@ stratix trace search <QUERY> [OPTIONS]
 Export a trace as JSON.
 
 ```bash
-stratix trace export <ID> [OPTIONS]
+layerlens trace export <ID> [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -122,7 +171,7 @@ stratix trace export <ID> [OPTIONS]
 Delete a trace by ID.
 
 ```bash
-stratix trace delete <ID> [OPTIONS]
+layerlens trace delete <ID> [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -138,7 +187,7 @@ Manage judges.
 ### `judge list`
 
 ```bash
-stratix judge list [OPTIONS]
+layerlens judge list [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -149,7 +198,7 @@ stratix judge list [OPTIONS]
 ### `judge get`
 
 ```bash
-stratix judge get <ID>
+layerlens judge get <ID>
 ```
 
 ### `judge create`
@@ -157,7 +206,7 @@ stratix judge get <ID>
 Create a new judge.
 
 ```bash
-stratix judge create [OPTIONS]
+layerlens judge create [OPTIONS]
 ```
 
 | Option | Type | Required | Description |
@@ -171,13 +220,29 @@ stratix judge create [OPTIONS]
 Test a judge by running it against a trace. Creates a trace evaluation.
 
 ```bash
-stratix judge test [OPTIONS]
+layerlens judge test [OPTIONS]
 ```
 
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `--judge-id` | text | yes | Judge ID to test |
 | `--trace-id` | text | yes | Trace ID to evaluate |
+
+It prints the trace evaluation it created, and on stderr the command that fetches its result.
+
+### `judge result`
+
+Get the result of a judge test: the trace evaluation `judge test` created, by its ID.
+
+```bash
+layerlens judge result <TRACE_EVALUATION_ID>
+```
+
+Once the trace evaluation has succeeded, it prints the result: the verdict (`passed`), the
+`score` and the judge's reasoning. Before that it prints the trace evaluation with its
+`status`, and while it is `pending` or `in_progress` it says on stderr to run the command
+again once it finishes. It exits `0` in both cases. `evaluate get` reads benchmark
+evaluations, not these.
 
 ---
 
@@ -188,7 +253,7 @@ Manage evaluations.
 ### `evaluate list`
 
 ```bash
-stratix evaluate list [OPTIONS]
+layerlens evaluate list [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -202,15 +267,20 @@ stratix evaluate list [OPTIONS]
 ### `evaluate get`
 
 ```bash
-stratix evaluate get <ID>
+layerlens evaluate get <ID>
 ```
+
+A table shows Submitted At and Finished At as UTC dates (`-` before the evaluation finishes) and
+Average Duration, the average time the model took on a prompt, with its unit (`1.49 s`), as
+`evaluate list` and `evaluate run` do. `--format json` gives the API's numbers: Unix seconds, and
+nanoseconds for `average_duration`.
 
 ### `evaluate run`
 
-Run a new evaluation. Accepts model/benchmark by ID, key, or name.
+Run a new evaluation. Accepts model/benchmark by ID, key, or name. An ID can name any model or benchmark in the catalog; a key or a name is looked up among the project's own.
 
 ```bash
-stratix evaluate run [OPTIONS]
+layerlens evaluate run [OPTIONS]
 ```
 
 | Option | Type | Required | Description |
@@ -218,6 +288,74 @@ stratix evaluate run [OPTIONS]
 | `--model` | text | yes | Model ID, key, or name |
 | `--benchmark` | text | yes | Benchmark ID, key, or name |
 | `--wait` | flag | no | Wait for evaluation to complete |
+
+`--wait` keeps polling through a 429, a 5xx or a lost connection, as
+`wait_for_completion` does.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The evaluation was created; with `--wait`, it ended in `success`. |
+| `1` | It could not be created or read: an unknown model or benchmark, a refused request (an organization with no credit left gets `402`), a network or server failure. |
+| `2` | The command line was invalid. |
+| `12` | With `--wait`: the evaluation ended in another status than `success` (`failure`, `cancelled`, ...). It is printed as usual first, with its `status`, so `--format json` still writes the evaluation. |
+
+1.11.0 exited `0` whatever the evaluation's status, so a CI step that ran
+`evaluate run --wait` passed on a failed evaluation. `12` is used by `evaluate run` and
+`bulk eval` only.
+
+---
+
+## evaluations
+
+Run a dataset through your own code and compare two runs, locally: nothing is sent to
+the API.
+
+### `evaluations run`
+
+```bash
+layerlens evaluations run --dataset-id ID --dataset-file FILE --target MODULE:ATTR [OPTIONS]
+```
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `--dataset-id` | text | yes | Name of the dataset in the run |
+| `--dataset-file` | path | yes | JSON list of `{input, expected_output}` items, each with an optional `id`. An item without one is `item_0`, `item_1`, ... by its place in the list: `evaluations compare` names the items that regressed by these ids |
+| `--target` | text | yes | The callable under evaluation, `module:attr` |
+| `--scorer` | text | no | A scorer, `name=module:attr` (repeatable). Default: `exact` equality |
+| `--out` | path | no | Write the run to this JSON file (default: stdout) |
+
+### `evaluations compare`
+
+Compare a candidate run with a baseline run, both saved by `evaluations run --out`.
+The comparison goes to stdout as JSON.
+
+```bash
+layerlens evaluations compare BASELINE CANDIDATE [--score-tolerance 0.02]
+```
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `--score-tolerance` | float | How far a scorer's mean may drop before it counts as a regression (default: `0.02`) |
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | No regression. |
+| `1` | The candidate regressed: a scorer's mean dropped by more than `--score-tolerance`, or the pass rate dropped by more than `0.02`. |
+| `2` | The runs could not be compared, and stdout is empty. A file that is not valid JSON or not an evaluation run gets one `Error:` line on stderr naming the file and the field, such as `Error: candidate run.json is not an evaluation run: dataset_version: Field required`. A run must hold `items` (`[]` for an empty dataset) and an `aggregate` with `mean_scores` and `pass_rate`, as `evaluations run --out` writes it, and no `NaN` or `Infinity`. A missing file is a usage error. |
+
+In CI, fail the build on `1` and treat `2` as a broken step: never read `2` as "no
+regression". CI shells such as GitHub Actions' `bash -e` stop at the first command that
+fails, so catch the exit code with `||` before `case` reads it:
+
+```bash
+status=0
+layerlens evaluations compare baseline.json candidate.json > comparison.json || status=$?
+case "$status" in
+  0) echo "no regression" ;;
+  1) echo "the candidate regressed"; exit 1 ;;
+  *) echo "could not compare the runs"; exit 2 ;;
+esac
+```
 
 ---
 
@@ -228,7 +366,7 @@ Manage integrations.
 ### `integration list`
 
 ```bash
-stratix integration list [OPTIONS]
+layerlens integration list [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -238,11 +376,19 @@ stratix integration list [OPTIONS]
 
 ### `integration test`
 
-Test an integration by ID.
+Test an integration by ID: the API tries the integration's stored credentials against its vendor
+(a Langfuse import source today).
 
 ```bash
-stratix integration test <ID>
+layerlens integration test <ID>
 ```
+
+Prints `Integration <ID>: OK` and exits `0` when they work. When the vendor refuses them (the API
+answers `422`), it exits `1` with `Error: the stored credentials of integration <ID> were refused:`
+and the vendor's reason. When the test could not be run, it exits `1` with `Error: integration <ID>
+could not be tested:` and the API's reason: the vendor could not be reached (`502`), or LayerLens
+refused the call (`401`: only an organization's owner or admin, or a key one of them created, can
+test integrations). Your LayerLens key itself was checked first.
 
 ---
 
@@ -253,7 +399,7 @@ Manage scorers.
 ### `scorer list`
 
 ```bash
-stratix scorer list [OPTIONS]
+layerlens scorer list [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -264,78 +410,27 @@ stratix scorer list [OPTIONS]
 ### `scorer get`
 
 ```bash
-stratix scorer get <ID>
+layerlens scorer get <ID>
 ```
 
 ### `scorer create`
 
 ```bash
-stratix scorer create [OPTIONS]
+layerlens scorer create [OPTIONS]
 ```
 
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `--name` | text | yes | Name (3–64 characters) |
-| `--description` | text | yes | Description (10–500 characters) |
+| `--description` | text | yes | Description (10–280 characters) |
 | `--model-id` | text | yes | Model ID for scoring |
-| `--prompt` | text | yes | Scoring prompt |
+| `--prompt` | text | yes | Scoring prompt (at least 10 characters) |
 | `--dry-run` | flag | no | Preview without executing |
 
 ### `scorer delete`
 
 ```bash
-stratix scorer delete <ID> [OPTIONS]
-```
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `--yes`, `-y` | flag | Skip confirmation prompt |
-| `--dry-run` | flag | Preview without executing |
-
----
-
-## space
-
-Manage evaluation spaces.
-
-### `space list`
-
-```bash
-stratix space list [OPTIONS]
-```
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `--page` | int | Page number |
-| `--page-size` | int | Results per page |
-| `--sort-by` | text | Sort field (e.g. weight, created_at) |
-| `--order` | asc/desc | Sort order |
-
-### `space get`
-
-```bash
-stratix space get <ID>
-```
-
-Accepts an ID or slug.
-
-### `space create`
-
-```bash
-stratix space create [OPTIONS]
-```
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `--name` | text | yes | Space name |
-| `--description` | text | no | Description (max 500 characters) |
-| `--visibility` | private/public/tenant | no | Visibility level |
-| `--dry-run` | flag | no | Preview without executing |
-
-### `space delete`
-
-```bash
-stratix space delete <ID> [OPTIONS]
+layerlens scorer delete <ID> [OPTIONS]
 ```
 
 | Option | Type | Description |
@@ -351,12 +446,12 @@ Bulk operations.
 
 ### `bulk eval`
 
-Run evaluations in bulk. Supports two modes:
+Run evaluations in bulk. Supports three modes:
 
 **Mode 1: JSONL file**
 
 ```bash
-stratix bulk eval --file jobs.jsonl [OPTIONS]
+layerlens bulk eval --file jobs.jsonl [OPTIONS]
 ```
 
 Each line in the JSONL file is a JSON object with `model` and `benchmark` fields:
@@ -369,13 +464,13 @@ Each line in the JSONL file is a JSON object with `model` and `benchmark` fields
 **Mode 2: Single model + benchmark**
 
 ```bash
-stratix bulk eval --model openai/gpt-4o --benchmark arc-agi-2 --wait [OPTIONS]
+layerlens bulk eval --model openai/gpt-4o --benchmark arc-agi-2 --wait [OPTIONS]
 ```
 
 **Mode 3: Judge + trace IDs**
 
 ```bash
-stratix bulk eval --judge-id <JUDGE_ID> --traces trace_ids.txt [OPTIONS]
+layerlens bulk eval --judge-id <JUDGE_ID> --traces trace_ids.txt [OPTIONS]
 ```
 
 The traces file contains one trace ID per line.
@@ -383,12 +478,24 @@ The traces file contains one trace ID per line.
 | Option | Type | Description |
 | --- | --- | --- |
 | `--file` | path | JSONL file with evaluation jobs |
-| `--model` | text | Model ID/name (use with --benchmark) |
-| `--benchmark` | text | Benchmark ID/name (use with --model) |
+| `--model` | text | Model ID, key, or name (use with --benchmark) |
+| `--benchmark` | text | Benchmark ID, key, or name (use with --model) |
 | `--judge-id` | text | Judge ID (use with --traces) |
 | `--traces` | path | File with trace IDs (one per line) |
 | `--dry-run` | flag | Preview without executing |
-| `--wait` | flag | Wait for all evaluations to complete |
+| `--wait` | flag | With `--file` or `--model`/`--benchmark`: wait for the evaluations to finish; exit `12` if any ends in anything but `success`. `--judge-id`/`--traces` does not wait |
+
+Each job is reported as it is created. A job that cannot run (its model, benchmark or trace is
+not found, or the API refuses it) is reported on stderr, and the jobs after it still run; the
+command then says how many failed. With `--wait` (modes 1 and 2), it waits for every
+evaluation it created and prints its status. Mode 3 does not wait, with `--wait` or not.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Every job ran; with `--wait`, every evaluation ended in `success`. |
+| `1` | A job could not run (not found, refused, or an error), the file held no job, or, with `--dry-run`, a line is not a job. `1` wins over `12`. |
+| `2` | The command line was invalid. |
+| `12` | With `--wait`: every job ran, and an evaluation ended in another status than `success`. |
 
 ---
 
@@ -398,17 +505,169 @@ CI/CD pipeline helpers.
 
 ### `ci report`
 
-Generate a markdown summary of recent evaluations, suitable for GitHub Actions job summaries.
+Summarise what a CI step names, for its job page: benchmark evaluations, trace evaluations and
+environment runs, given by id, in one Markdown report (one JSON document with `--format json`).
+It reports only what it is given, never the project's latest unless asked with `--latest`.
 
 ```bash
-stratix ci report [OPTIONS]
+layerlens ci report [--evaluation-id ID]... [--trace-evaluation-id ID]... [--env-run ENV:RUN_ID]... [OPTIONS]
 ```
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `--output`, `-o` | path | Output file (default: stdout) |
-| `--limit` | int | Number of evaluations to include (default: 10) |
-| `--dry-run` | flag | Preview without fetching data |
+| `--evaluation-id` | text | A benchmark evaluation, as `evaluate run` printed it. Repeatable |
+| `--trace-evaluation-id` | text | A trace evaluation, as `judge test` printed it. Repeatable |
+| `--env-run` | `ENV:RUN_ID` | An environment run: the environment's name or id, a colon, the run's id. Repeatable |
+| `--latest` | int | Also report the project's N most recent benchmark evaluations, whoever started them (1-500) |
+| `--output`, `-o` | path | Append the Markdown report to this file, so `$GITHUB_STEP_SUMMARY` keeps what earlier steps wrote; with `--format json`, write the JSON report to it, replacing the file (default: stdout) |
+| `--dry-run` | flag | Say what would be reported, without fetching it |
+
+Name at least one evaluation or run, or pass `--latest`: otherwise it is a usage error (exit `2`),
+and so is an empty id, which is what a variable holds when the step that should have set it
+failed. Each is reported once, however many times it is named.
+If one of them cannot be read (an unknown id, a refused request, a trace evaluation that
+succeeded but whose result is missing), it exits `1` with an `Error:` line naming it, and
+writes no report. An environment run needs an API key with **Automation** access, as
+[`layerlens env`](env.md) does; one Automation key can read all three kinds.
+
+It reports results without judging them: it exits `0` whatever they are. Gate the build with the
+commands that ran them: `evaluate run --wait` exits `12` when the evaluation did not succeed,
+and `env run exec --min-pass-rate` exits `10` below the pass rate. Run `ci report` even when
+they fail. GitHub Actions runs `run:` with `bash -e`, so save the exit status, write the id,
+then exit with it. Here the Evaluate step fails when the evaluation fails (exit `12`) or could
+not run (exit `1`), and Summarise still reports it:
+
+```yaml
+- name: Evaluate
+  run: |
+    status=0
+    layerlens --format json evaluate run --model gpt-4o --benchmark mmlu --wait > evaluation.json || status=$?
+    echo "EVAL_ID=$(jq -r '.id // empty' evaluation.json)" >> "$GITHUB_ENV"
+    exit "$status"
+- name: Summarise
+  if: always() && env.EVAL_ID != ''
+  run: layerlens ci report --evaluation-id "$EVAL_ID" -o "$GITHUB_STEP_SUMMARY"
+```
+
+An environment run gets a section like `env run exec --markdown` writes: its counts, then every
+task that did not pass. A benchmark evaluation that has not succeeded shows no accuracy or failed
+prompts, which until then cover only the prompts graded so far, and a trace evaluation still
+running shows no verdict.
+
+With `--format json`, the report is:
+
+```json
+{
+  "generated_at": "2026-11-04T18:00:00Z",
+  "evaluations": [{"id": "…", "status": "success", "accuracy": 76.67, "...": "…"}],
+  "trace_evaluations": [{"id": "…", "status": "success", "...": "…", "result": {"passed": true, "score": 0.9, "...": "…"}}],
+  "environment_runs": [{"environment": "support-desk", "run_id": "…", "passed": 9, "total": 10, "...": "…"}]
+}
+```
+
+A benchmark evaluation has the fields `evaluate get --format json` prints. A trace evaluation
+has its `id`, `trace_id`, `judge_id` and `status`, and its `result`, the object `judge result`
+prints once it has succeeded (`null` until then). An environment run has the fields
+`env run results --format json` prints, and the `environment` as it was given.
+
+---
+
+## replay
+
+Replay traces locally, with overrides.
+
+### `replay run`
+
+Replays one trace through your own function and prints the result: the replayed trace's id, its
+`status` (`completed`, `failed` or `timeout`), the difference from the original, and the
+overrides applied.
+
+```bash
+layerlens replay run --trace-id 6aee8ab0f515e69a5d2cc4e9 --replay-fn my_agent.replay:replay --model-override gpt-4o-mini
+layerlens trace export 6aee8ab0f515e69a5d2cc4e9 -o trace.json
+layerlens replay run --trace-id 6aee8ab0f515e69a5d2cc4e9 --trace-file trace.json --replay-fn my_agent.replay:replay
+```
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--trace-id` | yes | The trace to replay. Without `--trace-file`, the stored trace with this id is read from LayerLens |
+| `--trace-file` | no | A trace as `trace export` writes it, replayed without reading LayerLens. The result names the file's trace; a file of another trace than `--trace-id` prints a warning naming both |
+| `--replay-fn` | no | `module:function` called with the trace and the request (overrides applied), returning the replayed trace. Without it, the trace is returned unchanged |
+| `--model-override` | no | The model to replay with |
+| `--input-override`, `--prompt-override` | no | `KEY=VALUE`, repeatable |
+
+`--replay-fn` is loaded from your own code: a function from the standard library or another
+module the CLI refuses (`os:system`, `subprocess:run`, ...) is not loaded. An id that names no
+stored trace exits `2`; a replay that does not complete (the function raised, or ran out of time)
+prints its result, says why, and exits `1`.
+
+---
+
+## env
+
+Create and mint environments, run your own agent or a model against their tasks, and
+gate a build on the result. It needs an API key with Automation access, except `env list`,
+`env tools` and `env reset`, which a Standard key runs too. Every command and option is in
+[`layerlens env`](env.md).
+
+```bash
+layerlens env create --type zendesk --name support-desk --description-file ci/environment.md --if-not-exists --wait
+layerlens env run exec support-desk --tasks-file ci/tasks.jsonl --agent-name support-agent --min-pass-rate 0.9 -- python ci/agent.py
+```
+
+---
+
+## synthetic
+
+Generate synthetic traces from templates. They are made in this process: nothing is sent to
+LayerLens.
+
+### `synthetic templates`
+
+```bash
+layerlens synthetic templates
+```
+
+Lists each template's id, category and title; `--format json` prints them as a list of
+`id`, `category` and `title`.
+
+### `synthetic generate`
+
+```bash
+layerlens synthetic generate --template <TEMPLATE_ID> --count 5 --out traces.jsonl
+```
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--template` | yes | A template id, as `synthetic templates` lists it |
+| `--count` | no | How many traces, at least 1 (default `10`); the template's own maximum caps it |
+| `--provider` | no | The provider that makes them (default: the one the template names; `stochastic` is built in) |
+| `--project-id`, `--organization-id` | no | Written into each trace (default: `synthetic`) |
+| `--out` | no | Write the traces to this file, one JSON object per line (default: stdout) |
+
+It says on stderr how many traces it generated. An unknown template or provider exits `1`
+with the reason; a `--count` below 1 is a usage error (exit `2`).
+
+---
+
+## login, logout, whoami
+
+```bash
+layerlens login     # prompts for your email and password
+layerlens whoami
+layerlens logout
+```
+
+`login` signs in with your LayerLens email and password and keeps the session in
+`~/.layerlens/credentials`, readable by you only. Commands use it when no API key is given (see
+[Signing in](#signing-in)). It asks before replacing a session you already have.
+
+`whoami` shows what a command would use: with an API key, where the key came from and the
+organization and project it belongs to (reading them checks the key, so a wrong key exits `1`);
+otherwise the signed-in user's email, name and id. Without a key or a session it exits `1`.
+`--format json` prints `auth` (`api_key` or `login`) and those fields.
+
+`logout` removes the stored session. API keys are not affected.
 
 ---
 
@@ -417,7 +676,7 @@ stratix ci report [OPTIONS]
 Print shell completion setup instructions.
 
 ```bash
-stratix completion <SHELL>
+layerlens completion <SHELL>
 ```
 
-Where `SHELL` is one of: `bash`, `zsh`, `fish`, `powershell`.
+Where `SHELL` is one of: `bash`, `zsh`, `fish`, `powershell`. For PowerShell it prints click's own setup, three lines for your profile that load click's completion script with `Invoke-Expression`; that needs click 8.5 or later (Python 3.10 or later), and with an older click the command says so and exits `1`.

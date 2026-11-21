@@ -20,7 +20,11 @@ class NormalizedTokenUsage(BaseModel):
     )
     cache_creation_tokens: Optional[int] = Field(
         default=None,
-        description="Tokens written to cache on this call (Anthropic cache_creation_input_tokens)",
+        description=(
+            "Tokens written to cache on this call (Anthropic cache_creation_input_tokens, "
+            "OpenAI cache_write_tokens). Never part of prompt_tokens: OpenAI counts its "
+            "writes inside prompt_tokens, so pricing.usage_from_payload moves them out"
+        ),
     )
     reasoning_tokens: Optional[int] = Field(
         default=None,

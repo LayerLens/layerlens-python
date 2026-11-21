@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[autogen]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[autogen]"
     python samples/instrument/autogen/example.py
 """
 
@@ -21,7 +21,7 @@ def main() -> int:
         adapter.connect()
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install AutoGen with: pip install layerlens[autogen]")
+        print('Install AutoGen with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[autogen]"')
         return 0
 
     print("AutoGenAdapter connected.")

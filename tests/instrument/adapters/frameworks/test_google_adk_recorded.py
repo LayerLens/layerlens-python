@@ -27,11 +27,13 @@ from typing import Any
 import httpx
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("google-adk requires Python >= 3.10", allow_module_level=True)
 
-pytest.importorskip("google.adk")
-pytest.importorskip("google.genai")
+importorskip("google.adk")
+importorskip("google.genai")
 
 from google import genai  # noqa: E402
 from google.genai import types  # noqa: E402

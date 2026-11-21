@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from enum import Enum
 from typing import Any, Dict, List, Tuple, Optional
 
 
@@ -102,10 +103,18 @@ def _format_json(data: Any) -> str:
     return json.dumps(to_dict(data), indent=2, default=str)
 
 
+def format_value(val: Any) -> str:
+    """The display string for one value, e.g. a status in a progress line."""
+    return _format_value(val)
+
+
 def _format_value(val: Any) -> str:
     """Convert a value to a display string."""
     if val is None:
         return "-"
+    if isinstance(val, Enum):
+        # str() of a (str, Enum) member is "EvaluationStatus.SUCCESS"; show "success".
+        return str(val.value)
     if isinstance(val, bool):
         return "Yes" if val else "No"
     if isinstance(val, float):

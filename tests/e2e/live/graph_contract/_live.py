@@ -1,7 +1,7 @@
 """Live seed + read-back helpers for the graph-contract harness (G7).
 
-Seeds a lane's sealed events through a REAL ``Stratix()`` client to a running
-atlas (``LAYERLENS_STRATIX_BASE_URL``) and reads the trace back.
+Seeds a lane's sealed events through a REAL ``LayerLens()`` client to a running
+atlas (``LAYERLENS_BASE_URL``) and reads the trace back.
 
 Read-back note (the part code-reading never tells you): the SDK ``Trace`` model
 does NOT expose the server-computed ``graph``/``agent`` fields — they are omitted

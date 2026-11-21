@@ -41,12 +41,11 @@ import asyncio
 import httpx
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("openai-agents requires Python >= 3.10", allow_module_level=True)
-try:
-    import agents  # noqa: F401
-except (ImportError, Exception):  # pragma: no cover - env guard
-    pytest.skip("openai-agents not installed or incompatible", allow_module_level=True)
+importorskip("agents")
 
 from agents import (  # noqa: E402
     Agent,

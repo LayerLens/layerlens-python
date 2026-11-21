@@ -1,6 +1,6 @@
 """Platform-side inbound-linkage verification for the live suite.
 
-After a trace upload, the Stratix platform's ``InboundLinkageService`` stamps
+After a trace upload, the LayerLens platform's ``InboundLinkageService`` stamps
 ``traces.integration_id`` (synchronously, at trace-create) when the uploading
 app API key matches a registered ``sdk_adapter`` inbound integration, records a
 bucket in ``integration_metric_buckets``, and a periodic sweeper (~30s) flips

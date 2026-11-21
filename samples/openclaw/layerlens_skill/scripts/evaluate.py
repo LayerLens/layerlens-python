@@ -8,14 +8,14 @@ Prints results as JSON for OpenClaw to consume.
 
 Usage:
     # Via arguments:
-    python evaluate.py --input "prompt" --output "response" --goal "accuracy"
+    python evaluate.py --input "prompt" --output "response" --goal "factual accuracy"
 
     # Via stdin (JSON):
-    echo '{"input": "prompt", "output": "response", "goal": "accuracy"}' | python evaluate.py
+    echo '{"input": "prompt", "output": "response", "goal": "factual accuracy"}' | python evaluate.py
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 """
 
 from __future__ import annotations
@@ -28,12 +28,12 @@ import tempfile
 from typing import Any, Optional
 
 try:
-    from layerlens import Stratix
+    from layerlens import LayerLens
 except ImportError:
     print(
         json.dumps(
             {
-                "error": "layerlens package not installed. Run: pip install layerlens --index-url https://sdk.layerlens.ai/package",
+                "error": "layerlens package not installed. Run: uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens",
                 "success": False,
             }
         )
@@ -79,7 +79,7 @@ def _parse_args() -> argparse.Namespace:
         "-g",
         dest="evaluation_goal",
         default="Evaluate whether the response is accurate, helpful, and safe.",
-        help="The evaluation goal for the judge.",
+        help="The evaluation goal for the judge (the API needs at least 10 characters).",
     )
     parser.add_argument(
         "--judge-name",
@@ -95,7 +95,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _upload_trace(
-    client: Stratix,
+    client: LayerLens,
     input_text: str,
     output_text: str,
     metadata: Optional[dict[str, Any]] = None,
@@ -123,7 +123,7 @@ def _upload_trace(
 
 
 def _poll_results(
-    client: Stratix,
+    client: LayerLens,
     evaluation_id: str,
     max_attempts: int = 30,
 ) -> Optional[dict[str, Any]]:
@@ -173,7 +173,8 @@ def main() -> None:
 
     # Initialize client
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(
             json.dumps(

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from typing import Any, List
 
-import pytest
+from tests._optional_deps import importorskip
 
-boto3 = pytest.importorskip("boto3")
+boto3 = importorskip("boto3")
 
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.frameworks.bedrock_agents import BedrockAgentsAdapter  # noqa: E402

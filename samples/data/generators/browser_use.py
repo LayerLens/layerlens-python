@@ -119,7 +119,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # path then).
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -354,7 +354,7 @@ def _browser_use_version():
         return None
 
 
-def _capture_browser_use(client: Stratix, agent):
+def _capture_browser_use(client: LayerLens, agent):
     """Drive the REAL run through the REAL BrowserUseAdapter and seal the flush.
 
     The adapter wraps the bound ``agent.run`` and walks the real
@@ -402,7 +402,7 @@ def _capture_browser_use(client: Stratix, agent):
     return payload, history
 
 
-def generate_browser_use_single(client: Stratix) -> dict:
+def generate_browser_use_single(client: LayerLens) -> dict:
     """Record the ``trip-research-agent`` really browsing the Trip Options Board.
 
     Named ``_single`` (not ``_research``) so the ``_generate_fixtures`` W2 loader
@@ -463,4 +463,4 @@ def generate_browser_use_single(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    generate_browser_use_single(Stratix())
+    generate_browser_use_single(LayerLens())

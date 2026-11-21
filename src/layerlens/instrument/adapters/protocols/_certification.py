@@ -187,12 +187,19 @@ class ProtocolCertificationSuite:
 
     def _check_capture_config_support(self, cls: type) -> CheckResult:
         """Adapters must accept ``capture_config`` and honor content gating
-        (LAY-3578 / N7): a no-content config must reach ``self._config``."""
+        (LAY-3578 / N7): the config passed must reach ``self._config``.
+
+        The adapter is built twice: with content capture on, which the default config is not,
+        then off. Checking only a no-content config passed an adapter that dropped the argument
+        and kept the default, since the default captures no content either (L7 AD-02).
+        """
         from ..._capture_config import CaptureConfig
 
         try:
-            adapter = cls(capture_config=CaptureConfig(capture_content=False))
-            ok = getattr(adapter, "_config", None) is not None and adapter._config.capture_content is False
+            ok = True
+            for capture in (True, False):
+                config = getattr(cls(capture_config=CaptureConfig(capture_content=capture)), "_config", None)
+                ok = ok and config is not None and config.capture_content is capture
             message = "capture_config accepted and threaded" if ok else "capture_config not threaded to _config"
         except TypeError as exc:
             ok = False

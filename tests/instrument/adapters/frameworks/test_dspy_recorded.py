@@ -2,7 +2,7 @@
 
 Drives a REAL ``dspy.Module`` (the ``TutorRAG`` program of the education Family-B
 sample) whose ``dspy.LM`` is backed by litellm's real ``ollama_chat`` transformer
-over ``httpx.MockTransport`` serving the captured ollama ``/api/chat`` body, with
+talking to a local HTTP server that serves the captured ollama ``/api/chat`` body, with
 the real ``DSPyAdapter`` attached via its first-party callback bus. This exercises
 the full path — real ollama body -> real litellm ``ollama_chat`` transformation ->
 real dspy ``ChatAdapter`` parse of the real ``[[ ## field ## ]]`` blocks -> real
@@ -39,30 +39,29 @@ of ``_split_model_id`` (``openai/gpt-4o-mini`` -> ``gpt-4o-mini`` -> a real
 
 from __future__ import annotations
 
-from typing import Any, Dict
+import inspect
+from typing import Any
 
-import httpx
 import pytest
 
-pytest.importorskip("dspy")  # skips in the base venv (not installed there)
-pytest.importorskip("litellm")
+from tests._optional_deps import importorskip
 
-# The adapter targets dspy >= 3; the unified dev env resolves an older dspy (2.6.x)
-# that can't co-resolve with the rest of the all-features set. The pinned matrix
-# venv (dspy==3.2.1) is the authoritative lane.
+importorskip("dspy")  # skips in the base venv (not installed there)
+importorskip("litellm")
+
+# The adapter targets dspy >= 3, which the dev lock and the dspy matrix row install.
 from importlib.metadata import version as _pkg_version  # noqa: E402
 
 if int(_pkg_version("dspy").split(".")[0]) < 3:
     pytest.skip("dspy adapter targets dspy >= 3", allow_module_level=True)
 
 import dspy  # noqa: E402
-from litellm.llms.custom_httpx.http_handler import HTTPHandler  # noqa: E402
 
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.frameworks.dspy import DSPyAdapter  # noqa: E402
 
 from .conftest import find_event, find_events, capture_framework_trace  # noqa: E402
-from ..._recorded import load_recorded, mock_transport  # noqa: E402
+from ..._recorded import load_recorded, recorded_http_server  # noqa: E402
 
 # The real Week-3 excerpts the recorded run's retrieval returned. Kept verbatim so
 # the replayed program does the same real retrieval work; the LM body is served
@@ -129,24 +128,22 @@ class TutorRAG(dspy.Module):
         return self.answer(course_material=material, question=question)
 
 
-def _lm(fixture: Dict[str, Any]) -> Any:
-    """A real ``dspy.LM`` whose litellm HTTP client serves the recorded body.
+# The fixture is ollama's native /api/chat body, which dspy's LiteLLM engine
+# requests. From 3.4 dspy defaults to its own lm15 engine, which calls ollama's
+# OpenAI-compatible endpoint instead (test_dspy_floor.py covers that path). Before
+# 3.4 LiteLLM was the only engine and ``dspy.LM`` took no ``engine`` argument.
+_LITELLM_ENGINE = {"engine": "litellm"} if "engine" in inspect.signature(dspy.LM.__init__).parameters else {}
 
-    ``HTTPHandler`` is litellm's documented ``client=`` seam for its base HTTP
-    handler (the path ``ollama_chat`` takes), so litellm still does its REAL
-    request transformation and its REAL response transformation against the
-    recorded ollama body — only the socket is replaced.
+
+def _lm(api_base: str) -> Any:
+    """A real ``dspy.LM`` pointed at the local server replaying the recorded body.
+
+    litellm does its REAL request transformation, sends a REAL HTTP request, and
+    does its REAL response transformation of the recorded ollama body; only the
+    ollama server is replaced. (dspy >= 3.4 deep-copies the LM's kwargs, so an
+    injected ``client=`` can't carry a mock transport any more.)
     """
-    transport, _ = mock_transport(fixture)
-    http_client = HTTPHandler()
-    http_client.client = httpx.Client(transport=transport)
-    return dspy.LM(
-        "ollama_chat/llama3:8b",
-        api_base="http://localhost:11434",
-        api_key="",
-        client=http_client,
-        cache=False,
-    )
+    return dspy.LM("ollama_chat/llama3:8b", api_base=api_base, api_key="", cache=False, **_LITELLM_ENGINE)
 
 
 class TestDSPyRecorded:
@@ -154,15 +151,20 @@ class TestDSPyRecorded:
         fixture = load_recorded("dspy", "default")
         uploaded = capture_framework_trace(mock_client)
 
-        dspy.configure(lm=_lm(fixture))
-        program = TutorRAG(_NOTES)
+        with recorded_http_server(fixture) as (api_base, requests):
+            dspy.configure(lm=_lm(api_base))
+            program = TutorRAG(_NOTES)
 
-        adapter = DSPyAdapter(mock_client, capture_config=CaptureConfig.full())
-        adapter.connect()
-        try:
-            prediction = program(question=_QUESTION)
-        finally:
-            adapter.disconnect()
+            adapter = DSPyAdapter(mock_client, capture_config=CaptureConfig.full())
+            adapter.connect()
+            try:
+                prediction = program(question=_QUESTION)
+            finally:
+                adapter.disconnect()
+
+        # litellm really called ollama's chat endpoint with the program's question.
+        assert [r["path"] for r in requests] == ["/api/chat"]
+        assert _QUESTION in str(requests[0]["json"]["messages"])
 
         # dspy's REAL ChatAdapter parsed the recorded body's field blocks.
         assert "n-1" in prediction.answer

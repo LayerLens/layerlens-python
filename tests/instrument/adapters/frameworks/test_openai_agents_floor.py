@@ -48,12 +48,11 @@ import json
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("openai-agents requires Python >= 3.10", allow_module_level=True)
-try:
-    import agents  # noqa: F401
-except (ImportError, Exception):  # pragma: no cover - env guard
-    pytest.skip("openai-agents not installed or incompatible", allow_module_level=True)
+importorskip("agents")
 
 import httpx  # noqa: E402
 from agents.tracing import SpanError, TracingProcessor, set_trace_processors  # noqa: E402
@@ -75,6 +74,7 @@ from layerlens.instrument.adapters.providers.token_usage import NormalizedTokenU
 from layerlens.instrument.adapters.frameworks.openai_agents import OpenAIAgentsAdapter  # noqa: E402
 
 from .conftest import find_event, find_events, capture_framework_trace  # noqa: E402
+from ._openai_agents_support import make_span  # noqa: E402
 
 SENTINEL = "LL-SENTINEL-7f3a9c2e"
 
@@ -114,13 +114,7 @@ def _make_trace(trace_id: str, name: str = "floor_trace") -> TraceImpl:
 
 
 def _make_span(trace_id, span_id, span_data, parent_id=None) -> SpanImpl:
-    return SpanImpl(
-        trace_id=trace_id,
-        span_id=span_id,
-        parent_id=parent_id,
-        processor=_noop,
-        span_data=span_data,
-    )
+    return make_span(trace_id, span_id, span_data, _noop, parent_id)
 
 
 def _drive_full_trace(adapter, trace_id: str, sentinel: str = "content") -> None:

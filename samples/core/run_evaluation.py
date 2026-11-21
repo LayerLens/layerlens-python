@@ -15,15 +15,15 @@ layerlens SDK client instead of raw httpx calls.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least one model and benchmark configured in the project
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python run_evaluation.py
     python run_evaluation.py --model-key gpt-4o --benchmark-key mmlu
     python run_evaluation.py --timeout 600
@@ -35,7 +35,7 @@ import sys
 import logging
 import argparse
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -98,7 +98,8 @@ def main() -> None:
 
     # --- Initialize SDK client ---
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)
@@ -206,7 +207,8 @@ def main() -> None:
             print(f"  Benchmark:  {benchmark.name} ({benchmark.key})")
             print(f"  Status:     {evaluation.status}")
             if hasattr(evaluation, "accuracy") and evaluation.accuracy is not None:
-                print(f"  Accuracy:   {evaluation.accuracy:.2%}")
+                # accuracy is a percentage, 0 to 100
+                print(f"  Accuracy:   {evaluation.accuracy:.2f}%")
             print("=" * 70)
 
             # Display individual results

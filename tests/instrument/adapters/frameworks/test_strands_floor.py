@@ -47,10 +47,11 @@ from typing import Any, Dict
 from unittest.mock import Mock
 
 import httpx
-import pytest
 
-strands_mod = pytest.importorskip("strands")
-pytest.importorskip("openai")
+from tests._optional_deps import importorskip
+
+strands_mod = importorskip("strands")
+importorskip("openai")
 
 from strands import Agent  # noqa: E402
 from strands.hooks import HookRegistry  # noqa: E402

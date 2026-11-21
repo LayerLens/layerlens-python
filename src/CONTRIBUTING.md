@@ -6,36 +6,26 @@ hidden: true
 
 ### Setting up the environment
 
-#### With Rye
-
-We use [Rye](https://rye.astral.sh/) to manage dependencies because it will automatically provision a Python environment with the expected Python version. To set it up, run:
+We use [uv](https://docs.astral.sh/uv/) to manage dependencies because it provisions the Python version in `.python-version` and installs exactly the versions pinned in `uv.lock`. [Install uv](https://docs.astral.sh/uv/getting-started/installation/), then run:
 
 ```sh
 $ ./scripts/bootstrap
 ```
 
-Or [install Rye manually](https://rye.astral.sh/guide/installation/) and run:
+or, equivalently:
 
 ```sh
-$ rye sync --all-features
+$ uv sync --locked --all-extras
 ```
 
-You can then run scripts using `rye run python script.py` or by activating the virtual environment:
+You can then run scripts using `uv run python script.py` or by activating the virtual environment:
 
 ```sh
 # Activate the virtual environment - https://docs.python.org/3/library/venv.html#how-venvs-work
 $ source .venv/bin/activate
 
-# now you can omit the `rye run` prefix
+# now you can omit the `uv run` prefix
 $ python script.py
-```
-
-#### Without Rye
-
-Alternatively if you don't want to install `Rye`, you can stick with the standard `pip` setup by ensuring you have the Python version specified in `.python-version`, create a virtual environment however you desire and then install dependencies using this command:
-
-```sh
-$ pip install -r requirements-dev.lock
 ```
 
 ### Adding and running examples
@@ -45,7 +35,7 @@ All files in the `examples/` directory can be freely edited or added to.
 ```py
 # add an example to examples/<your-example>.py
 
-#!/usr/bin/env -S rye run python
+#!/usr/bin/env -S uv run python
 …
 ```
 
@@ -62,7 +52,7 @@ If you’d like to use the repository from source, you can either install from g
 To install via git:
 
 ```sh
-$ pip install git+ssh://git@github.com/LayerLens/stratix-python.git
+$ pip install git+ssh://git@github.com/LayerLens/layerlens-python.git
 ```
 
 Alternatively, you can build from source and install the wheel file:
@@ -72,7 +62,7 @@ Building this package will create two files in the `dist/` directory, a `.tar.gz
 To create a distributable version of the library, all you have to do is run this command:
 
 ```sh
-$ rye build
+$ uv build
 # or
 $ python -m build
 ```
@@ -109,7 +99,7 @@ $ ./scripts/format
 
 ## Release Process
 
-This section outlines the complete process for releasing a new version of the Stratix Python SDK.
+This section outlines the complete process for releasing a new version of the LayerLens Python SDK.
 
 ### Step-by-Step Release Process
 
@@ -166,7 +156,7 @@ $ ./scripts/test
 $ ./scripts/lint
 
 # Build the package to verify it builds correctly
-$ rye build
+$ uv build
 ```
 
 #### 4. Commit and Push Changes
@@ -230,7 +220,7 @@ Use this checklist to ensure you we don't miss any steps:
 - [ ] Updated version in `pyproject.toml`
 - [ ] Ran tests (`./scripts/test`)
 - [ ] Ran linting (`./scripts/lint`)
-- [ ] Built package successfully (`rye build`)
+- [ ] Built package successfully (`uv build`)
 - [ ] Committed and pushed version bump
 - [ ] Created release tag (via GitHub Actions or manually)
 - [ ] Verified deployment workflow completed successfully

@@ -19,7 +19,7 @@ def main() -> None:
     try:
         import litellm  # type: ignore[import-not-found]
     except ImportError:
-        print("Install the LiteLLM extra: pip install 'layerlens[litellm]'")
+        print('Install the LiteLLM extra: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"')
         return
 
     # LiteLLM proxies many providers — default route is OpenAI, so require that key.

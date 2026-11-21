@@ -4,8 +4,11 @@ Every fixture here is a REAL pydantic object from the pinned ``ap2`` SDK
 (google-agentic-commerce/AP2 @ v0.2.0) — NOT a hand-rolled SimpleNamespace. A
 library upgrade that changes the mandate schema fails these fixtures loudly, so
 the test can never drift from the real wire shape (brief §3.5). The whole module
-``importorskip("ap2")``, so it SKIPS in the base py3.9 venv (which has no ap2)
-and runs in ``.audit-venvs/ap2`` (py3.11 + ap2 + the repo editable).
+``importorskip("ap2")``. ap2 is not in uv.lock (it requires Python >= 3.11 and pins
+pydantic and pytest versions the lock cannot hold), so the module SKIPS in the
+lock environment and runs in the ``ap2`` row of ``tests/matrix/frameworks.toml``,
+where any skip fails the row. ``test_ap2_expiry.py`` drives the expiry gate with
+AP2's JSON mandates on every Python version, without the SDK.
 
 Each invariant below has a BITING test: revert/weaken the guard in ap2.py (or the
 run-scoped ceiling primitive) and the test goes RED. The bite for each was
@@ -26,7 +29,9 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-pytest.importorskip("ap2")
+from tests._optional_deps import importorskip
+
+importorskip("ap2")
 
 from ap2.models.cart import Cart  # noqa: E402,F401  (proves the convenience model imports)
 from ap2.models.mandate import (  # noqa: E402
@@ -398,14 +403,58 @@ class TestPerRunCeiling:
 
 # ===========================================================================
 # INVARIANT 5 — EXPIRY GATES RECEIPT: an expired or never-signed mandate must NOT
-# produce a receipt (gated on signed + unexpired, not the sign path alone).
-# BITE: in `issue_receipt`, delete the `cart.expiry and clock > cart.expiry` test
-# (or the `not cart.signed` test) -> a receipt is issued for an expired/unsigned
-# mandate -> RED.
+# produce a receipt (gated on signed + unexpired, not the sign path alone). The
+# expiry checked is the cart's AND that of the intent the cart was bought under,
+# and an expiry that is present but unreadable is refused too (fail closed).
+# BITE: in `issue_receipt`, delete the expired-mandate check, the `not cart.signed`
+# test, the MANDATE_EXPIRY_INVALID check, or the intent's expiry -> a receipt is
+# issued for an expired / unsigned / unreadable-expiry mandate -> RED.
 # ===========================================================================
 
 
 class TestExpiryGatesReceipt:
+    @staticmethod
+    def _refused_receipt(*, cart_expiry: str = _FAR_FUTURE, intent_expiry: str = _FAR_FUTURE) -> Dict[str, Any]:
+        """Sign cart1, bought under intent m1, then ask for its receipt: assert it
+        is refused with no receipt emitted, and return the policy.violation."""
+        adapter = _adapter(capture_config=_CONTENT)
+        adapter.record_intent_mandate(make_intent(merchants=["ACME"], expiry=intent_expiry), mandate_id="m1")
+        adapter.record_cart_mandate(make_cart(value=49.99, expiry=cart_expiry), intent_mandate_id="m1")
+        adapter.record_payment_mandate(make_payment(value=49.99), cart_id="cart1")
+
+        def go() -> None:
+            with pytest.raises(PermissionError):
+                adapter.issue_receipt(cart_id="cart1")
+
+        events = _collect(go, _CONTENT)
+        assert not _by_type(events, "payment.receipt_issued"), "receipt issued despite the mandate's expiry"
+        violations = _by_type(events, "policy.violation")
+        assert len(violations) == 1 and violations[0]["stage"] == "receipt", violations
+        return violations[0]
+
+    @pytest.mark.parametrize(
+        "expiry",
+        [
+            "2000-01-01T00:00:00Z",  # RFC 3339, as AP2's Go reference merchant writes it
+            "2000-01-01T00:00:00.123456789Z",  # Go's RFC3339Nano: nine fraction digits
+            "2000-01-01T00:00:00z",  # RFC 3339 allows a lower-case z; no Python's fromisoformat reads it
+        ],
+    )
+    def test_expired_rfc3339_cart_yields_no_receipt(self, expiry: str) -> None:
+        assert self._refused_receipt(cart_expiry=expiry)["reason_code"] == "MANDATE_EXPIRED"
+
+    @pytest.mark.parametrize("expiry", ["", "not-a-date", "2026-02-30T00:00:00Z"])
+    def test_unreadable_cart_expiry_yields_no_receipt(self, expiry: str) -> None:
+        """The real CartContents takes any string as cart_expiry. One the gate
+        cannot read is refused, not taken to mean the cart never expires."""
+        assert self._refused_receipt(cart_expiry=expiry)["reason_code"] == "MANDATE_EXPIRY_INVALID"
+
+    def test_expired_intent_yields_no_receipt(self) -> None:
+        assert self._refused_receipt(intent_expiry="2000-01-01T00:00:00Z")["reason_code"] == "MANDATE_EXPIRED"
+
+    def test_unreadable_intent_expiry_yields_no_receipt(self) -> None:
+        assert self._refused_receipt(intent_expiry="end of quarter")["reason_code"] == "MANDATE_EXPIRY_INVALID"
+
     def test_expired_mandate_yields_no_receipt(self) -> None:
         adapter = _adapter(capture_config=_CONTENT)
         adapter.record_intent_mandate(make_intent(merchants=["ACME"]), mandate_id="m1")

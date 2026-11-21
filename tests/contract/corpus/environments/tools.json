@@ -1,0 +1,386 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/tools",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "tools": [
+        {
+          "name": "zendesk__ZENDESK_LIST_ZENDESK_TICKETS",
+          "summary": "sdk-corpus-lay4490 — Zendesk — Every ticket on this desk, newest first. Results are complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_GET_ZENDESK_TICKET_BY_ID",
+          "summary": "sdk-corpus-lay4490 — Zendesk — One ticket in full: its fields, its custom fields, and every comment oldest first",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "ticket_id": {
+                "description": "The ticket's id, as a list or a search returns it",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "ticket_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_UPDATE_ZENDESK_TICKET",
+          "summary": "sdk-corpus-lay4490 — Zendesk — Change a ticket's status, priority, subject, assignee, tags or custom fields. On a ticket a customer is waiting on, they may answer: their reply comes back beside this call's body, under dynamics (each spoken turn's text), and is on the ticket as a new comment from the next read",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "assignee_id": {
+                "description": "An agent this desk holds, or null to unassign",
+                "type": "integer",
+                "x-in": "body"
+              },
+              "custom_fields": {
+                "description": "Any of ['refund_amount', 'refund_card_last4', 'resolution_code']. refund_amount is whole cents; resolution_code is one of ['refunded', 'replaced', 'declined', 'duplicate']",
+                "type": "object",
+                "x-in": "body"
+              },
+              "priority": {
+                "description": "A new priority",
+                "enum": [
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
+                ],
+                "type": "string",
+                "x-in": "body"
+              },
+              "status": {
+                "description": "A new status",
+                "enum": [
+                  "new",
+                  "open",
+                  "pending",
+                  "hold",
+                  "solved",
+                  "closed"
+                ],
+                "examples": [
+                  "solved"
+                ],
+                "type": "string",
+                "x-in": "body"
+              },
+              "subject": {
+                "description": "A new subject line",
+                "type": "string",
+                "x-in": "body"
+              },
+              "tags": {
+                "description": "The ticket's tags, replacing the ones it carries",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "x-in": "body"
+              },
+              "ticket_id": {
+                "description": "The ticket's id, as a list or a search returns it",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "ticket_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_GET_TICKET_COMMENTS",
+          "summary": "sdk-corpus-lay4490 — Zendesk — One ticket's comments, oldest first, public and internal alike",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "ticket_id": {
+                "description": "The ticket's id, as a list or a search returns it",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "ticket_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_REPLY_ZENDESK_TICKET",
+          "summary": "sdk-corpus-lay4490 — Zendesk — Reply to a ticket by adding a comment, public or internal. On a ticket a customer is waiting on, they may answer: their reply comes back beside this call's body, under dynamics (each spoken turn's text), and is on the ticket as a new comment from the next read",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "author_id": {
+                "description": "The agent the comment is by; the desk's first agent when omitted",
+                "type": "integer",
+                "x-in": "body"
+              },
+              "body": {
+                "description": "The text of the comment",
+                "examples": [
+                  "Thanks for the detail -- could you send a photo of the damage so I can process this?"
+                ],
+                "type": "string",
+                "x-in": "body"
+              },
+              "public": {
+                "description": "True for a reply the requester can see, false for an internal note only agents read. Public when omitted, which is what a reply means",
+                "examples": [
+                  true
+                ],
+                "type": "boolean",
+                "x-in": "body"
+              },
+              "ticket_id": {
+                "description": "The ticket's id, as a list or a search returns it",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "body",
+              "ticket_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_LIST_ZENDESK_USERS",
+          "summary": "sdk-corpus-lay4490 — Zendesk — Every person this desk knows: the agents who answer and the end users who write in",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_GET_USER",
+          "summary": "sdk-corpus-lay4490 — Zendesk — One person: their name, email, role and organization",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "user_id": {
+                "description": "The user's id, as a ticket or a list returns it",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_GET_ZENDESK_ORGANIZATION",
+          "summary": "sdk-corpus-lay4490 — Zendesk — One customer organization and how many tickets it has raised",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "organization_id": {
+                "description": "The organization's id",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "organization_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_GET_TICKETS_COUNT",
+          "summary": "sdk-corpus-lay4490 — Zendesk — How many tickets this desk holds. Exact, not an approximation",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_LIST_HELP_CENTER_ARTICLES",
+          "summary": "sdk-corpus-lay4490 — Zendesk — Every help-centre article on this desk: its own policies for refunds, known incidents and late deliveries. Results are complete; there is no next page",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_GET_HELP_CENTER_ARTICLE",
+          "summary": "sdk-corpus-lay4490 — Zendesk — One help-centre article in full",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "article_id": {
+                "description": "The article's id, as the article list returns it",
+                "examples": [
+                  9900000001
+                ],
+                "type": "integer",
+                "x-in": "path"
+              }
+            },
+            "required": [
+              "article_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "zendesk__ZENDESK_SEARCH_ZENDESK",
+          "summary": "sdk-corpus-lay4490 — Zendesk — Search this desk's tickets, users and organizations with Zendesk's query syntax. Results are complete; there is no next page. Help-centre articles are listed by ZENDESK_LIST_HELP_CENTER_ARTICLES, not here",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "description": "A Zendesk search. Operators this twin serves: type:, status:, priority:, tags:, requester:, assignee:, organization:, group:, created>, created<, updated>, updated<. Bare words match the subject and the description; '-' negates and a \"quoted phrase\" matches as one. Date operators resolve against this world's own today, never a wall clock",
+                "examples": [
+                  "type:ticket status:open"
+                ],
+                "type": "string",
+                "x-in": "query"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "count": 12,
+      "environment_version": 1,
+      "call_path": "call",
+      "platform_tools": [
+        {
+          "name": "run_tasks",
+          "summary": "This environment's task sets and tasks, by id, name and set, to choose what to run.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_open",
+          "summary": "Open a graded run of this environment's tasks: a set_name, task_ids, or neither for every task, at most 300. Needs an Automation key, as every run_* tool does. Returns the run_id and, per task, its task_id, prompt and call_url. Your agent calls the task's tools on its call_url (or sends run_id and task_id beside tool and args) with an Standard key; then submit its answer with run_answer.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "set_name": {
+                "type": "string"
+              },
+              "task_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "agent"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_answer",
+          "summary": "Submit the final answer to one task of the run. Each task takes one answer.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "task_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id",
+              "task_id",
+              "answer"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_get",
+          "summary": "The run, and each task's verdict once the run is finished.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_finish",
+          "summary": "Finish the run with tasks still unanswered.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id"
+            ],
+            "type": "object"
+          }
+        }
+      ]
+    }
+  }
+}

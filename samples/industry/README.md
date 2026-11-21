@@ -9,8 +9,8 @@ tailored to the compliance, safety, and accuracy requirements of each vertical.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 Industry samples reference domain-specific test data located in `samples/data/industry/`.

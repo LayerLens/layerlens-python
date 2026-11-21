@@ -1,0 +1,24 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "environment": {
+        "id": "6af30e45280c73a1bc8455ab",
+        "name": "sdk-corpus-lay4490",
+        "type": "composite",
+        "current_version": 1,
+        "environment_version": 1,
+        "tool_count": 12,
+        "created_at": "2026-11-10T12:29:57.967Z",
+        "updated_at": "2026-11-10T12:35:35.313Z",
+        "world_hash": "",
+        "generator_version": ""
+      }
+    }
+  }
+}

@@ -57,7 +57,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
 # installed framework (a no-op in the integrated ``generators.pydantic_ai`` path).
 sys.path[:] = [_q for _q in sys.path if os.path.abspath(_q) != _HERE]
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
@@ -81,7 +81,7 @@ except Exception:  # pragma: no cover - standalone fallback
         return out
 
 
-def _capture_pydantic_ai(client: Stratix, agent, run_prompt: str, *, max_tokens: int = 600) -> dict:
+def _capture_pydantic_ai(client: LayerLens, agent, run_prompt: str, *, max_tokens: int = 600) -> dict:
     """Run a real pydantic-ai Agent under the PydanticAIAdapter + observer seam
     (no background upload) and return the sealed trace payload."""
     from layerlens.instrument.adapters.frameworks.pydantic_ai import PydanticAIAdapter
@@ -120,7 +120,7 @@ _LOAN_APPLICATION_MESSAGE = (
 )
 
 
-def generate_pydantic_ai_single(client: Stratix) -> None:
+def generate_pydantic_ai_single(client: LayerLens) -> None:
     """PydanticAI SINGLE (typed extraction): a NAMED ``loan-intake-extractor``
     Agent with a Pydantic ``output_type`` extracts structured loan-application
     fields from a free-text applicant message. Real OpenAI (gpt-4o-mini),
@@ -199,7 +199,7 @@ _UNDERWRITING_TASK = (
 )
 
 
-def generate_pydantic_ai_multi(client: Stratix) -> None:
+def generate_pydantic_ai_multi(client: LayerLens) -> None:
     """PydanticAI MULTI == genuine single-agent TOOL-USE LOOP (MARKED).
 
     pydantic-ai has no handoff hook, so a single trace cannot carry
@@ -281,6 +281,6 @@ def generate_pydantic_ai_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_pydantic_ai_single(_client)
     generate_pydantic_ai_multi(_client)

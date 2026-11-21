@@ -14,14 +14,13 @@ The unit doubles in ``test_crewai.py`` hand-build ``LLMCallCompletedEvent`` with
 ``response={"content": ..., "usage": {...}}`` — a dict carrying ``usage`` nested
 *inside* ``response``. The REAL crewai 1.x native OpenAI provider emits a very
 different shape: ``response`` is the bare assistant string (``"pong"``) and the
-token usage lives in a SEPARATE ``event.usage`` field. So the strong real-response
-value that reaches the trace deterministically is the crew-aggregated
-``total_tokens`` (= the recorded ``usage.total_tokens``), surfaced on the
-crew-level ``cost.record`` — together with the real assistant content on
-``agent.output`` and the configured model on ``model.invoke``. (The per-call
-prompt/completion split and the response-echoed model id ``gpt-4o-mini-2024-07-18``
-do not currently reach the trace through the real event shape; this replay test
-pins the behavior that the recorded usage genuinely flows end-to-end.)
+token usage lives in a SEPARATE ``event.usage`` field, next to the calling agent's
+``agent_role``. The adapter used to read only ``response.usage``, so every real
+model call reached the trace with no tokens, no cost and no agent (LAY-4241: the
+atlas trace page then showed 0 tokens and $0). This replay pins the recorded usage
+flowing onto the model call and its priced cost.record, attributed to the agent.
+(The response-echoed model id ``gpt-4o-mini-2024-07-18`` still does not reach the
+trace through the real event shape; the configured model does.)
 
 Injection seam (PUBLIC, deterministic)
 ---------------------------------------
@@ -49,13 +48,14 @@ from typing import Any, Dict
 import httpx
 import pytest
 
-crewai = pytest.importorskip("crewai")  # py>=3.10 + crewai installed (skips in the base venv)
+import openai
+from tests._optional_deps import importorskip
+
+crewai = importorskip("crewai")  # py>=3.10 + crewai installed (skips in the base venv)
 
 # The replay drives a real crewai native OpenAI provider via the keyless
 # client_params seam and the modern typed event bus, both of which the 1.14 line
-# ships. The combined base lock resolves whatever the cross-adapter solve allows
-# (0.193.2 or 1.6.1 by platform), which lack the seam/event surface; the pinned
-# matrix (crewai==1.14.6) row exercises this replay. Skip below 1.14.
+# ships; the dev lock and the matrix row install 1.15.28. Skip below 1.14.
 from packaging.version import Version  # noqa: E402
 
 if Version(crewai.__version__) < Version("1.14"):
@@ -85,14 +85,6 @@ def _llm(fixture: Dict[str, Any]) -> LLM:
             model="openai/gpt-4o-mini",
             client_params={"http_client": httpx.Client(transport=transport)},
         )
-    except ImportError as exc:
-        # The matrix pins crewai==1.14.6, whose native provider builds lazily and
-        # accepts this keyless client_params seam. The base ``test`` job resolves
-        # crewai unpinned on py>=3.10 and can pull an old release (e.g. 1.6.1)
-        # whose provider demands OPENAI_API_KEY at construction and lacks the
-        # seam — skip there rather than fail on an unsupported version (the matrix
-        # row still exercises this replay on the pinned version).
-        pytest.skip(f"crewai native-provider client_params seam unavailable: {exc}")
     finally:
         if prior_key is not None:
             os.environ["OPENAI_API_KEY"] = prior_key
@@ -162,3 +154,70 @@ class TestCrewAIRecorded:
         crew_level = [e for e in agent_outs if e["payload"].get("crew_name")]
         assert crew_level, "expected a crew-level agent.output"
         assert crew_level[0]["payload"]["tokens_total"] == 13
+
+    def test_model_call_carries_its_usage_cost_and_agent(self, mock_client):
+        """crewai reports a call's usage on ``LLMCallCompletedEvent.usage`` and the
+        calling agent in ``agent_role``. Both must reach the model call and its
+        cost.record, or nothing downstream can count or attribute the call."""
+        fixture = load_recorded("openai", "default")
+        uploaded = capture_framework_trace(mock_client)
+
+        adapter = CrewAIAdapter(mock_client, capture_config=CaptureConfig.full())
+        with crewai_event_bus.scoped_handlers():
+            adapter.connect()
+            _crew(fixture).kickoff()
+            crewai_event_bus.flush(timeout=10.0)
+            adapter.disconnect()
+
+        events = uploaded["events"]
+        # The recorded usage: 12 prompt + 1 completion = 13.
+        mi = find_event(events, "model.invoke")["payload"]
+        assert (mi["tokens_prompt"], mi["tokens_completion"], mi["tokens_total"]) == (12, 1, 13)
+        assert mi["agent_role"] == "responder"
+
+        costs = find_events(events, "cost.record")
+        assert len(costs) == 1, (
+            "one cost.record per model call: the crew's own total must not count the same tokens again, "
+            f"got {[c['payload'] for c in costs]}"
+        )
+        cost = costs[0]["payload"]
+        assert cost["model"] == "gpt-4o-mini"
+        assert (cost["tokens_prompt"], cost["tokens_completion"], cost["tokens_total"]) == (12, 1, 13)
+        assert cost["agent_role"] == "responder"
+        # 12 prompt + 1 completion at the gpt-4o-mini rate.
+        assert cost["cost_usd"] == pytest.approx(2.4e-06, rel=1e-3)
+
+    def test_failed_model_call_names_its_agent(self, mock_client):
+        """A model call that fails is reported as an llm_error on the agent that made it."""
+
+        def reject(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"error": {"message": "boom", "type": "invalid_request_error"}})
+
+        prior_key = os.environ.pop("OPENAI_API_KEY", None)
+        try:
+            llm = LLM(
+                model="openai/gpt-4o-mini",
+                client_params={"http_client": httpx.Client(transport=httpx.MockTransport(reject))},
+            )
+        finally:
+            if prior_key is not None:
+                os.environ["OPENAI_API_KEY"] = prior_key
+        llm.api_key = "test-key"
+        agent = Agent(role="worker", goal="Reply", backstory="A terse assistant.", llm=llm, verbose=False, max_iter=1)
+        task = Task(description="Reply with exactly: pong", expected_output="pong", agent=agent)
+        crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
+
+        uploaded = capture_framework_trace(mock_client)
+        adapter = CrewAIAdapter(mock_client, capture_config=CaptureConfig.full())
+        with crewai_event_bus.scoped_handlers():
+            adapter.connect()
+            with pytest.raises(openai.BadRequestError):
+                crew.kickoff()
+            crewai_event_bus.flush(timeout=10.0)
+            adapter.disconnect()
+
+        llm_errors = [
+            e for e in find_events(uploaded["events"], "agent.error") if e["payload"]["error_type"] == "llm_error"
+        ]
+        assert llm_errors, "a failed model call must surface as an llm_error"
+        assert {e["payload"].get("agent_role") for e in llm_errors} == {"worker"}

@@ -45,7 +45,9 @@ from typing import Any, List, Optional
 
 import pytest
 
-boto3 = pytest.importorskip("boto3")
+from tests._optional_deps import importorskip
+
+boto3 = importorskip("boto3")
 
 from botocore.stub import Stubber  # noqa: E402
 from botocore.exceptions import EventStreamError  # noqa: E402

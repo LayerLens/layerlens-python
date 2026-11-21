@@ -1,21 +1,29 @@
 from __future__ import annotations
 
+import gc
+import re
 import json
 import time
 import uuid
+import queue
 import logging
+import weakref
 import threading
-from typing import Any, Dict, List, Callable, Optional
+from typing import Any, Set, Dict, List, Union, Callable, Iterable, Optional
 
 from layerlens.attestation import HashChain
 
+from ._tags import trace_tags, tags_argument
 from ._events import TRACE_ROOT, AGENT_IDENTITY
-from ._upload import enqueue_upload
+from ._upload import enqueue_upload, _run_before_flush, _run_before_exit_drain
 from ._identity import honest_agent_identity
 from ._secret_scrub import scrub_payload, scrub_secrets
 from ._capture_config import CaptureConfig
 
 log: logging.Logger = logging.getLogger(__name__)
+
+# A span id as the SDK makes them (uuid4().hex[:16]): the only form the API keeps in continued_from.
+_SPAN_ID = re.compile(r"[0-9a-f]{16}")
 
 #: ``cost.record.cost_status`` marker (LAY-3622 / A4b): the model resolves to a
 #: rate, but this payload carries no token dimension the pricing formula can read
@@ -117,24 +125,65 @@ class TraceCollector:
     # the count cap (MAX_EVENTS) alone doesn't bound size.
     MAX_EVENT_BYTES = 256 * 1024
 
-    def __init__(self, client: Any, config: CaptureConfig) -> None:
+    def __init__(self, client: Any, config: CaptureConfig, *, tags: Optional[Iterable[str]] = None) -> None:
+        """A trace uploaded through ``client``.
+
+        ``tags`` are this trace's own; it also carries ``LAYERLENS_TRACE_TAGS`` and the tags of
+        the ``trace``/``trace_context`` blocks it starts in (see :mod:`._tags`). Raises
+        ``TypeError`` when ``tags`` is not a list of strings.
+        """
+        own_tags = tags_argument(tags)
         self._client = client
         self._config = config
+        # Fixed as the trace starts. Outside the hash chain: tags are labels, not evidence.
+        self._tags = trace_tags(own_tags)
         self._trace_id = uuid.uuid4().hex[:16]
+        # This collector's own part of the trace, the same for every upload of it. A trace
+        # continued in another process shares the caller's trace_id, so the API keys its
+        # upload idempotency on trace_id + segment_id: each process's part is kept, and
+        # re-sends of one part replace only that part (BUG-02, decision D-2).
+        self._segment_id = uuid.uuid4().hex
+        # {"span_id": ...} of the span this trace was continued from, in another process.
+        self._continued_from: Optional[Dict[str, str]] = None
         self._events: List[Dict[str, Any]] = []
         self._sequence: int = 0
         self._chain = HashChain()
         self._capped = False
         self._sealed = False
         self._lock = threading.Lock()
+        # Streams opened in this trace and not yet read to their end, closed or dropped (S2).
+        self._open_streams = 0
+        self._holds_by_stream: "weakref.WeakKeyDictionary[Any, _StreamHold]" = weakref.WeakKeyDictionary()
+        self._open_holds: List["_StreamHold"] = []
+        self._finish_when_streams_end = False
 
     @property
     def trace_id(self) -> str:
         return self._trace_id
 
     @property
+    def segment_id(self) -> str:
+        """This collector's part of the trace: 32 hex characters, the same for every upload of it."""
+        return self._segment_id
+
+    @property
     def config(self) -> CaptureConfig:
         return self._config
+
+    def _continue_trace(self, trace_id: str, span_id: Any) -> None:
+        """Record events under ``trace_id``, a trace another process started, below ``span_id``.
+
+        The API takes a span id as the SDK makes them (16 lowercase hex characters) and drops
+        any other, so an id from elsewhere that is not one is left out rather than sent.
+        """
+        self._trace_id = trace_id
+        if isinstance(span_id, str) and _SPAN_ID.fullmatch(span_id):
+            self._continued_from = {"span_id": span_id}
+
+    @property
+    def tags(self) -> List[str]:
+        """The tags this trace is uploaded with (a copy)."""
+        return list(self._tags)
 
     @property
     def sealed(self) -> bool:
@@ -325,7 +374,8 @@ class TraceCollector:
         """Return the trace as a replay-ready dict.
 
         Same shape as the payload uploaded to the API: ``trace_id``,
-        ``events``, ``capture_config``, ``attestation``. Safe to call at
+        ``events``, ``capture_config``, ``attestation``, and ``tags`` when
+        the trace has any. Safe to call at
         any time — even before flush — and idempotent (does not seal the
         collector or the hash chain). Use this to persist a trace for
         later replay via :mod:`layerlens.replay.snapshot`.
@@ -367,10 +417,17 @@ class TraceCollector:
 
         trace_payload: Dict[str, Any] = {
             "trace_id": self._trace_id,
+            "segment_id": self._segment_id,
             "events": list(self._events) if not seal else self._events,
             "capture_config": self._config.to_dict(),
             "attestation": attestation,
         }
+        if self._continued_from is not None:
+            trace_payload["continued_from"] = dict(self._continued_from)
+        if self._tags:
+            # The API stores a trace's top-level ``tags`` as its tags. Beside the
+            # attestation, not in it: the chain covers the events alone.
+            trace_payload["tags"] = list(self._tags)
         if self._capped:
             trace_payload["truncated"] = True
             trace_payload["max_events"] = self.MAX_EVENTS
@@ -446,7 +503,7 @@ class TraceCollector:
         canonical ``agent.identity`` event. Caller holds ``self._lock``; runs at
         flush before sealing.
 
-        The honest name a producer already declared (a @stratix.trace name, a
+        The honest name a producer already declared (a @trace name, a
         crew/agent name, a langgraph node) lives scattered across per-adapter
         payload keys the server never reads. :func:`honest_agent_identity`
         resolves the ONE honest name (or None), and this appends a single
@@ -479,6 +536,74 @@ class TraceCollector:
             span_name=None,
         )
 
+    def _hold_open(self, stream: Any) -> Optional["_StreamHold"]:
+        """Keep the trace open for ``stream``, a provider stream opened in it, until it ends.
+
+        A stream ends when it is read to its end or fails, is closed, or is garbage-collected
+        unread; its events reach this trace whenever that is. None when the trace is sealed.
+        """
+        _start_releasing()  # here, outside any collection and lock: where a collection's releases go
+        hold = _StreamHold(self)
+        with self._lock:
+            if self._sealed:
+                return None
+            self._open_streams += 1
+            self._holds_by_stream[stream] = hold
+            self._open_holds.append(hold)
+            # A stream dropped before it was ever read runs no code of its own when collected. The
+            # finalizer keeps this trace (its events) in memory until the stream ends (read,
+            # closed after a read, collected) or the process exits; the release detaches it, so a
+            # finished stream the program keeps does not keep its trace. At exit the hook has
+            # already ended a hold still open, so a late release changes nothing.
+            hold.finalizer = weakref.finalize(stream, hold.release)
+        return hold
+
+    def _when_stream_ends(self, value: Any, callback: "Callable[[Any, Optional[BaseException]], None]") -> bool:
+        """Call ``callback(reply, error)`` once ``value``, a stream opened in this trace, ends; at
+        once when it already has. ``reply`` is what it replied (None when it ended without a
+        reply), ``error`` what it failed with (None unless it failed). False, and no call, for any
+        other value.
+        """
+        try:
+            hold = self._holds_by_stream.get(value)
+        except TypeError:  # a value that cannot be weakly referenced is no stream of ours
+            return False
+        if hold is None:
+            return False
+        if not hold.call_when_ended(callback):
+            callback(hold.reply, hold.error)  # it ended before it was returned: how is known
+        return True
+
+    def _stream_ended(self, hold: "_StreamHold") -> None:
+        with self._lock:
+            self._open_streams -= 1
+            if hold in self._open_holds:
+                self._open_holds.remove(hold)
+            due = self._finish_when_streams_end and self._open_streams == 0
+            if due:
+                self._finish_when_streams_end = False
+                with _waiting_lock:
+                    _waiting_for_streams.discard(self)
+        if due:
+            self.flush()
+
+    def _finish(self) -> None:
+        """The trace's own code has ended (a ``trace`` function returned, a ``trace_context``
+        block closed): upload the trace now, or once every stream opened in it has ended.
+
+        A stream the function returns is read by its caller after the function has returned, so
+        the call it streams (``model.invoke``, ``cost.record``) is recorded only then (S2). A trace
+        still waiting when the process exits is uploaded by the exit hook with what it has.
+        """
+        with self._lock:
+            wait = self._open_streams > 0 and not self._sealed
+            if wait:
+                self._finish_when_streams_end = True
+                with _waiting_lock:
+                    _waiting_for_streams.add(self)
+        if not wait:
+            self.flush()
+
     def terminate(self, reason: str) -> None:
         """Permanently mark this trace non-attestable (a safety-stop / policy
         halt). The next flush() fails CLOSED: the chain can no longer be
@@ -510,3 +635,205 @@ class TraceCollector:
             enqueue_upload(self._client, payload)
         else:
             _quarantine(payload)
+
+
+class _StreamHold:
+    """A stream opened in a trace, holding the trace open until the stream ends (S2).
+
+    ``reply`` is what the stream replied, set by the stream when it was read to its end;
+    ``error`` is what it failed with, set by the stream when it raised.
+    """
+
+    __slots__ = ("_collector", "_held", "_lock", "_on_end", "reply", "error", "finalizer")
+
+    def __init__(self, collector: TraceCollector) -> None:
+        self._collector = collector
+        self._held = True
+        self._lock = threading.Lock()
+        self._on_end: "Optional[Callable[[Any, Optional[BaseException]], None]]" = None
+        self.reply: Any = None
+        self.error: Optional[BaseException] = None
+        self.finalizer: "Optional[weakref.finalize[Any, Any]]" = None
+
+    def call_when_ended(self, callback: "Callable[[Any, Optional[BaseException]], None]") -> bool:
+        """Call ``callback(reply, error)`` when the stream ends; False if it already has."""
+        with self._lock:
+            if not self._held:
+                return False
+            self._on_end = callback
+            return True
+
+    def release(self) -> None:
+        """The stream ended. Safe to call more than once; never raises into the caller's loop.
+
+        In a garbage collection (a stream collected unread, or a started one the collection closes)
+        this thread may be holding any lock of this SDK's, so the release is handed to the
+        releasing thread instead of taking them here.
+        """
+        if _in_collection():
+            _handed_off.put(self)  # SimpleQueue.put is reentrant: safe inside a collection
+            return
+        with self._lock:
+            if not self._held:
+                return
+            self._held = False
+            on_end, self._on_end = self._on_end, None
+            finalizer, self.finalizer = self.finalizer, None
+        if finalizer is not None:
+            finalizer.detach()  # it held this trace in memory for as long as the stream lives
+        if on_end is not None:
+            try:
+                on_end(self.reply, self.error)
+            except Exception:  # the caller is reading its stream; tracing must not break it
+                log.warning("layerlens: could not record the output of a stream's trace", exc_info=True)
+        try:
+            self._collector._stream_ended(self)  # noqa: SLF001
+        except Exception:  # the caller is reading its stream; tracing must not break it
+            log.warning("layerlens: could not upload the trace its stream held open", exc_info=True)
+
+
+# Traces whose code has ended while a stream opened in them is still being read (S2).
+_waiting_for_streams: Set[TraceCollector] = set()
+_waiting_lock = threading.Lock()
+
+
+class _Barrier:
+    """Put behind the releases handed off so far, by flush() and the exit: once the releasing
+    thread, which does them in order, reaches it, every one of them is done."""
+
+    __slots__ = ("done",)
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+
+    def release(self) -> None:
+        self.done.set()
+
+
+# Releases a garbage collection hands off (S2). A collection runs a dropped stream's release (its
+# finalizer, or the ``finally`` of a started stream it closes) inside whatever the collecting thread
+# was doing, which can be holding a trace's lock, the upload queue's or a logging handler's: a
+# release that took one of them again hung the program. In a collection a release only puts its
+# hold here, and the releasing thread does it; flush() and the exit wait for what is here.
+_handed_off: "queue.SimpleQueue[Union[_StreamHold, _Barrier]]" = queue.SimpleQueue()
+# Held while flush() or the exit does the handed-off releases itself (no releasing thread runs),
+# so a second one waits for them too. Reentrant: a release can reach a loss callback, and a loss
+# callback may call flush().
+_releasing_here = threading.RLock()
+_releaser: Optional[threading.Thread] = None
+_releaser_lock = threading.Lock()
+# The thread running a garbage collection, while it runs (a gc callback keeps it).
+_collecting_thread: Optional[int] = None
+_watching_collections = False
+
+
+def _note_collection(phase: str, _info: Dict[str, int]) -> None:
+    global _collecting_thread
+    _collecting_thread = threading.get_ident() if phase == "start" else None
+
+
+def _in_collection() -> bool:
+    """Whether this thread is inside a garbage collection, where a release must not take a lock."""
+    collecting = _collecting_thread
+    return collecting is not None and collecting == threading.get_ident()
+
+
+def _start_releasing() -> None:
+    """Watch collections, and run the releasing thread if it is not running (after a fork, say).
+
+    Called as a stream is opened, so before any release a collection could hand off.
+    """
+    global _releaser, _watching_collections
+    with _releaser_lock:
+        if not _watching_collections:
+            gc.callbacks.append(_note_collection)
+            _watching_collections = True
+        if _releaser is not None and _releaser.is_alive():
+            return
+        releaser = threading.Thread(target=_release_handed_off, name="layerlens-stream-release", daemon=True)
+        try:
+            releaser.start()
+        except Exception:
+            # No new threads at interpreter shutdown, or none left: what is handed off waits for
+            # flush(), the exit, or the next stream opened.
+            return
+        _releaser = releaser
+
+
+def _release_handed_off() -> None:
+    """The releasing thread: does the releases collections hand off, in order, at once."""
+    while True:
+        item = _handed_off.get()
+        try:
+            item.release()
+        except Exception:  # the thread outlives one failed release
+            log.warning("layerlens: could not end a stream's hold on its trace", exc_info=True)
+
+
+def _do_handed_off_releases(deadline: Optional[float] = None) -> bool:
+    """Wait until every release handed off so far is done; False if ``deadline`` came first.
+
+    flush() runs it before it waits, and the exit before it drains, so what the releases queue
+    is waited for. The releasing thread does them in order, so a barrier put behind them is
+    reached once the last is done, even one the thread has taken off the queue and not finished
+    (CodeRabbit on #99). Without that thread (it could not start, or the process forked), or on it
+    (a loss callback calling flush()), they are done here, within the deadline too: a release
+    that fails is logged, and the others are still done.
+    """
+    releaser = _releaser
+    if releaser is not None and releaser.is_alive() and releaser is not threading.current_thread():
+        barrier = _Barrier()
+        _handed_off.put(barrier)
+        if deadline is None:
+            barrier.done.wait()
+            return True
+        return barrier.done.wait(_seconds_left(deadline))
+    # Another flush may be doing them: wait for it, but not past the deadline.
+    if not (
+        _releasing_here.acquire() if deadline is None else _releasing_here.acquire(timeout=_seconds_left(deadline))
+    ):
+        return False
+    try:
+        while True:
+            try:
+                item = _handed_off.get_nowait()
+            except queue.Empty:
+                return True
+            try:
+                item.release()
+            except Exception:  # one failed release must not leave the others queued (CodeRabbit on #100)
+                log.warning("layerlens: could not end a stream's hold on its trace", exc_info=True)
+            if deadline is not None and time.monotonic() >= deadline:
+                return _handed_off.empty()
+    finally:
+        _releasing_here.release()
+
+
+def _seconds_left(deadline: float) -> float:
+    """What is left until ``deadline``, as a wait takes it: a wait raises OverflowError past
+    threading.TIMEOUT_MAX."""
+    return min(threading.TIMEOUT_MAX, max(0.0, deadline - time.monotonic()))
+
+
+_run_before_flush(_do_handed_off_releases)
+
+# How long the exit waits for the handed-off releases. Each is quick; a hold still open after it
+# is released below, with the traces still waiting for their streams.
+_HANDED_OFF_AT_EXIT_S = 1.0
+
+
+def _upload_traces_waiting_for_streams() -> None:
+    """At exit, before the uploads drain: a trace still waiting for its stream goes with what it has."""
+    _do_handed_off_releases(time.monotonic() + _HANDED_OFF_AT_EXIT_S)
+    with _waiting_lock:
+        waiting = list(_waiting_for_streams)
+        _waiting_for_streams.clear()
+    for collector in waiting:
+        with collector._lock:  # noqa: SLF001
+            holds = list(collector._open_holds)  # noqa: SLF001
+        for hold in holds:  # a stream still open ends here, with no reply
+            hold.release()
+        collector.flush()
+
+
+_run_before_exit_drain(_upload_traces_waiting_for_streams)

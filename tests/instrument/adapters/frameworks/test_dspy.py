@@ -12,10 +12,12 @@ import sys
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("dspy requires Python >= 3.10", allow_module_level=True)
 
-dspy = pytest.importorskip("dspy", reason="dspy not installed")
+dspy = importorskip("dspy", reason="dspy not installed")
 
 from importlib.metadata import version as _pkg_version  # noqa: E402
 
@@ -32,6 +34,7 @@ from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.frameworks.dspy import DSPyAdapter, instrument_dspy  # noqa: E402
 
 from .conftest import find_event, find_events, capture_framework_trace  # noqa: E402
+from ._dspy_support import served_lm  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -244,28 +247,19 @@ class TestHonestySkips:
     def test_real_usage_produces_a_priced_cost_record(self, mock_client):
         """A real usage payload on the LM's history entry -> tokens + priced cost.
 
-        Drives the real correlation path (``entry["outputs"] is outputs``) rather
-        than calling the probe directly.
+        A real ``dspy.LM`` parses a provider response carrying usage and DSPy
+        records it on the history entry, so the adapter's real correlation path
+        (``entry["outputs"] is outputs``) is what is under test, not the probe.
         """
         uploaded = capture_framework_trace(mock_client)
 
-        class UsageLM(DummyLM):
-            """A DummyLM whose response carries usage — DSPy's own
-            ``_process_lm_response`` then records it on the history entry, so the
-            adapter's real correlation path is what is under test."""
-
-            def forward(self, prompt=None, messages=None, **kwargs):
-                response = super().forward(prompt=prompt, messages=messages, **kwargs)
-                response.usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
-                return response
-
-        lm = UsageLM([{"answer": "blue"} for _ in range(4)])
-        lm.model = "openai/gpt-4o-mini"
-        _configure(lm)
-        adapter = DSPyAdapter(mock_client, capture_config=CaptureConfig.full())
-        adapter.connect()
-        MyQA()(question="q?")
-        adapter.disconnect()
+        usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+        with served_lm("openai/gpt-4o-mini", {"answer": "blue"}, usage) as (lm, _):
+            _configure(lm)
+            adapter = DSPyAdapter(mock_client, capture_config=CaptureConfig.full())
+            adapter.connect()
+            MyQA()(question="q?")
+            adapter.disconnect()
 
         invoke = find_event(uploaded["events"], "model.invoke")["payload"]
         assert invoke["tokens_prompt"] == 100

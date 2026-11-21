@@ -23,9 +23,9 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.models import Result
-from layerlens._exceptions import StratixError, APIResponseValidationError
+from layerlens._exceptions import LayerLensError, APIResponseValidationError
 
 CORPUS = Path(__file__).resolve().parents[1] / "contract" / "corpus"
 
@@ -44,8 +44,8 @@ def _corpus(name: str) -> Any:
     return json.loads((CORPUS / name).read_text())
 
 
-def _client(results_pages: List[Any]) -> Stratix:
-    """A real Stratix serving `results_pages` in order, one per `/results` request.
+def _client(results_pages: List[Any]) -> LayerLens:
+    """A real LayerLens serving `results_pages` in order, one per `/results` request.
 
     Pages are handed out sequentially so pagination walks are exercised exactly as
     a customer's ``get_all()`` would drive them.
@@ -66,11 +66,11 @@ def _client(results_pages: List[Any]) -> Stratix:
 
     transport = httpx.MockTransport(handle)
 
-    class _MockTransportStratix(Stratix):
+    class _MockTransportLayerLens(LayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
             return transport
 
-    return _MockTransportStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
 def _page(results: List[Dict[str, Any]], *, total_count: Optional[int] = None) -> Dict[str, Any]:
@@ -247,7 +247,7 @@ def test_get_by_id_raises_a_layerlens_error_on_a_bad_body() -> None:
     offending payload, so a customer can report the drift instead of guessing."""
     client = _client([{"evaluation_id": "e", "results": [_row(score="not-a-number")], "metrics": {"total_count": 1}}])
 
-    with pytest.raises(StratixError) as caught:
+    with pytest.raises(LayerLensError) as caught:
         client.results.get_by_id(evaluation_id="68a1f0c2d4e5b6a7c8d9e001")
 
     assert isinstance(caught.value, APIResponseValidationError)
@@ -282,7 +282,7 @@ def test_get_all_raises_when_a_page_is_empty_before_the_last() -> None:
     ]
     client = _client(pages)
 
-    with pytest.raises(StratixError, match="page 2 of 3"):
+    with pytest.raises(LayerLensError, match="page 2 of 3"):
         client.results.get_all_by_id(evaluation_id="68a1f0c2d4e5b6a7c8d9e001")
 
 
@@ -329,10 +329,10 @@ def test_async_get_all_raises_instead_of_truncating() -> None:
 
     transport = httpx.MockTransport(handle)
 
-    from layerlens import AsyncStratix
+    from layerlens import AsyncLayerLens
     from layerlens.models import Project, Organization
 
-    class _MockTransportAsyncStratix(AsyncStratix):
+    class _MockTransportAsyncLayerLens(AsyncLayerLens):
         def _get_organization(self) -> Organization:
             return Organization(
                 id="68a1f0c2d4e5b6a7c8d9e100",
@@ -343,7 +343,7 @@ def test_async_get_all_raises_instead_of_truncating() -> None:
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.AsyncBaseTransport:
             return transport
 
-    client = _MockTransportAsyncStratix(api_key="test-key", base_url=BASE_URL)
+    client = _MockTransportAsyncLayerLens(api_key="test-key", base_url=BASE_URL)
 
     async def drive() -> None:
         await client.results.get_all_by_id(evaluation_id="68a1f0c2d4e5b6a7c8d9e001")

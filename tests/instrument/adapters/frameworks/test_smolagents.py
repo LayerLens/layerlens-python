@@ -13,7 +13,9 @@ from unittest.mock import Mock, MagicMock
 
 import pytest
 
-smolagents = pytest.importorskip("smolagents")
+from tests._optional_deps import importorskip
+
+smolagents = importorskip("smolagents")
 from smolagents import ToolCall, ActionStep, PlanningStep, FinalAnswerStep  # noqa: E402
 from smolagents.memory import Timing, CallbackRegistry  # noqa: E402
 from smolagents.monitoring import TokenUsage  # noqa: E402

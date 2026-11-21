@@ -1,6 +1,6 @@
 # Creating Evaluations
 
-Examples for creating evaluations on the Stratix platform using the LayerLens Python SDK.
+Examples for creating evaluations on the LayerLens platform using the LayerLens Python SDK.
 
 > Before running the below examples ensure the model and benchmark being run are present on your organization.
 
@@ -11,10 +11,10 @@ Examples for creating evaluations on the Stratix platform using the LayerLens Py
 > Source: [`samples/core/benchmark_evaluation.py`](../../samples/core/benchmark_evaluation.py)
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Construct sync client (API key from env or inline)
-client = Stratix()
+client = LayerLens()
 
 # --- Models
 models = client.models.get()
@@ -52,9 +52,9 @@ else:
 > Source: [`samples/core/benchmark_evaluation.py`](../../samples/core/benchmark_evaluation.py)
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 models = client.models.get(type="public", name="gpt-4o")
 model = models[0]
@@ -75,11 +75,11 @@ evaluation = client.evaluations.create(
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     print(f"Found {len(models)} models")
@@ -111,12 +111,12 @@ if __name__ == "__main__":
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 from layerlens.models import EvaluationStatus
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # --- Sort by accuracy (highest first)
     response = await client.evaluations.get_many(
@@ -205,7 +205,7 @@ comparison = client.comparisons.compare(
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def create_and_run_evaluation(client, model, benchmark, eval_number):
@@ -231,7 +231,7 @@ async def create_and_run_evaluation(client, model, benchmark, eval_number):
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -258,11 +258,11 @@ if __name__ == "__main__":
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -303,11 +303,11 @@ if __name__ == "__main__":
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -331,7 +331,7 @@ if __name__ == "__main__":
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def fetch_evaluation_results(client, evaluation_id):
@@ -346,7 +346,7 @@ async def fetch_evaluation_results(client, evaluation_id):
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     evaluation_ids = ["68a65a3de7ad047fb5d8e7d4", "688a254c673f6b2835cc7278"]
 
@@ -364,10 +364,10 @@ if __name__ == "__main__":
 ## Error Handling
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 import layerlens
 
-client = Stratix()
+client = LayerLens()
 
 try:
     models = client.models.get()

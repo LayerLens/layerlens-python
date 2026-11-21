@@ -6,8 +6,8 @@ queries against a knowledge base and a Quality Judge agent evaluates
 retrieval quality, answer groundedness, and completeness.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python rag_assessment.py
@@ -19,7 +19,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -96,7 +96,8 @@ def main() -> None:
     print("=== LayerLens Co-Work: RAG Quality Assessment ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -176,12 +177,13 @@ def main() -> None:
                     judge_id=judge_obj.id,
                 )
                 results = poll_evaluation_results(client, evaluation.id)
-                score = 0.0
-                passed = False
-                if results:
-                    r = results[0]
-                    score = r.score
-                    passed = r.passed
+                if not results:
+                    # The evaluation failed or did not finish (the helper logged why): no verdict.
+                    print(f"  {label:12s} no verdict (the evaluation failed or did not finish)")
+                    continue
+                r = results[0]
+                score = r.score
+                passed = r.passed
                 verdict = "pass" if passed else "fail"
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:12s} {color}{verdict.upper()}{_RESET} ({score:.2f})")

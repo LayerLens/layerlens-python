@@ -23,7 +23,7 @@ def main() -> None:
     try:
         import boto3  # type: ignore[import-not-found]
     except ImportError:
-        print("Install: pip install 'layerlens[bedrock]' boto3")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]" boto3')
         return
 
     if not (os.environ.get("BEDROCK_AGENT_ID") and os.environ.get("BEDROCK_AGENT_ALIAS_ID")):

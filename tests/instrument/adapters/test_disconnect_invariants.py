@@ -23,6 +23,8 @@ from dataclasses import field, dataclass
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 
 def _stub(name: str) -> Callable[..., Dict[str, str]]:
     def fn(*args: Any, **kwargs: Any) -> Dict[str, str]:
@@ -339,7 +341,7 @@ _CASE_IDS = [c.id for c in CASES]
 def case(request: Any) -> Case:
     c: Case = request.param
     if c.requires is not None:
-        pytest.importorskip(c.requires)
+        importorskip(c.requires)
     return c
 
 
@@ -401,7 +403,7 @@ class TestDisconnectInvariants:
 
 class TestLiteLLMModuleRestore:
     def test_disconnect_restores_module_functions(self, mock_client: Any) -> None:
-        litellm = pytest.importorskip("litellm")
+        litellm = importorskip("litellm")
         from layerlens.instrument.adapters.providers.litellm import LiteLLMProvider
 
         orig_completion = litellm.completion
@@ -426,7 +428,7 @@ class TestLiteLLMModuleRestore:
 
 class TestPydanticAIRestore:
     def test_disconnect_restores_agent_surface(self, mock_client: Any) -> None:
-        pytest.importorskip("pydantic_ai")
+        importorskip("pydantic_ai")
         from pydantic_ai import Agent
         from pydantic_ai.models.test import TestModel
 
@@ -473,7 +475,7 @@ class _FakeBotoEvents:
 
 class TestBedrockAgentsEventSystem:
     def test_disconnect_removes_only_own_handlers(self, mock_client: Any) -> None:
-        pytest.importorskip("boto3")
+        importorskip("boto3")
         from layerlens.instrument.adapters.frameworks.bedrock_agents import (
             BedrockAgentsAdapter,
         )

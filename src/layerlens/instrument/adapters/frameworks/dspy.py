@@ -44,6 +44,7 @@ from typing import Any, Dict, List, Tuple, Optional, NamedTuple
 from collections import OrderedDict
 from contextvars import ContextVar
 
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -466,7 +467,7 @@ class DSPyAdapter(FrameworkAdapter):
                 self._set_identity(payload, agent_name)
                 if error is not None:
                     self._set_if_capturing(payload, "error", _safe_str(str(error), limit=400))
-                    payload["error_type"] = type(error).__name__
+                    payload.update(error_category(error))
                 self._emit("agent.output", payload, run_id=run_id, span_name=f"dspy:{optimizer_type}.compile")
                 # The compiled program is a NEW object (demos attached) — describe
                 # it rather than inventing an output_text for it.
@@ -584,7 +585,7 @@ class DSPyAdapter(FrameworkAdapter):
             # error_type is the CATEGORY and always survives; str(exc) is CONTENT
             # (a real dspy AdapterParseError embeds the raw LM response verbatim).
             self._set_if_capturing(payload, "error", _safe_str(str(error), limit=400))
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
         self._emit(
             "agent.output",
             payload,
@@ -662,7 +663,7 @@ class DSPyAdapter(FrameworkAdapter):
             payload["latency_ms"] = latency_ms
         if error is not None:
             self._set_if_capturing(payload, "error", _safe_str(str(error), limit=400))
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
         self._emit(
             "model.invoke",
             payload,
@@ -709,7 +710,7 @@ class DSPyAdapter(FrameworkAdapter):
             self._set_identity(payload, frame.agent_name)
         if exception is not None:
             self._set_if_capturing(payload, "error", _safe_str(str(exception), limit=400))
-            payload["error_type"] = type(exception).__name__
+            payload.update(error_category(exception))
         self._emit(
             "tool.call",
             payload,

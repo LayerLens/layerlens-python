@@ -6,7 +6,7 @@
 
 ## Telemetry / privacy invariants
 
-> Skip this section only if the PR does **not** touch `src/layerlens/instrument/**` (adapters, an `emit()` call-site, an event type, or the capture/redaction machinery). These are enforced by the **Invariant Gates** CI check (`rye run pytest -m invariant`) — but confirm them here so review catches intent, not just mechanics. See `CONTRIBUTING.md` → *Invariants & guards*.
+> Skip this section only if the PR does **not** touch `src/layerlens/instrument/**` (adapters, an `emit()` call-site, an event type, or the capture/redaction machinery). These are enforced by the **Invariant Gates** CI check (`uv run pytest -m invariant`) — but confirm them here so review catches intent, not just mechanics. See `CONTRIBUTING.md` → *Invariants & guards*.
 
 - [ ] **New event types** are registered in `tests/instrument/_event_schema.py` (`KNOWN_EVENT_TYPES`).
 - [ ] **Every content field** I emit (prompt / message / input / output / arguments / result / error / code / state / query / context / …) is in `_CONTENT_KEYS` for its event type, so `capture_content=False` strips it. *(The keys-must-match + reverse guard enforce this; the L7 sweep proves no SENTINEL survives.)*
@@ -18,9 +18,9 @@
 
 ## Verification
 
-- [ ] `rye run pytest -m invariant` is green locally.
+- [ ] `uv run pytest -m invariant` is green locally.
 - [ ] Affected per-adapter venvs are green (`/Users/.../.audit-venvs/<adapter>`), or N/A.
-- [ ] Full suite (`rye run pytest`) green, or CI will run it.
+- [ ] Full suite (`./scripts/test`) green, or CI will run it.
 
 ---
 🤖 Authoring assisted by [Claude Code](https://claude.com/claude-code)

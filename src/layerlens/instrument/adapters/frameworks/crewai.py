@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 import logging
-from typing import Any, Dict, List, Tuple, Optional
+import threading
+from typing import Any, Dict, List, Tuple, Iterator, Optional
 
 from ._utils import safe_serialize
 from ._handoff import scrub_context
@@ -52,6 +53,60 @@ try:
 except (ImportError, TypeError):
     _BaseEventListener = None
 
+# crewai's stack of open event scopes (outermost first) for the current context.
+# The bus runs each handler in a copy of the emitting context, so inside a handler
+# this is the emitted event's full ancestry: it does not depend on the ancestors'
+# own handlers having run yet (crewai runs each event's handlers as a separate
+# thread-pool task), nor on the adapter subscribing to every scope event. It is a
+# private crewai name (same shape on 1.14 and 1.15); without it the adapter falls
+# back to the lineage its own handlers record.
+try:
+    from crewai.events.event_context import (
+        _event_id_stack as _crewai_scope_stack,
+    )  # pyright: ignore[reportMissingImports]
+except (ImportError, TypeError):
+    _crewai_scope_stack = None
+
+
+def _scope_stack() -> List[Tuple[str, Optional[str]]]:
+    """crewai's open scopes as ``(event_id, event_type)``, outermost first, or [] when the
+    private stack is absent or holds something other than the ``(event_id,
+    event_type)`` entries 1.14 and 1.15 use. A release can keep the name and
+    change its contents; lineage then comes from the adapter's own handlers
+    alone, rather than every handler failing on it."""
+    if _crewai_scope_stack is None:
+        return []
+    try:
+        stack = _crewai_scope_stack.get()
+    except LookupError:
+        return []
+    if not isinstance(stack, (tuple, list)):
+        return []
+    scopes: List[Tuple[str, Optional[str]]] = []
+    for entry in stack:
+        if not (isinstance(entry, (tuple, list)) and entry and isinstance(entry[0], str)):
+            log.debug("layerlens: unrecognised crewai scope stack entry %r; using handler lineage", entry)
+            return []
+        kind = entry[1] if len(entry) > 1 and isinstance(entry[1], str) else None
+        scopes.append((entry[0], kind))
+    return scopes
+
+
+def _scope_stack_ids() -> List[str]:
+    """The event ids of crewai's open scopes, outermost first (see :func:`_scope_stack`)."""
+    return [event_id for event_id, _ in _scope_stack()]
+
+
+# The scopes whose start the adapter records a span for: a crew, task, agent, flow or tool.
+_SPAN_SCOPES = frozenset(
+    {"crew_kickoff_started", "task_started", "agent_execution_started", "flow_started", "tool_usage_started"}
+)
+
+# How long a handler waits for the span of an ancestor scope whose handler is still running.
+# crewai runs handlers on a pool of 10 threads, so a child event's can run before its
+# parent's has recorded the parent's span: the AgentExecutor flow then hung under the task.
+_ANCESTOR_SPAN_WAIT_SECONDS = 1.0
+
 
 class CrewAIAdapter(FrameworkAdapter):
     """CrewAI adapter using the typed event bus API (crewai >= 1.0).
@@ -69,11 +124,17 @@ class CrewAIAdapter(FrameworkAdapter):
     them into a tree rooted at the kickoff event (verified live for two
     interleaved concurrent kickoffs). This adapter therefore keeps one
     ``RunState`` per root event_id in ``self._runs`` and, for every incoming
-    event, walks the ``parent_event_id`` chain back to its owning root to find
+    event, walks the ``parent_event_id`` chain back to its owning root (an end
+    event whose ``started_event_id`` opened a run belongs to that run) to find
     the right run — then binds ``_current_run`` / ``_current_collector`` for the
     duration of that one handler so ``_fire`` and the per-run state resolve
     correctly. This mirrors ``openai_agents.py`` (``_trace_runs`` keyed by
     ``trace_id`` + per-callback ``_current_collector.set``).
+
+    Lineage also decides run boundaries (LAY-4241): a crew / flow start whose
+    lineage resolves to an open run is a nested span of that run (crewai >=
+    1.14.7's internal ``AgentExecutor`` flow, or a crew run from a customer's
+    Flow), and only the event that opened a run ends its trace.
 
     Usage::
 
@@ -94,6 +155,8 @@ class CrewAIAdapter(FrameworkAdapter):
         self._runs: Dict[str, RunState] = {}
         # event_id -> parent_event_id, so any event can be traced to its root.
         self._event_parents: Dict[str, Optional[str]] = {}
+        # Notified whenever a handler records the span it opened for an event.
+        self._spans_recorded = threading.Condition()
         # event_id -> owning root event_id (memoised chain walk).
         self._event_root: Dict[str, str] = {}
         # Fallback collector slot for callers that drive ``_fire`` outside a run
@@ -227,6 +290,26 @@ class CrewAIAdapter(FrameworkAdapter):
             return f"llm:{agent_id}:{task_id}"
         return "llm:current"
 
+    # Run-opening events. Each maps to the handler that runs instead when the
+    # event's lineage resolves to a run that is already open, so it becomes a
+    # nested span of that run (LAY-4241). crewai >= 1.14.7 runs every agent
+    # execution inside an internal ``AgentExecutor`` Flow; a crew or agent run
+    # from a customer's own Flow method is the same shape. Treating those as new
+    # runs split one execution across traces.
+    _START_HANDLERS = {
+        "_on_crew_started": "_on_nested_crew_started",
+        "_on_flow_started": "_on_nested_flow_started",
+    }
+
+    # crewai scope-opening events the adapter does not render but must remember
+    # for lineage, so whatever starts inside them still resolves to its run: a
+    # crew kicked off from a Flow method has a MethodExecutionStartedEvent parent,
+    # and ``Agent.kickoff()`` opens a LiteAgentExecutionStartedEvent scope.
+    _LINEAGE_ONLY_EVENTS = (
+        "MethodExecutionStartedEvent",
+        "LiteAgentExecutionStartedEvent",
+    )
+
     _EVENT_MAP = [
         ("CrewKickoffStartedEvent", "_on_crew_started"),
         ("CrewKickoffCompletedEvent", "_on_crew_completed"),
@@ -249,9 +332,12 @@ class CrewAIAdapter(FrameworkAdapter):
         ("MCPToolExecutionFailedEvent", "_on_mcp_tool_failed"),
     ]
 
-    # Run-start handlers open a new run; everything else attaches to an
-    # existing one. Used by the dispatch wrapper to bind the right run context.
-    _START_HANDLERS = frozenset({"_on_crew_started", "_on_flow_started"})
+    # Events only some crewai versions emit; subscribed when the class exists.
+    # FlowFailedEvent arrives in 1.15: before it, a failed flow emits no end event,
+    # so its run stays open until disconnect().
+    _OPTIONAL_EVENT_MAP = [
+        ("FlowFailedEvent", "_on_flow_failed"),
+    ]
 
     # Optional delegation events — class names vary across crewai versions.
     # We attempt to subscribe to each at connect time, swallowing AttributeError
@@ -299,15 +385,24 @@ class CrewAIAdapter(FrameworkAdapter):
         # binds the owning run's context before delegating (see _dispatch).
         def _make_handler(method_name):
             target = getattr(self, method_name)
-            is_start = method_name in self._START_HANDLERS
+            nested_name = self._START_HANDLERS.get(method_name)
+            nested_target = getattr(self, nested_name) if nested_name else None
 
             def _handler(source: Any, event: Any) -> None:
                 try:
-                    self._dispatch(target, is_start, source, event)
+                    self._dispatch(target, nested_target, source, event)
                 except Exception:
                     log.warning("layerlens: error in CrewAI event handler", exc_info=True)
 
             return _handler
+
+        def _lineage_handler(_source: Any, event: Any) -> None:
+            try:
+                self._record_lineage(event)
+                # Ties the event to its run, so the run's end drops its lineage too.
+                self._root_for(event)
+            except Exception:
+                log.warning("layerlens: error recording CrewAI event lineage", exc_info=True)
 
         for event_name, method_name in self._EVENT_MAP:
             event_cls = getattr(ev, event_name)
@@ -315,8 +410,16 @@ class CrewAIAdapter(FrameworkAdapter):
             ev.crewai_event_bus.on(event_cls)(handler)
             self._registered_handlers.append((event_cls, handler))
 
-        # Delegation events are optional — not every crewai version ships them.
-        for event_name, method_name in self._DELEGATION_EVENT_MAP:
+        # Optional like the delegation events below: not every crewai version has them.
+        for event_name in self._LINEAGE_ONLY_EVENTS:
+            event_cls = getattr(ev, event_name, None)
+            if event_cls is None:
+                continue
+            ev.crewai_event_bus.on(event_cls)(_lineage_handler)
+            self._registered_handlers.append((event_cls, _lineage_handler))
+
+        # Optional and delegation events: not every crewai version ships them.
+        for event_name, method_name in self._OPTIONAL_EVENT_MAP + self._DELEGATION_EVENT_MAP:
             event_cls = getattr(ev, event_name, None)
             if event_cls is None:
                 continue
@@ -369,38 +472,68 @@ class CrewAIAdapter(FrameworkAdapter):
     # ------------------------------------------------------------------
 
     def _record_lineage(self, event: Any) -> None:
-        """Remember event_id -> parent_event_id so any event can find its root."""
+        """Remember child -> parent event ids so any event can find its root.
+
+        Records the event's own ``parent_event_id`` and, from crewai's scope stack,
+        every link of its ancestry. The stack makes lineage independent of handler
+        order and of which scope events the adapter subscribes to, and it re-adds
+        links the bounded map evicted while a long run was still open.
+        """
+        links: List[Tuple[str, Optional[str]]] = []
         eid = getattr(event, "event_id", None)
-        if eid is None:
-            return
+        if eid is not None:
+            links.append((eid, getattr(event, "parent_event_id", None)))
+        stack = _scope_stack_ids()
+        for parent, child in zip(stack, stack[1:]):
+            links.append((child, parent))
         with self._lock:
-            if eid not in self._event_parents:
-                self._event_parents[eid] = getattr(event, "parent_event_id", None)
-                # Bound the map; in-flight runs are unaffected (RunState owns root).
-                if len(self._event_parents) > _MAX_TRACKED_EVENTS:
-                    self._event_parents.pop(next(iter(self._event_parents)), None)
+            for child, parent in links:
+                if child not in self._event_parents:
+                    self._event_parents[child] = parent
+                    # Bound the map: only orphan events are left in it once their
+                    # run ends (_end_trace drops a run's lineage).
+                    if len(self._event_parents) > _MAX_TRACKED_EVENTS:
+                        self._event_parents.pop(next(iter(self._event_parents)), None)
 
     def _root_for(self, event: Any) -> Optional[str]:
-        """Walk the parent chain back to a registered run's root event_id.
+        """Walk the event's lineage back to a registered run's root event_id.
+
+        An end event whose ``started_event_id`` opened a run belongs to that run:
+        crewai stamps a scope-ENDING event with its enclosing scope as parent, so
+        a top-level kickoff's ``CrewKickoffCompletedEvent`` has
+        ``parent_event_id=None`` and only ``started_event_id`` ties it to the run.
+        Every other event follows the ``parent_event_id`` chain.
 
         Returns the owning root event_id when found in ``self._runs``, else None.
         """
         eid = getattr(event, "event_id", None)
+        started = getattr(event, "started_event_id", None)
         with self._lock:
             # Memoised result.
             cached = self._event_root.get(eid) if eid is not None else None
             if cached is not None and cached in self._runs:
                 return cached
+            if started is not None and started in self._runs:
+                self._memoise_root(eid, started)
+                return started
             cur = eid
             seen = 0
             while cur is not None and seen < _MAX_TRACKED_EVENTS:
                 if cur in self._runs:
-                    if eid is not None:
-                        self._event_root[eid] = cur
+                    self._memoise_root(eid, cur)
                     return cur
                 cur = self._event_parents.get(cur)
                 seen += 1
         return None
+
+    def _memoise_root(self, eid: Optional[str], root: str) -> None:
+        """Cache *eid*'s run root (caller holds ``self._lock``). Bounded like the
+        lineage map; ``_end_trace`` drops a run's entries when it ends."""
+        if eid is None:
+            return
+        self._event_root[eid] = root
+        if len(self._event_root) > _MAX_TRACKED_EVENTS:
+            self._event_root.pop(next(iter(self._event_root)), None)
 
     def _resolve_run(self, event: Any) -> Optional[RunState]:
         """Find the RunState owning *event* (by lineage), or the lone active run.
@@ -417,17 +550,30 @@ class CrewAIAdapter(FrameworkAdapter):
                 return next(iter(self._runs.values()))
         return None
 
-    def _dispatch(self, target: Any, is_start: bool, source: Any, event: Any) -> None:
-        """Bind the owning run's context, then run the real handler."""
+    def _dispatch(self, target: Any, nested_target: Any, source: Any, event: Any) -> None:
+        """Bind the owning run's context, then run the real handler.
+
+        ``nested_target`` is set only for run-opening events (crew / flow start).
+        Such an event opens a new run unless its lineage resolves to a run that
+        is already open, in which case ``nested_target`` records it as a nested
+        span of that run. Lineage alone decides: the single-open-run fallback
+        would fold an unrelated concurrent kickoff into whatever run is open.
+        """
         self._record_lineage(event)
-        if is_start:
-            # Start handlers create + bind their own run.
-            target(source, event)
-            return
-        run = self._resolve_run(event)
-        if run is None:
-            # No owning run (completion with no start, or post-flush stray).
-            return
+        if nested_target is not None:
+            root = self._root_for(event)
+            with self._lock:
+                run = self._runs.get(root) if root is not None else None
+            if run is None:
+                # Opens, and binds, its own run.
+                target(source, event)
+                return
+            target = nested_target
+        else:
+            run = self._resolve_run(event)
+            if run is None:
+                # No owning run (completion with no start, or post-flush stray).
+                return
         run_token = _current_run.set(run)
         col_token = _current_collector.set(run.collector)
         try:
@@ -436,7 +582,7 @@ class CrewAIAdapter(FrameworkAdapter):
             _current_collector.reset(col_token)
             _current_run.reset(run_token)
 
-    def _begin_crew_run(self, event: Any, span_id: str) -> None:
+    def _begin_crew_run(self, event: Any, span_id: str, kind: str) -> None:
         """Open a per-run collector keyed by this kickoff's root event_id.
 
         Binds ``_current_run`` / ``_current_collector`` for the rest of THIS
@@ -464,11 +610,24 @@ class CrewAIAdapter(FrameworkAdapter):
         run = RunState(
             collector=collector,
             root_span_id=span_id,
-            data={"crew_span_id": span_id, "root_id": root_id, "borrowed_collector": borrowed},
+            data={
+                "crew_span_id": span_id,
+                "root_id": root_id,
+                # "crew" or "flow": which kind of end event may close the run.
+                "root_kind": kind,
+                "borrowed_collector": borrowed,
+                "event_spans": {root_id: span_id},
+                # Spans of the crews in this run, and those whose model calls
+                # emitted their own cost.record (see _on_crew_completed).
+                "crew_spans": {span_id} if kind == "crew" else set(),
+                "crews_with_call_costs": set(),
+            },
         )
         with self._lock:
             self._runs[root_id] = run
-            self._event_root[root_id] = root_id
+            self._memoise_root(root_id, root_id)
+        with self._spans_recorded:
+            self._spans_recorded.notify_all()
         run._col_token = _current_collector.set(collector)
         run._token = _current_run.set(run)
 
@@ -494,8 +653,136 @@ class CrewAIAdapter(FrameworkAdapter):
             span_name=span_name,
         )
 
-    def _leaf_parent(self) -> Optional[str]:
-        return self._current_agent_span_id or self._current_task_span_id or self._crew_span_id
+    def _remember_span(self, event: Any, span_id: str) -> None:
+        """Record the span opened for *event* so its descendants can find it."""
+        eid = getattr(event, "event_id", None)
+        if eid is not None:
+            spans = self._run_map("event_spans")
+            with self._spans_recorded:
+                spans[eid] = span_id
+                self._spans_recorded.notify_all()
+
+    def _closed_span(self, by_label: Dict[str, str], label: str, event: Any, fallback: Optional[str]) -> str:
+        """The span an end event closes: the one its own start opened, paired
+        through ``started_event_id`` (exact even when concurrent crews in one run
+        reuse a role or task label), else the span last opened under ``label``."""
+        started = getattr(event, "started_event_id", None)
+        spans = self._data_get("event_spans") or {}
+        span = spans.get(started) if started is not None else None
+        if span is None:
+            return by_label.pop(label, None) or fallback or self._new_span_id()
+        if by_label.get(label) == span:
+            by_label.pop(label, None)
+        return span
+
+    def _ancestor_span(self, event: Any) -> Optional[str]:
+        """The span this run opened for *event*'s nearest ancestor, by lineage.
+
+        crewai's lineage is the real nesting. Inside the 1.14.7+ AgentExecutor
+        flow an LLM call's parent is that flow, not the agent, and a crew run
+        from a Flow method sits under the flow. None when the event carries no
+        lineage this run knows (pre-1.14 crewai, or a bare event); callers fall
+        back to the tracked current task / agent.
+        """
+        return next(self._ancestor_spans(event), None)
+
+    def _ancestor_spans(self, event: Any) -> Iterator[str]:
+        """The spans this run opened for *event*'s ancestors, nearest first."""
+        spans = self._data_get("event_spans")
+        if not spans or event is None:
+            return
+        cur = getattr(event, "parent_event_id", None)
+        chain: List[str] = []
+        with self._lock:
+            while cur is not None and len(chain) < _MAX_TRACKED_EVENTS:
+                chain.append(cur)
+                cur = self._event_parents.get(cur)
+        # The ancestors whose handler records a span, as crewai's scope stack names them: one
+        # whose span is missing yet is still being handled on another thread.
+        span_scopes = {event_id for event_id, kind in _scope_stack() if kind in _SPAN_SCOPES}
+        for event_id in chain:
+            span = spans.get(event_id)
+            if span is None and event_id in span_scopes:
+                span = self._wait_for_span(spans, event_id)
+            if span is not None:
+                yield span
+
+    def _wait_for_span(self, spans: Dict[str, str], event_id: str) -> Optional[str]:
+        """The span recorded for *event_id* once its handler has run, or None after a short wait.
+
+        Never called under ``self._lock``: the handler being waited for takes it.
+        """
+        deadline = time.monotonic() + _ANCESTOR_SPAN_WAIT_SECONDS
+        with self._spans_recorded:
+            while event_id not in spans:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self._spans_recorded.wait(left)
+            return spans[event_id]
+
+    def _owning_crew_span(self, event: Any) -> Optional[str]:
+        """The span of the crew *event* runs in: its nearest crew ancestor, or, with
+        no lineage, the run's own crew."""
+        crews = self._data_get("crew_spans") or set()
+        for span in self._ancestor_spans(event):
+            if span in crews:
+                return span
+        return self._crew_span_id if self._data_get("root_kind") == "crew" else None
+
+    def _leaf_parent(self, event: Any = None) -> Optional[str]:
+        return (
+            self._ancestor_span(event)
+            or self._current_agent_span_id
+            or self._current_task_span_id
+            or self._crew_span_id
+        )
+
+    def _open_nested(self, event: Any, kind: str, name: str, payload: Dict[str, Any], span_name: str) -> str:
+        """Emit the input of a crew / flow that started inside this run, as a span
+        under its lineage parent. Only the event that opened the run ends it; this
+        span is closed by the matching end event (see :meth:`_closing`)."""
+        eid = getattr(event, "event_id", None)
+        span_id = self._new_span_id()
+        parent = self._leaf_parent(event)
+        self._remember_span(event, span_id)
+        self._run_map("nested_spans")[eid] = {"span_id": span_id, "parent_span_id": parent, "kind": kind, "name": name}
+        self._tick(f"nested:{eid}")
+        self._fire("agent.input", payload, span_id=span_id, parent_span_id=parent, span_name=span_name)
+        return span_id
+
+    def _closing(self, event: Any, kind: str, name: str) -> Tuple[str, Optional[str], Optional[str], Optional[float]]:
+        """What a crew / flow end event closes: ``("run", root span, None, latency)``,
+        ``("nested", span, parent span, latency)``, or ``("foreign", None, None, None)``
+        for the end of a span this run never opened.
+
+        crewai pairs an end event with its start through ``started_event_id``.
+        When that names neither the run nor a nested span of the same kind, there
+        was no pairing (pre-1.14 crewai, a bare event) or crewai's scope stack was
+        unbalanced: an end event pops whatever scope is on top, with an "Event
+        pairing mismatch" warning, so ``started_event_id`` names some other scope
+        (possibly the run's own root). Fall back to the most recently opened span
+        of the same kind and name, then to the run itself when a start of this
+        kind opened it.
+        """
+        nested = self._run_map("nested_spans")
+        started = getattr(event, "started_event_id", None)
+        opened_run = self._data_get("root_kind") == kind
+        key: Optional[str] = None
+        if started is not None and started in nested and nested[started]["kind"] == kind:
+            key = started
+        elif not (started is not None and started == self._data_get("root_id") and opened_run):
+            key = next(
+                (k for k in reversed(list(nested)) if nested[k]["kind"] == kind and nested[k]["name"] == name),
+                None,
+            )
+            if key is None and not opened_run:
+                log.debug("layerlens: ignoring CrewAI %s for a span this run did not open", type(event).__name__)
+                return "foreign", None, None, None
+        if key is not None:
+            span = nested.pop(key)
+            return "nested", span["span_id"], span["parent_span_id"], self._tock(f"nested:{key}")
+        return "run", self._crew_span_id or self._new_span_id(), None, self._tock("crew")
 
     def _tick(self, key: str) -> None:
         self._timers[key] = time.time_ns()
@@ -515,6 +802,11 @@ class CrewAIAdapter(FrameworkAdapter):
         with self._lock:
             if root_id is not None:
                 self._runs.pop(root_id, None)
+                # Drop the run's lineage: every event resolved to it is memoised here.
+                ended = [eid for eid, root in self._event_root.items() if root == root_id]
+                for eid in ended:
+                    self._event_root.pop(eid, None)
+                    self._event_parents.pop(eid, None)
         collector = run.collector
         if run._col_token is not None:
             try:
@@ -569,13 +861,17 @@ class CrewAIAdapter(FrameworkAdapter):
     # Crew lifecycle
     # ------------------------------------------------------------------
 
-    def _on_crew_started(self, source: Any, event: Any) -> None:
-        span_id = self._new_span_id()
-        self._begin_crew_run(event, span_id)
-        self._tick("crew")
+    def _crew_input(self, source: Any, event: Any) -> Tuple[str, Dict[str, Any]]:
         crew_name = getattr(event, "crew_name", None) or self._get_name(source)
         payload = self._payload(crew_name=crew_name)
         self._set_if_capturing(payload, "input", safe_serialize(getattr(event, "inputs", None)))
+        return crew_name, payload
+
+    def _on_crew_started(self, source: Any, event: Any) -> None:
+        span_id = self._new_span_id()
+        self._begin_crew_run(event, span_id, "crew")
+        self._tick("crew")
+        crew_name, payload = self._crew_input(source, event)
         self._fire(
             "agent.input",
             payload,
@@ -584,10 +880,18 @@ class CrewAIAdapter(FrameworkAdapter):
             span_name=crew_name,
         )
 
+    def _on_nested_crew_started(self, source: Any, event: Any) -> None:
+        crew_name, payload = self._crew_input(source, event)
+        span_id = self._open_nested(event, "crew", crew_name, payload, span_name=crew_name)
+        crews = self._data_get("crew_spans")
+        if crews is not None:
+            crews.add(span_id)
+
     def _on_crew_completed(self, source: Any, event: Any) -> None:
-        latency_ms = self._tock("crew")
         crew_name = getattr(event, "crew_name", None) or self._get_name(source)
-        span_id = self._crew_span_id or self._new_span_id()
+        closes, span_id, parent, latency_ms = self._closing(event, "crew", crew_name)
+        if closes == "foreign":
+            return
         payload = self._payload(crew_name=crew_name)
         if latency_ms is not None:
             payload["duration_ns"] = int(latency_ms * 1_000_000)
@@ -599,30 +903,36 @@ class CrewAIAdapter(FrameworkAdapter):
             "agent.output",
             payload,
             span_id=span_id,
-            parent_span_id=None,
+            parent_span_id=parent,
             span_name=crew_name,
         )
-        if total_tokens:
+        # crewai's aggregate is a cost.record only when the crew's model calls
+        # didn't emit their own: the same tokens must not be counted twice.
+        if total_tokens and span_id not in (self._data_get("crews_with_call_costs") or set()):
             self._fire(
                 "cost.record",
                 self._payload(tokens_total=total_tokens),
                 span_id=span_id,
-                parent_span_id=None,
+                parent_span_id=parent,
             )
-        self._end_trace()
+        if closes == "run":
+            self._end_trace()
 
     def _on_crew_failed(self, source: Any, event: Any) -> None:
-        error = str(getattr(event, "error", "unknown error"))
         crew_name = getattr(event, "crew_name", None) or self._get_name(source)
-        span_id = self._crew_span_id or self._new_span_id()
+        closes, span_id, parent, _ = self._closing(event, "crew", crew_name)
+        if closes == "foreign":
+            return
+        error = str(getattr(event, "error", "unknown error"))
         self._fire(
             "agent.error",
             self._payload(crew_name=crew_name, error=error, error_type="crew_error", status="error"),
             span_id=span_id,
-            parent_span_id=None,
+            parent_span_id=parent,
             span_name=crew_name,
         )
-        self._end_trace()
+        if closes == "run":
+            self._end_trace()
 
     # ------------------------------------------------------------------
     # Task lifecycle
@@ -648,7 +958,8 @@ class CrewAIAdapter(FrameworkAdapter):
         span_id = self._new_span_id()
         self._task_span_ids[task_name] = span_id
         self._current_task_span_id = span_id
-        parent = self._crew_span_id
+        self._remember_span(event, span_id)
+        parent = self._ancestor_span(event) or self._crew_span_id
         agent_role = getattr(event, "agent_role", None)
         payload = self._payload()
         self._fill_task_fields(payload, event)
@@ -668,8 +979,8 @@ class CrewAIAdapter(FrameworkAdapter):
 
     def _on_task_completed(self, source: Any, event: Any) -> None:
         task_name = self._get_task_name(event)
-        span_id = self._task_span_ids.pop(task_name, self._current_task_span_id or self._new_span_id())
-        parent = self._crew_span_id
+        span_id = self._closed_span(self._task_span_ids, task_name, event, self._current_task_span_id)
+        parent = self._ancestor_span(event) or self._crew_span_id
         payload = self._payload()
         self._fill_task_fields(payload, event)
         self._set_if_capturing(payload, "output", safe_serialize(getattr(event, "output", None)))
@@ -683,8 +994,8 @@ class CrewAIAdapter(FrameworkAdapter):
 
     def _on_task_failed(self, source: Any, event: Any) -> None:
         task_name = self._get_task_name(event)
-        span_id = self._task_span_ids.pop(task_name, self._current_task_span_id or self._new_span_id())
-        parent = self._crew_span_id
+        span_id = self._closed_span(self._task_span_ids, task_name, event, self._current_task_span_id)
+        parent = self._ancestor_span(event) or self._crew_span_id
         payload = self._payload(
             error=str(getattr(event, "error", "unknown error")),
             error_type="task_error",
@@ -712,7 +1023,8 @@ class CrewAIAdapter(FrameworkAdapter):
         self._agent_span_ids[agent_role] = span_id
         self._current_agent_span_id = span_id
         self._current_agent_role = agent_role
-        parent = self._current_task_span_id or self._crew_span_id
+        self._remember_span(event, span_id)
+        parent = self._ancestor_span(event) or self._current_task_span_id or self._crew_span_id
         payload = self._payload(agent_role=agent_role)
         # Capture manager-agent context so hierarchical crews are visible.
         allow_delegation = getattr(agent, "allow_delegation", None) if agent else None
@@ -741,8 +1053,8 @@ class CrewAIAdapter(FrameworkAdapter):
         agent_role = (
             getattr(event, "agent_role", None) or (getattr(agent, "role", None) if agent else None) or "unknown"
         )
-        span_id = self._agent_span_ids.pop(agent_role, self._current_agent_span_id or self._new_span_id())
-        parent = self._current_task_span_id or self._crew_span_id
+        span_id = self._closed_span(self._agent_span_ids, agent_role, event, self._current_agent_span_id)
+        parent = self._ancestor_span(event) or self._current_task_span_id or self._crew_span_id
         if self._current_agent_span_id == span_id:
             self._current_agent_span_id = None
         payload = self._payload(agent_role=agent_role, status="ok")
@@ -761,8 +1073,8 @@ class CrewAIAdapter(FrameworkAdapter):
             getattr(event, "agent_role", None) or (getattr(agent, "role", None) if agent else None) or "unknown"
         )
         error = str(getattr(event, "error", "unknown error"))
-        span_id = self._agent_span_ids.pop(agent_role, self._current_agent_span_id or self._new_span_id())
-        parent = self._current_task_span_id or self._crew_span_id
+        span_id = self._closed_span(self._agent_span_ids, agent_role, event, self._current_agent_span_id)
+        parent = self._ancestor_span(event) or self._current_task_span_id or self._crew_span_id
         if self._current_agent_span_id == span_id:
             self._current_agent_span_id = None
         self._fire(
@@ -879,7 +1191,7 @@ class CrewAIAdapter(FrameworkAdapter):
         if task_name:
             payload["task"] = str(task_name)[:200]
         self._set_if_capturing(payload, "context", safe_serialize(getattr(event, "context", None)))
-        self._fire("agent.handoff", payload, parent_span_id=self._leaf_parent())
+        self._fire("agent.handoff", payload, parent_span_id=self._leaf_parent(event))
 
     def _on_delegation_completed(self, source: Any, event: Any) -> None:
         from_role = getattr(event, "from_agent", None) or getattr(event, "manager_role", None)
@@ -892,7 +1204,7 @@ class CrewAIAdapter(FrameworkAdapter):
         if to_role is not None:
             payload["to_agent"] = str(to_role)
         self._set_if_capturing(payload, "result", safe_serialize(getattr(event, "result", None)))
-        self._fire("agent.handoff", payload, parent_span_id=self._leaf_parent())
+        self._fire("agent.handoff", payload, parent_span_id=self._leaf_parent(event))
 
     # ------------------------------------------------------------------
     # LLM calls
@@ -907,31 +1219,43 @@ class CrewAIAdapter(FrameworkAdapter):
 
     def _on_llm_completed(self, source: Any, event: Any) -> None:
         model = getattr(event, "model", None) or self._llm_in_flight_model
-        response = getattr(event, "response", None)
-        usage = (
-            getattr(response, "usage", None)
-            if response and not isinstance(response, dict)
-            else (response.get("usage") if isinstance(response, dict) else None)
-        )
+        # crewai 1.x reports the call's usage on the event (its native providers
+        # pass ``response`` as the bare assistant text); older shapes nest it in
+        # the response object or dict.
+        usage = getattr(event, "usage", None)
+        if not usage:
+            response = getattr(event, "response", None)
+            usage = (
+                getattr(response, "usage", None)
+                if response and not isinstance(response, dict)
+                else (response.get("usage") if isinstance(response, dict) else None)
+            )
         tokens = self._normalize_tokens(usage)
+        # The agent crewai says made the call, so its usage and cost can be
+        # attributed to that agent.
+        agent_role = getattr(event, "agent_role", None)
         payload = self._payload()
         if model:
             payload["model"] = model
+        if agent_role:
+            payload["agent_role"] = agent_role
         key = self._llm_timer_key(event)
         latency_ms = self._tock(key)
         if latency_ms is not None:
             payload["latency_ms"] = latency_ms
         payload.update(tokens)
-        parent = self._leaf_parent()
+        parent = self._leaf_parent(event)
         span_id = self._new_span_id()
         self._fire("model.invoke", payload, span_id=span_id, parent_span_id=parent)
         if tokens:
-            self._fire(
-                "cost.record",
-                self._payload(model=model, **tokens),
-                span_id=span_id,
-                parent_span_id=parent,
-            )
+            cost_payload = self._payload(model=model, **tokens)
+            if agent_role:
+                cost_payload["agent_role"] = agent_role
+            self._fire("cost.record", cost_payload, span_id=span_id, parent_span_id=parent)
+            crew = self._owning_crew_span(event)
+            priced = self._data_get("crews_with_call_costs")
+            if crew is not None and priced is not None:
+                priced.add(crew)
         self._llm_in_flight_model = None
 
     def _on_llm_failed(self, source: Any, event: Any) -> None:
@@ -940,7 +1264,10 @@ class CrewAIAdapter(FrameworkAdapter):
         payload = self._payload(error=error, error_type="llm_error", status="error")
         if model:
             payload["model"] = model
-        self._fire("agent.error", payload, parent_span_id=self._leaf_parent())
+        agent_role = getattr(event, "agent_role", None)
+        if agent_role:
+            payload["agent_role"] = agent_role
+        self._fire("agent.error", payload, parent_span_id=self._leaf_parent(event))
 
     # ------------------------------------------------------------------
     # Tool usage
@@ -951,9 +1278,10 @@ class CrewAIAdapter(FrameworkAdapter):
         span_id = self._new_span_id()
         key = self._tool_key(event)
         self._tool_span_ids[key] = span_id
+        self._remember_span(event, span_id)
         payload = self._payload(tool_name=tool_name)
         self._set_if_capturing(payload, "input", safe_serialize(getattr(event, "tool_args", None)))
-        self._fire("tool.call", payload, span_id=span_id, parent_span_id=self._leaf_parent())
+        self._fire("tool.call", payload, span_id=span_id, parent_span_id=self._leaf_parent(event))
 
         # Detect delegation invoked via the built-in coworker tools — older
         # crewai versions don't fire typed delegation events, so without this
@@ -964,9 +1292,7 @@ class CrewAIAdapter(FrameworkAdapter):
     def _on_tool_finished(self, source: Any, event: Any) -> None:
         tool_name = getattr(event, "tool_name", None) or "unknown"
         key = self._tool_key(event)
-        span_id = self._tool_span_ids.pop(key, None)
-        if span_id is None:
-            span_id = self._new_span_id()
+        span_id = self._closed_span(self._tool_span_ids, key, event, None)
         payload = self._payload(tool_name=tool_name)
         self._set_if_capturing(payload, "output", safe_serialize(getattr(event, "output", None)))
         started_at = getattr(event, "started_at", None)
@@ -978,7 +1304,7 @@ class CrewAIAdapter(FrameworkAdapter):
                 pass
         if getattr(event, "from_cache", None):
             payload["from_cache"] = True
-        self._fire("tool.result", payload, span_id=span_id, parent_span_id=self._leaf_parent())
+        self._fire("tool.result", payload, span_id=span_id, parent_span_id=self._leaf_parent(event))
 
     def _on_tool_error(self, source: Any, event: Any) -> None:
         tool_name = getattr(event, "tool_name", None) or "unknown"
@@ -988,20 +1314,24 @@ class CrewAIAdapter(FrameworkAdapter):
         self._fire(
             "agent.error",
             self._payload(tool_name=tool_name, error=error, error_type="tool_error", status="error"),
-            parent_span_id=self._leaf_parent(),
+            parent_span_id=self._leaf_parent(event),
         )
 
     # ------------------------------------------------------------------
     # Flow events
     # ------------------------------------------------------------------
 
-    def _on_flow_started(self, source: Any, event: Any) -> None:
-        span_id = self._new_span_id()
-        self._begin_crew_run(event, span_id)
-        self._tick("crew")
+    def _flow_input(self, source: Any, event: Any) -> Tuple[str, Dict[str, Any]]:
         flow_name = getattr(event, "flow_name", None) or self._get_name(source)
         payload = self._payload(flow_name=flow_name)
         self._set_if_capturing(payload, "input", safe_serialize(getattr(event, "inputs", None)))
+        return flow_name, payload
+
+    def _on_flow_started(self, source: Any, event: Any) -> None:
+        span_id = self._new_span_id()
+        self._begin_crew_run(event, span_id, "flow")
+        self._tick("crew")
+        flow_name, payload = self._flow_input(source, event)
         self._fire(
             "agent.input",
             payload,
@@ -1010,10 +1340,15 @@ class CrewAIAdapter(FrameworkAdapter):
             span_name=f"flow:{flow_name}",
         )
 
+    def _on_nested_flow_started(self, source: Any, event: Any) -> None:
+        flow_name, payload = self._flow_input(source, event)
+        self._open_nested(event, "flow", flow_name, payload, span_name=f"flow:{flow_name}")
+
     def _on_flow_finished(self, source: Any, event: Any) -> None:
-        latency_ms = self._tock("crew")
         flow_name = getattr(event, "flow_name", None) or self._get_name(source)
-        span_id = self._crew_span_id or self._new_span_id()
+        closes, span_id, parent, latency_ms = self._closing(event, "flow", flow_name)
+        if closes == "foreign":
+            return
         payload = self._payload(flow_name=flow_name)
         if latency_ms is not None:
             payload["duration_ns"] = int(latency_ms * 1_000_000)
@@ -1022,10 +1357,27 @@ class CrewAIAdapter(FrameworkAdapter):
             "agent.output",
             payload,
             span_id=span_id,
-            parent_span_id=None,
+            parent_span_id=parent,
             span_name=f"flow:{flow_name}",
         )
-        self._end_trace()
+        if closes == "run":
+            self._end_trace()
+
+    def _on_flow_failed(self, source: Any, event: Any) -> None:
+        flow_name = getattr(event, "flow_name", None) or self._get_name(source)
+        closes, span_id, parent, _ = self._closing(event, "flow", flow_name)
+        if closes == "foreign":
+            return
+        error = str(getattr(event, "error", "unknown error"))
+        self._fire(
+            "agent.error",
+            self._payload(flow_name=flow_name, error=error, error_type="flow_error", status="error"),
+            span_id=span_id,
+            parent_span_id=parent,
+            span_name=f"flow:{flow_name}",
+        )
+        if closes == "run":
+            self._end_trace()
 
     # ------------------------------------------------------------------
     # MCP tool events
@@ -1041,7 +1393,7 @@ class CrewAIAdapter(FrameworkAdapter):
             payload["mcp_server"] = server_name
         if latency_ms is not None:
             payload["latency_ms"] = latency_ms
-        self._fire("tool.call", payload, parent_span_id=self._leaf_parent())
+        self._fire("tool.call", payload, parent_span_id=self._leaf_parent(event))
 
     def _on_mcp_tool_failed(self, source: Any, event: Any) -> None:
         tool_name = getattr(event, "tool_name", None) or "unknown"
@@ -1052,4 +1404,4 @@ class CrewAIAdapter(FrameworkAdapter):
         payload["status"] = "error"
         if server_name:
             payload["mcp_server"] = server_name
-        self._fire("agent.error", payload, parent_span_id=self._leaf_parent())
+        self._fire("agent.error", payload, parent_span_id=self._leaf_parent(event))

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import sys
+from typing import Any, List, Tuple, Optional
+from datetime import datetime, timezone
 
 import click
 
-from .._client import get_client, handle_errors, resolve_model, resolve_benchmark
-from .._formatter import format_output
-from ..._exceptions import APIStatusError
+from .._client import get_client, handle_errors, resolve_model, api_error_text, resolve_benchmark
+from .._output import EXIT_EVALUATION_NOT_SUCCESSFUL, echo_empty, echo_status, exit_unreadable
+from .._command import LayerLensGroup
+from .._formatter import to_dict, format_value, format_output
+from ..._exceptions import NotFoundError
 from .._completions import complete_model, complete_benchmark, complete_evaluation
 
 EVALUATION_COLUMNS = [
@@ -19,15 +23,65 @@ EVALUATION_COLUMNS = [
 ]
 
 
-@click.group()
+def _when(seconds: Any) -> Any:
+    """Unix seconds as a UTC date; None (shown ``-``) for 0, which the API sends until a time is set."""
+    if not isinstance(seconds, int) or isinstance(seconds, bool):
+        return seconds
+    if seconds == 0:
+        return None
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (OverflowError, OSError, ValueError):
+        return seconds
+
+
+def _duration(nanoseconds: Any) -> Any:
+    """Nanoseconds, as the API times a prompt, in the unit that reads best; None for 0."""
+    if not isinstance(nanoseconds, int) or isinstance(nanoseconds, bool):
+        return nanoseconds
+    if nanoseconds == 0:
+        return None
+    seconds = nanoseconds / 1e9
+    if seconds < 1:
+        return f"{nanoseconds / 1e6:.0f} ms"
+    if seconds < 60:
+        return f"{seconds:.2f} s"
+    minutes, rest = divmod(round(seconds), 60)
+    return f"{minutes} min {rest} s"
+
+
+def _readable(evaluation: Any) -> Any:
+    """An evaluation for a table: dates, and a duration with its unit, where the API sends numbers."""
+    row = to_dict(evaluation)
+    if not isinstance(row, dict):
+        return evaluation
+    row = dict(row)
+    for key in ("submitted_at", "finished_at"):
+        if key in row:
+            row[key] = _when(row[key])
+    if "average_duration" in row:
+        row["average_duration"] = _duration(row["average_duration"])
+    return row
+
+
+def _shown(data: Any, output_format: str, columns: Optional[List[Tuple[str, str]]] = None) -> str:
+    """``data`` as ``output_format`` shows it. JSON keeps the API's numbers, which scripts read."""
+    if output_format == "json":
+        return format_output(data, output_format)
+    if isinstance(data, list):
+        return format_output([_readable(e) for e in data], output_format, columns)
+    return format_output(_readable(data), output_format)
+
+
+@click.group(cls=LayerLensGroup)
 def evaluate() -> None:
     """Manage evaluations.
 
     \b
     Examples:
-      stratix evaluate list
-      stratix evaluate get <evaluation-id>
-      stratix evaluate run --model gpt-4 --benchmark mmlu --wait
+      layerlens evaluate list
+      layerlens evaluate get <evaluation-id>
+      layerlens evaluate run --model gpt-4 --benchmark mmlu --wait
     """
 
 
@@ -60,9 +114,9 @@ def list_evaluations(
 
     \b
     Examples:
-      stratix evaluate list
-      stratix evaluate list --status success --sort-by accuracy --order desc
-      stratix evaluate list --page-size 5
+      layerlens evaluate list
+      layerlens evaluate list --status success --sort-by accuracy --order desc
+      layerlens evaluate list --page-size 5
     """
     from ...models import EvaluationStatus
 
@@ -86,8 +140,10 @@ def list_evaluations(
         sort_by=sort_by,  # type: ignore[arg-type]
         order=order,  # type: ignore[arg-type]
     )
-    if result is None or not result.evaluations:
-        click.echo("No evaluations found.")
+    if result is None:
+        exit_unreadable("the evaluation list")
+    if not result.evaluations:
+        echo_empty(ctx, "No evaluations found.")
         return
 
     if ctx.obj["verbose"]:
@@ -96,8 +152,7 @@ def list_evaluations(
             err=True,
         )
 
-    output = format_output(result.evaluations, ctx.obj["output_format"], EVALUATION_COLUMNS)
-    click.echo(output)
+    click.echo(_shown(result.evaluations, ctx.obj["output_format"], EVALUATION_COLUMNS))
 
 
 @evaluate.command("get")
@@ -109,18 +164,17 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
 
     \b
     Examples:
-      stratix evaluate get abc123
-      stratix evaluate get abc123 --format json
+      layerlens evaluate get abc123
+      layerlens evaluate get abc123 --format json
     """
     client = get_client(ctx)
     try:
         evaluation = client.evaluations.get_by_id(id)
-    except APIStatusError as e:
-        # This endpoint is for benchmark evaluations. A common mistake is to
-        # pass an ID from `judge test` (a trace evaluation), which lives on a
-        # different resource and makes the backend error out. Surface a clean,
-        # actionable message instead of a raw 500/404.
-        click.echo(f"Error: could not fetch evaluation {id} (HTTP {e.status_code}).", err=True)
+    except NotFoundError as e:
+        # No benchmark evaluation has this id. A common mistake is an id from `judge test`, a
+        # trace evaluation, which lives on another resource: say where to read it. Any other
+        # error is the API's sentence alone (handle_errors), as every command prints it.
+        click.echo(f"Error: {api_error_text(e)}", err=True)
         click.echo(
             f"If this ID came from `layerlens judge test`, it is a trace evaluation — "
             f"use `layerlens judge result {id}` instead.",
@@ -132,8 +186,7 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
         click.echo(f"Evaluation {id} not found.", err=True)
         sys.exit(1)
 
-    output = format_output(evaluation, ctx.obj["output_format"])
-    click.echo(output)
+    click.echo(_shown(evaluation, ctx.obj["output_format"]))
 
 
 @evaluate.command("run")
@@ -151,19 +204,29 @@ def get_evaluation(ctx: click.Context, id: str) -> None:
     shell_complete=complete_benchmark,
     help="Benchmark ID, key, or name.",
 )
-@click.option("--wait", is_flag=True, default=False, help="Wait for evaluation to complete.")
+@click.option(
+    "--wait",
+    is_flag=True,
+    default=False,
+    help="Wait for the evaluation to finish; exit 12 if it ends in anything but success.",
+)
 @click.pass_context
 @handle_errors
 def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: bool) -> None:
     """Run an evaluation with a model and benchmark.
 
-    The --model and --benchmark options accept an ID, key, or name.
+    The --model and --benchmark options accept an ID, key, or name. An ID can name
+    any model or benchmark in the catalog; a key or a name is looked up among the
+    project's own.
+
+    With --wait it exits 12 when the evaluation ends in any status but success
+    (failure, cancelled, timeout, ...), after printing it as usual; 1 is an error.
 
     \b
     Examples:
-      stratix evaluate run --model gpt-4 --benchmark mmlu
-      stratix evaluate run --model abc123-uuid --benchmark def456-uuid --wait
-      stratix evaluate run --model "GPT-4" --benchmark "MMLU" --wait --format json
+      layerlens evaluate run --model gpt-4 --benchmark mmlu
+      layerlens evaluate run --model 6a0b692ced57a8fd01d1433a --benchmark 67e20572e014f9fa6c49b996 --wait
+      layerlens evaluate run --model "GPT-4" --benchmark "MMLU" --wait --format json
     """
     client = get_client(ctx)
 
@@ -187,22 +250,24 @@ def run_evaluation(ctx: click.Context, model_id: str, benchmark_id: str, wait: b
     if ctx.obj["verbose"]:
         click.echo(f"Resolved benchmark: {benchmark.name} ({benchmark.id})", err=True)
 
-    click.echo(f"Creating evaluation: {model.name} x {benchmark.name}")
+    echo_status(ctx, f"Creating evaluation: {model.name} x {benchmark.name}")
 
     evaluation = client.evaluations.create(model=model, benchmark=benchmark)
     if evaluation is None:
         click.echo("Failed to create evaluation.", err=True)
         sys.exit(1)
 
-    click.echo(f"Evaluation created: {evaluation.id} (status: {evaluation.status})")
+    echo_status(ctx, f"Evaluation created: {evaluation.id} (status: {format_value(evaluation.status)})")
 
     if wait:
-        click.echo("Waiting for completion...")
+        echo_status(ctx, "Waiting for completion...")
         evaluation = client.evaluations.wait_for_completion(evaluation)
         if evaluation is None:
             click.echo("Evaluation disappeared while waiting.", err=True)
             sys.exit(1)
-        click.echo(f"Evaluation finished: {evaluation.status}")
+        echo_status(ctx, f"Evaluation finished: {format_value(evaluation.status)}")
 
-    output = format_output(evaluation, ctx.obj["output_format"])
-    click.echo(output)
+    click.echo(_shown(evaluation, ctx.obj["output_format"]))
+    if wait and not evaluation.is_success:
+        # It ran and did not succeed: a CI step that waited on it must fail (M2).
+        sys.exit(EXIT_EVALUATION_NOT_SUCCESSFUL)

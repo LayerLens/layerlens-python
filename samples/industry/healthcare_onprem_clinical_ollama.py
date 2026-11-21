@@ -17,8 +17,8 @@ samples/data/traces/industry/ (produced by samples/data/generators/ollama.py);
 this sample uploads it and evaluates the clinical answer with domain judges.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python healthcare_onprem_clinical_ollama.py
@@ -30,7 +30,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -66,7 +66,8 @@ def main() -> None:
     print("=== LayerLens Industry: On-Prem Clinical Decision Support (Ollama) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -123,7 +124,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:22s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:22s} -- timed out waiting for results")
+                print(f"  {label:22s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

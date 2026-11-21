@@ -160,12 +160,11 @@ class TestCrossReferences:
         )
 
     def test_live_ids_exist(self) -> None:
-        try:
-            from tests.e2e.live._registry import PROVIDERS as live_providers
-            from tests.e2e.live._protocol_registry import PROTOCOLS as live_protocols
-            from tests.e2e.live._framework_registry import FRAMEWORKS as live_frameworks
-        except Exception as exc:  # live suite imports must never break the gate
-            pytest.skip(f"live registries not importable here: {exc}")
+        # The registries import only the stdlib, layerlens and their own scenario
+        # modules (which import frameworks lazily), so they always import here.
+        from tests.e2e.live._registry import PROVIDERS as live_providers
+        from tests.e2e.live._protocol_registry import PROTOCOLS as live_protocols
+        from tests.e2e.live._framework_registry import FRAMEWORKS as live_frameworks
 
         live_ids = {c.id for c in live_providers} | {c.id for c in live_frameworks} | {c.id for c in live_protocols}
         bad = sorted(

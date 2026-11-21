@@ -47,7 +47,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from layerlens import Stratix, AsyncStratix
+from layerlens import LayerLens, AsyncLayerLens
 from layerlens.models import Evaluation
 from layerlens._public_client import PublicClient, AsyncPublicClient
 
@@ -97,26 +97,26 @@ def _handler(routes: Dict[str, Any]) -> Callable[[httpx.Request], httpx.Response
     return handle
 
 
-def _sync_client(routes: Dict[str, Any]) -> Stratix:
-    """A real Stratix whose only difference is the transport.
+def _sync_client(routes: Dict[str, Any]) -> LayerLens:
+    """A real LayerLens whose only difference is the transport.
 
     ``_init_transport`` is httpx's own hook and is called from
-    ``httpx.Client.__init__``, so the org bootstrap in ``Stratix.__init__`` is
+    ``httpx.Client.__init__``, so the org bootstrap in ``LayerLens.__init__`` is
     served by the mock too — nothing is patched.
     """
     transport = httpx.MockTransport(_handler(routes))
 
-    class _MockTransportStratix(Stratix):
+    class _MockTransportLayerLens(LayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.BaseTransport:
             return transport
 
-    return _MockTransportStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
-def _async_client(routes: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> AsyncStratix:
-    """A real AsyncStratix over the mock transport.
+def _async_client(routes: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> AsyncLayerLens:
+    """A real AsyncLayerLens over the mock transport.
 
-    ``AsyncStratix._get_organization`` opens its own *synchronous* ``httpx.Client``
+    ``AsyncLayerLens._get_organization`` opens its own *synchronous* ``httpx.Client``
     rather than using the async client's transport, so it cannot be intercepted by
     ``_init_transport``. It is stubbed here because it is not on the path under
     test; every call the tests actually make goes through the mock transport.
@@ -126,7 +126,7 @@ def _async_client(routes: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> As
     from layerlens.models import Project, Organization
 
     monkeypatch.setattr(
-        AsyncStratix,
+        AsyncLayerLens,
         "_get_organization",
         lambda self: Organization(
             id="68a1f0c2d4e5b6a7c8d9e100",
@@ -135,11 +135,11 @@ def _async_client(routes: Dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> As
         ),
     )
 
-    class _MockTransportAsyncStratix(AsyncStratix):
+    class _MockTransportAsyncLayerLens(AsyncLayerLens):
         def _init_transport(self, *args: Any, **kwargs: Any) -> httpx.AsyncBaseTransport:
             return transport
 
-    return _MockTransportAsyncStratix(api_key="test-key", base_url=BASE_URL)
+    return _MockTransportAsyncLayerLens(api_key="test-key", base_url=BASE_URL)
 
 
 def _public_client(routes: Dict[str, Any]) -> PublicClient:

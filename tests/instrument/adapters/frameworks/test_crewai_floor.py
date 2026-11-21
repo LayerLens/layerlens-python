@@ -40,16 +40,14 @@ import datetime
 
 import pytest
 
-# Mirror test_crewai.py's guards: crewai uses ``type | None`` (TypeError on
-# py<3.10) and the modern typed event bus only lands on the 1.14 line, which the
-# pinned matrix (crewai==1.14.6) resolves. importorskip only catches ImportError,
-# so guard explicitly.
+from tests._optional_deps import importorskip
+
+# Mirror test_crewai.py's guards: crewai needs Python 3.10+ (``type | None``), and
+# the modern typed event bus only lands on the 1.14 line, which the dev lock and
+# the matrix row (crewai 1.15.28) install.
 if sys.version_info < (3, 10):
     pytest.skip("crewai requires Python >= 3.10", allow_module_level=True)
-try:
-    import crewai  # noqa: F401
-except (ImportError, TypeError):
-    pytest.skip("crewai not installed or incompatible", allow_module_level=True)
+crewai = importorskip("crewai")
 
 from packaging.version import Version  # noqa: E402
 
@@ -148,8 +146,6 @@ def _build_recorded_llm(fixture) -> LLM:
             model="openai/gpt-4o-mini",
             client_params={"http_client": httpx.Client(transport=transport)},
         )
-    except ImportError as exc:  # pragma: no cover - only on unsupported crewai
-        pytest.skip(f"crewai native-provider client_params seam unavailable: {exc}")
     finally:
         if prior_key is not None:
             os.environ["OPENAI_API_KEY"] = prior_key

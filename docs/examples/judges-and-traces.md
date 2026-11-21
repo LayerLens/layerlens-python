@@ -1,6 +1,6 @@
 # Judges and Traces
 
-Examples for working with judges, traces, and trace evaluations on the Stratix platform using the LayerLens Python SDK.
+Examples for working with judges, traces, and trace evaluations on the LayerLens platform using the LayerLens Python SDK.
 
 ## Creating and Managing Judges
 
@@ -9,9 +9,9 @@ Examples for working with judges, traces, and trace evaluations on the Stratix p
 ```python
 import time
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Fetch a model to use as the judge's LLM
 models = client.models.get(type="public", name="gpt-4o")
@@ -56,9 +56,9 @@ print(f"Deleted judge {deleted.id}")
 ```python
 import os
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # --- Upload traces from a file
 traces_file = os.path.join(os.path.dirname(__file__), "traces.jsonl")
@@ -99,9 +99,9 @@ print(f"Deleted: {deleted}")
 ```python
 import time
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Create a judge. The server assigns a default grader if model_id is omitted,
 # but naming one keeps the choice — and the grading cost — yours, and works
@@ -127,7 +127,10 @@ estimate = client.trace_evaluations.estimate_cost(
     trace_ids=trace_ids,
     judge_id=judge.id,
 )
-print(f"Estimated cost: ${estimate.estimated_cost:.4f} for {estimate.trace_count} traces")
+if estimate and estimate.cost_available:  # an unpriced estimate is falsy
+    print(f"Estimated cost: ${estimate.estimated_cost:.4f} for {estimate.trace_count} traces")
+else:
+    print("Estimated cost: not available")
 
 # --- Run a judge on the first trace
 evaluation = client.trace_evaluations.create(
@@ -165,9 +168,9 @@ Optimization requires that the judge has at least 10 annotations (trace evaluati
 import time
 
 import layerlens
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 models = client.models.get(type="public", name="gpt-4o")
 model = models[0]
@@ -235,16 +238,16 @@ import os
 import time
 import asyncio
 
-from layerlens import Stratix, AsyncStratix
+from layerlens import LayerLens, AsyncLayerLens
 
 
 async def main():
     # Fetch a model using sync client
-    sync_client = Stratix()
+    sync_client = LayerLens()
     models = sync_client.models.get(type="public", name="gpt-4o")
     model = models[0]
 
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # --- Create a judge
     judge = await client.judges.create(
@@ -268,7 +271,10 @@ async def main():
         trace_ids=trace_ids,
         judge_id=judge.id,
     )
-    print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+    if estimate and estimate.cost_available:  # an unpriced estimate is falsy
+        print(f"Estimated cost: ${estimate.estimated_cost:.4f}")
+    else:
+        print("Estimated cost: not available")
 
     # --- Run evaluations concurrently
     tasks = [client.trace_evaluations.create(trace_id=tid, judge_id=judge.id) for tid in trace_ids]
@@ -305,10 +311,10 @@ if __name__ == "__main__":
 ## Error Handling
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 import layerlens
 
-client = Stratix()
+client = LayerLens()
 
 try:
     models = client.models.get(type="public", name="gpt-4o")
