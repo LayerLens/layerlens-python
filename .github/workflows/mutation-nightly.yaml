@@ -46,7 +46,7 @@ jobs:
       LOCK_MODULES: pricing upload chain verify emit_helpers
       AP2_ROW_MODULES: ap2 secret_scrub capture_config collector a2ui ucp
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Python 3.11 and exactly uv.lock, with mutmut
         uses: ./.github/actions/setup-locked-env

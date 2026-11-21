@@ -28,7 +28,7 @@ jobs:
       release_tag: ${{ steps.set_release_tag.outputs.release_tag }}
       release_sha: ${{ steps.set_release_tag.outputs.release_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The tag being released, never the ref a dispatch ran from, so the
           # version and scripts validated are those of the commit that ships.
@@ -70,7 +70,7 @@ jobs:
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Build the commit validate checked, not the ref a dispatch ran from.
           ref: ${{ needs.validate.outputs.release_sha }}
