@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[crewai]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[crewai]"
     python samples/instrument/crewai/example.py
 """
 
@@ -21,7 +21,7 @@ def main() -> int:
         adapter.connect()
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install CrewAI with: pip install layerlens[crewai]")
+        print('Install CrewAI with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[crewai]"')
         return 0
 
     print(f"CrewAIAdapter connected: requires_pydantic={adapter.requires_pydantic}")

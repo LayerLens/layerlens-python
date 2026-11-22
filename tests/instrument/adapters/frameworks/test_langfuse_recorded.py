@@ -23,9 +23,10 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-import pytest
 
-pytest.importorskip("httpx")
+from tests._optional_deps import importorskip
+
+importorskip("httpx")
 
 import layerlens.instrument.adapters.frameworks.langfuse as lf_mod  # noqa: E402
 from layerlens.instrument.adapters.frameworks.langfuse import LangfuseAdapter  # noqa: E402

@@ -1,0 +1,16 @@
+{
+  "_recorded": {
+    "method": "DELETE",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/state",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "reset": true,
+      "deleted": false,
+      "blobs_deleted": 0,
+      "blobs_failed": 0
+    }
+  }
+}

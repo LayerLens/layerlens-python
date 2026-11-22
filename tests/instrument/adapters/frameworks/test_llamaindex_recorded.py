@@ -18,9 +18,10 @@ parsed ``ChatResponse.raw["model"]``, and the usage off ``raw["usage"]``.
 from __future__ import annotations
 
 import httpx
-import pytest
 
-pytest.importorskip("llama_index")  # skips in the base venv (not installed there)
+from tests._optional_deps import importorskip
+
+importorskip("llama_index")  # skips in the base venv (not installed there)
 
 from llama_index.llms.openai import OpenAI as LIOpenAI
 from llama_index.core.base.llms.types import ChatMessage  # noqa: E402

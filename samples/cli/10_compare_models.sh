@@ -15,14 +15,25 @@ fi
 
 echo "==> Comparing ${#MODELS[@]} models on $BENCHMARK"
 
+pids=()
 for model in "${MODELS[@]}"; do
   echo "  Running: $model"
-  stratix evaluate run --model "$model" --benchmark "$BENCHMARK" --wait &
+  layerlens evaluate run --model "$model" --benchmark "$BENCHMARK" --wait &
+  pids+=("$!")
 done
 
-# Wait for all background evaluations
-wait
+# Wait for each evaluation. A bare `wait` would return 0 whatever they did; `evaluate run
+# --wait` exits 12 when an evaluation ends in anything but success, and 1 when it could not run.
+failed=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || failed=$((failed + 1))
+done
 
 echo ""
 echo "==> Results (sorted by accuracy):"
-stratix evaluate list --sort-by accuracy --order desc --page-size 10
+layerlens evaluate list --sort-by accuracy --order desc --page-size 10
+
+if [ "$failed" -gt 0 ]; then
+  echo "==> $failed of ${#MODELS[@]} evaluations did not succeed." >&2
+  exit 1
+fi

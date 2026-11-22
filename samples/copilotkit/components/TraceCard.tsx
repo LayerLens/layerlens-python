@@ -41,7 +41,7 @@ export interface TraceCardProps {
   agentCount: number;
   timestamp: string; // ISO-8601
   tags?: string[];
-  /** Base URL of the Stratix dashboard for "Trace Explorer" / "Agent
+  /** Base URL of the LayerLens dashboard for "Trace Explorer" / "Agent
    *  Graph" deep-links. When omitted, the footer is hidden. */
   dashboardBaseUrl?: string;
 }
@@ -58,7 +58,7 @@ const STATUS_STYLES: Record<TraceStatus, { dot: string; label: string }> = {
 };
 
 function frameworkBadgeVariant(framework: string): "secondary" | "outline" {
-  // Stratix-known frameworks get the slightly more emphatic
+  // LayerLens-known frameworks get the slightly more emphatic
   // ``secondary`` variant; everything else falls back to ``outline``
   // to keep the visual noise low.
   const known = new Set([
@@ -68,7 +68,7 @@ function frameworkBadgeVariant(framework: string): "secondary" | "outline" {
     "autogen",
     "openai",
     "anthropic",
-    "stratix",
+    "layerlens",
   ]);
   return known.has(framework.toLowerCase()) ? "secondary" : "outline";
 }

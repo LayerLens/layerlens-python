@@ -5,8 +5,8 @@ Shows the core trace-evaluation workflow in under 50 lines:
 init client, upload a trace, create a judge, evaluate, get results.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY="your-api-key"
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY="your-api-key"
 """
 
 import os
@@ -14,20 +14,28 @@ import sys
 import json
 import tempfile
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, poll_evaluation_results
 
 
 def main() -> None:
-    # --- 1. Initialize the client (reads LAYERLENS_STRATIX_API_KEY from env)
-    client = Stratix()
+    # --- 1. Initialize the client (reads LAYERLENS_API_KEY from env)
+    try:
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
-    # --- 2. Create a temporary JSONL trace file and upload it
+    # --- 2. Create a temporary JSONL trace file and upload it. A record needs a field the API
+    # reads a trace by (a name, metadata, events, ...): input and output alone are refused.
     trace_data = {
+        "name": "quickstart",
         "input": [{"role": "user", "content": "What is the speed of light?"}],
         "output": "The speed of light in a vacuum is approximately 299,792,458 m/s.",
+        "metadata": {"source": "sdk-quickstart"},
     }
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
     tmp.write(json.dumps(trace_data) + "\n")

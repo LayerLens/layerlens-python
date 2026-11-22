@@ -42,6 +42,7 @@ from contextlib import contextmanager
 
 from ._utils import safe_serialize
 from ..._context import _current_run, _current_collector
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 from ..providers.pricing import BEDROCK_PRICING, calculate_cost
@@ -236,7 +237,7 @@ class BedrockAgentsAdapter(FrameworkAdapter):
         try:
             exc = kwargs.get("exception")
             if exc is not None:
-                payload = self._payload(error=str(exc), error_type=type(exc).__name__)
+                payload = self._payload(error=str(exc), **error_category(exc))
                 self._emit("agent.error", payload, span_name="bedrock.error")
         except Exception:
             log.warning("layerlens: error in _on_invoke_error", exc_info=True)
@@ -825,7 +826,7 @@ class _CompletionProxy:
         self._errored = True  # agent.error is authoritative — suppress the terminal agent.output
         try:
             with self._active():
-                payload = self._adapter._payload(error=str(exc), error_type=type(exc).__name__)
+                payload = self._adapter._payload(error=str(exc), **error_category(exc))
                 self._emit("agent.error", payload, span_name="bedrock.error")
         except Exception:
             log.warning("layerlens: error recording bedrock_agents stream error", exc_info=True)

@@ -69,7 +69,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # since the package dir is not on the path then).
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -362,7 +362,7 @@ def _scrubber():
 # --------------------------------------------------------------------------
 # The recorder
 # --------------------------------------------------------------------------
-def generate_dspy_single(client: Stratix) -> dict:
+def generate_dspy_single(client: LayerLens) -> dict:
     """Record the real ``TutorRAG`` tutoring run and seal both artifacts."""
     import httpx
     import dspy
@@ -448,4 +448,4 @@ def generate_dspy_single(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    generate_dspy_single(Stratix())
+    generate_dspy_single(LayerLens())

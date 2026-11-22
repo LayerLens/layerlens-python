@@ -59,7 +59,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 from layerlens.instrument import TraceCollector  # noqa: E402
 from layerlens.instrument._context import (  # noqa: E402
     _current_collector,
@@ -158,7 +158,7 @@ def _proto_function_call(name, args, *, prompt_tokens, completion_tokens):
 # captured but never uploaded. ``_synthesize_identity_if_needed`` finds no honest
 # agent name -> Agent column renders the empty-state (—).
 # --------------------------------------------------------------------------
-def _capture_provider_trace(client: Stratix, drive) -> dict:
+def _capture_provider_trace(client: LayerLens, drive) -> dict:
     captured: dict = {}
     set_trace_observer(lambda p: captured.setdefault("payload", p))
     orig = _collector_mod.enqueue_upload
@@ -239,7 +239,7 @@ _TRIAGE_ANSWER = (
 )
 
 
-def generate_google_vertex_single(client: Stratix) -> dict:
+def generate_google_vertex_single(client: LayerLens) -> dict:
     """Record a single sealed Gemini public-benefits triage turn (Agent=—)."""
     response = _proto_text(_TRIAGE_ANSWER, prompt_tokens=232, completion_tokens=286)
     model = _fake_model(lambda *a, **k: response)
@@ -368,7 +368,7 @@ _PERMIT_DETERMINATION = (
 )
 
 
-def generate_google_vertex_multi(client: Stratix) -> dict:
+def generate_google_vertex_multi(client: LayerLens) -> dict:
     """Record a sealed Gemini function-call loop (permit determination, Agent=—)."""
     responses = [
         _proto_function_call(
@@ -487,6 +487,6 @@ def generate_google_vertex_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_google_vertex_single(_client)
     generate_google_vertex_multi(_client)

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from ._utils import truncate, safe_serialize
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -358,7 +359,7 @@ class SemanticKernelAdapter(FrameworkAdapter):
                     latency_ms = adapter._stop_timer(span_id)
                     payload = adapter._payload(
                         error=str(exc),
-                        error_type=type(exc).__name__,
+                        **error_category(exc),
                     )
                     if model_name:
                         payload["model"] = model_name
@@ -466,7 +467,7 @@ class SemanticKernelAdapter(FrameworkAdapter):
         self._begin_run()
         try:
             if error is not None:
-                err_payload = self._payload(error=str(error), error_type=type(error).__name__)
+                err_payload = self._payload(error=str(error), **error_category(error))
                 if model_name:
                     err_payload["model"] = model_name
                 err_payload["latency_ms"] = latency_ms
@@ -664,7 +665,7 @@ class SemanticKernelAdapter(FrameworkAdapter):
                 err_payload = self._payload(
                     tool_name=tool_name,
                     error=str(error),
-                    error_type=type(error).__name__,
+                    **error_category(error),
                 )
                 if auto_invoked:
                     err_payload["auto_invoked"] = True

@@ -14,6 +14,8 @@ See ``tests/instrument/_recorded.py`` for the corpus design + its snapshot limit
 
 from __future__ import annotations
 
+import importlib
+
 import httpx
 import anthropic
 
@@ -24,10 +26,13 @@ from layerlens.instrument.adapters.providers.anthropic import AnthropicProvider
 from ...conftest import find_event
 from ..._recorded import load_recorded, mock_transport
 
+# anthropic 1.0 moved from httpx to httpx2 (same API) and only accepts an httpx2 client.
+_HTTP = importlib.import_module("httpx2") if int(anthropic.__version__.split(".")[0]) >= 1 else httpx
+
 
 def _client(fixture):
-    transport, requests = mock_transport(fixture)
-    client = anthropic.Anthropic(api_key="test-key", http_client=httpx.Client(transport=transport))
+    transport, requests = mock_transport(fixture, _HTTP)
+    client = anthropic.Anthropic(api_key="test-key", http_client=_HTTP.Client(transport=transport))
     return client, requests
 
 

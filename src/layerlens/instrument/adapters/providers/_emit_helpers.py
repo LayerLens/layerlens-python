@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, Callable, Optional
+from typing import Any, Dict, Tuple, Callable, Optional
 
 from ..._w3c import gen_ai_attributes
 from .._base import AdapterInfo  # noqa: F401  (re-exported for typing)
-from .pricing import PRICING, calculate_cost
+from .pricing import PRICING, calculate_cost, usage_from_payload
 from ..._events import (
     TOOL_CALL,
     AGENT_ERROR,
@@ -14,7 +14,9 @@ from ..._events import (
 )
 from ..._context import _current_span_id, _current_collector
 from .token_usage import NormalizedTokenUsage
+from ..._error_code import error_category
 from ..._secret_scrub import safe_error
+from .._tool_arguments import parse_tool_arguments
 
 
 def _derive_operation(name: str) -> str:
@@ -47,8 +49,11 @@ def emit_llm_events(
     framework: Optional[str] = None,
     extract_provider_cost: Optional[Callable[[Any], Optional[float]]] = None,
     provider_cost_only: bool = False,
-) -> None:
+    tool_arguments_json: bool = False,
+) -> Any:
     """Emit ``model.invoke`` + optional ``tool.call`` + ``cost.record`` events.
+
+    Returns the reply it recorded as ``output_message`` (None outside a trace).
 
     Builds the full payload; the collector handles CaptureConfig gating
     (L3 suppresses model.invoke entirely; capture_content strips messages).
@@ -66,10 +71,19 @@ def emit_llm_events(
 
     ``extract_provider_cost`` / ``provider_cost_only`` carry a gateway's own
     billed charge into the cost record — see :func:`_emit_cost`.
+
+    ``tool_arguments_json`` says the hooks may return a tool call's arguments as the
+    JSON text the provider sent (OpenAI's wire format; Anthropic's streamed tool
+    input), both in the tool calls and in ``output_message``. They are decoded here,
+    and only when the trace captures content: otherwise the collector strips both
+    fields, and decoding a malformed string would still log a snippet of it. The two
+    places a call appears share one decode, so a malformed call logs one WARNING.
+    Arguments that are already an object pass through.
     """
     collector = _current_collector.get()
     if collector is None:
-        return
+        return None
+    decode = _tool_call_decoder() if tool_arguments_json and collector.config.capture_content else None
 
     parent_span_id = _current_span_id.get()
     span_id = uuid.uuid4().hex[:16]
@@ -98,6 +112,10 @@ def emit_llm_events(
     if streaming_duration_ms is not None:
         streaming_timing["streaming_duration_ms"] = streaming_duration_ms
 
+    output_message = extract_output(response)
+    if decode is not None:
+        output_message = _with_decoded_tool_calls(output_message, decode)
+
     collector.emit(
         MODEL_INVOKE,
         {
@@ -106,7 +124,7 @@ def emit_llm_events(
             "latency_ms": latency_ms,
             "parameters": parameters,
             "messages": _extract_messages(kwargs),
-            "output_message": extract_output(response),
+            "output_message": output_message,
             "otel_gen_ai": otel_attrs,
             **fw,
             **streaming_timing,
@@ -127,6 +145,8 @@ def emit_llm_events(
         except Exception:
             tool_calls = []
         for tc in tool_calls:
+            if decode is not None and isinstance(tc, dict):
+                tc = decode(tc)
             collector.emit(
                 TOOL_CALL,
                 {
@@ -160,6 +180,56 @@ def emit_llm_events(
             provider_cost_usd=provider_cost,
             provider_cost_only=provider_cost_only,
         )
+    return output_message
+
+
+_ToolCallDecoder = Callable[..., Dict[str, Any]]
+
+
+def _tool_call_decoder() -> _ToolCallDecoder:
+    """A function that returns a tool call with its JSON-string arguments decoded.
+
+    The arguments are under ``field`` (``arguments``, or ``input`` in an Anthropic
+    ``tool_use`` block). It remembers each decode for the response it serves, keyed
+    by the call's id and arguments: the same call appears in ``output_message`` and
+    in its ``tool.call``, and a malformed string logs a WARNING each time it is decoded.
+    """
+    decoded: Dict[Tuple[Optional[str], str], Any] = {}
+
+    def decode(call: Dict[str, Any], field: str = "arguments") -> Dict[str, Any]:
+        raw = call.get(field)
+        if not isinstance(raw, str):
+            return call
+        call_id = call.get("id")
+        key = (call_id if isinstance(call_id, str) else None, raw)
+        if key not in decoded:
+            decoded[key] = parse_tool_arguments(raw)
+        return {**call, field: decoded[key]}
+
+    return decode
+
+
+def _with_decoded_tool_calls(output_message: Any, decode: _ToolCallDecoder) -> Any:
+    """*output_message* with the arguments of each tool call in it decoded.
+
+    OpenAI's shape lists the calls in ``tool_calls`` (``arguments``); Anthropic's,
+    as content ``blocks`` of type ``tool_use`` (``input``).
+    """
+    if not isinstance(output_message, dict):
+        return output_message
+    out = output_message
+    calls = output_message.get("tool_calls")
+    if isinstance(calls, list):
+        out = {**out, "tool_calls": [decode(c) if isinstance(c, dict) else c for c in calls]}
+    blocks = output_message.get("blocks")
+    if isinstance(blocks, list):
+        out = {
+            **out,
+            "blocks": [
+                decode(b, "input") if isinstance(b, dict) and b.get("type") == "tool_use" else b for b in blocks
+            ],
+        }
+    return out
 
 
 def emit_llm_error(
@@ -188,7 +258,7 @@ def emit_llm_error(
         # Provider auth/validation exceptions routinely echo the API key /
         # bearer token; scrub before it enters the (always-uploaded) payload.
         "error": safe_error(error),
-        "error_type": type(error).__name__,
+        **error_category(error),
         "latency_ms": latency_ms,
     }
     if partial_chunks is not None:
@@ -267,15 +337,11 @@ def _emit_cost(
         normalized = usage
         usage_payload = usage.as_event_dict()
     elif isinstance(usage, dict):
-        normalized = NormalizedTokenUsage(
-            prompt_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-            completion_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
-            total_tokens=int(usage.get("total_tokens") or 0),
-            cached_tokens=_opt_int(usage.get("cached_tokens") or usage.get("cache_read_input_tokens")),
-            cache_creation_tokens=_opt_int(usage.get("cache_creation_input_tokens")),
-            reasoning_tokens=_opt_int(usage.get("reasoning_tokens")),
-            thinking_tokens=_opt_int(usage.get("thinking_tokens")),
-        )
+        # The same payload -> usage mapping the collector chokepoint prices and
+        # audits this record with, so the two can never disagree about a key. It
+        # matters for OpenAI's ``cache_write_tokens``, which sit INSIDE
+        # prompt_tokens and must be moved out before pricing (LAY-4259).
+        normalized = usage_from_payload(usage)
         usage_payload = dict(usage)
     else:
         return
@@ -346,15 +412,6 @@ def _flat_token_fields(usage: Any) -> Dict[str, int]:
         "completion_tokens": normalized.completion_tokens,
         "total_tokens": normalized.total_tokens,
     }
-
-
-def _opt_int(val: Any) -> Optional[int]:
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
 
 
 def _extract_messages(kwargs: Dict[str, Any]) -> Any:

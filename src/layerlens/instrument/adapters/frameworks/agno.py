@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from ._utils import safe_serialize
 from ..._context import _current_run, _current_collector
 from ..._identity import _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -374,7 +375,7 @@ class AgnoAdapter(FrameworkAdapter):
             payload["latency_ms"] = latency_ms
         if error:
             payload["error"] = str(error)
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
         elif _run_errored(result):
             # agno swallows a real provider/model error into RunStatus.error and
             # returns normally (Agent.run does not raise), stashing the error text

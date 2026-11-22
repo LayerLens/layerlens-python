@@ -18,7 +18,7 @@ def main() -> None:
         from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore[import-not-found]  # noqa: F401
     except ImportError:
         print(
-            "Install: pip install 'layerlens[llamaindex]' llama-index llama-index-embeddings-openai"
+            'Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens llama-index llama-index-embeddings-openai'
         )
         return
 

@@ -27,7 +27,7 @@ MCP_DIR = os.path.join(SAMPLES_DIR, "mcp")
 
 @pytest.fixture
 def mock_client():
-    """Fully mocked Stratix client with realistic responses."""
+    """Fully mocked LayerLens client with realistic responses."""
     client = MagicMock()
     client.organization_id = "org-test"
     client.project_id = "proj-test"
@@ -122,8 +122,8 @@ def mcp_module(mock_client):
             "mcp.types": mock_mcp_types,
         },
     ):
-        with patch.dict("os.environ", {"LAYERLENS_STRATIX_API_KEY": "test-key"}):
-            with patch("layerlens.Stratix", return_value=mock_client):
+        with patch.dict("os.environ", {"LAYERLENS_API_KEY": "test-key"}):
+            with patch("layerlens.LayerLens", return_value=mock_client):
                 # Force reimport
                 mod_name = "layerlens_server_test"
                 if mod_name in sys.modules:

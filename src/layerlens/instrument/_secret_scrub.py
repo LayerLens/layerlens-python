@@ -132,11 +132,18 @@ ERROR_KEYS = ("error", "error_message", "execution_error", "status_message")
 # or a node identity vanishes with no error raised anywhere.
 #
 # Deliberately NARROW. Only the checksum-validated PAN pattern is skipped, and only
-# for these four keys; every other pattern still applies, so a credential templated
+# for these keys; every other pattern still applies, so a credential templated
 # into a span id is still caught. Producer-supplied NAMES (agent_id, span_name,
 # tool_name) are NOT here: a customer picks those, so a card number appearing there
-# is not structurally impossible the way it is in a generated id.
-_STRUCTURAL_ID_KEYS: FrozenSet[str] = frozenset({"span_id", "trace_id", "parent_span_id", "run_id"})
+# is not structurally impossible the way it is in a generated id. Neither is
+# session_id: it is usually the caller's own value (UCP mints one only when the
+# caller passes none).
+#
+# originating_span_id is the span an MCP async task started from, so it is always
+# a span id (LAY-4267): redacting it cut the task off from its tool call.
+_STRUCTURAL_ID_KEYS: FrozenSet[str] = frozenset(
+    {"span_id", "trace_id", "parent_span_id", "run_id", "originating_span_id"}
+)
 
 
 def scrub_secrets(text: str, *, field: Optional[str] = None) -> str:
@@ -184,7 +191,31 @@ def find_secrets(text: str) -> List[str]:
     return hits
 
 
-def _scrub_value(value: object, field: Optional[str] = None) -> object:
+# How many container levels below the payload are scrubbed (LAY-4267). A dict, list
+# or tuple at this level or deeper is replaced, whole and unread, by DEPTH_REDACTION.
+#
+# _scrub_value recurses once per level, and on CPython <= 3.11 a list level costs two
+# frames (the call and its list comprehension), so decodable tool arguments ~500
+# levels deep exhausted the default recursion limit of 1,000 inside collector.emit,
+# and the RecursionError reached the customer's own call. 64 levels cost at most ~130
+# frames and leave the rest of the limit to the caller's stack; the result is then
+# hashed and uploaded through json.dumps, which handles ~990 levels from a shallow
+# stack on CPython <= 3.11. Real payloads nest a few levels.
+#
+# Fail closed: the replaced subtree is dropped, never uploaded unscrubbed.
+MAX_SCRUB_DEPTH = 64
+DEPTH_REDACTION = "[REDACTED-DEPTH]"
+
+
+def beyond_scrub_depth(value: object, depth: int) -> bool:
+    """True if *value* is a container *depth* levels below the payload (itself level 0)
+    with *depth* at :data:`MAX_SCRUB_DEPTH` or more. Every walker over a payload asks
+    this, so they all cut at the same place: the scrubber here, and the
+    ``capture_content=False`` redaction in ``_capture_config`` that runs before it."""
+    return depth >= MAX_SCRUB_DEPTH and isinstance(value, (dict, list, tuple))
+
+
+def _scrub_value(value: object, field: Optional[str] = None, depth: int = 0) -> object:
     """Recursively scrub secret-shaped substrings from every string nested in
     *value*. COPY-ON-WRITE: returns the SAME object when nothing matched (the
     common case — the hot path allocates nothing), otherwise a scrubbed copy.
@@ -198,25 +229,31 @@ def _scrub_value(value: object, field: Optional[str] = None) -> object:
     pattern can be skipped for a structural identifier at ANY depth (adapters nest
     span references under metadata/extra wrappers). A list/tuple element inherits
     its containing key, so ``spans: [{trace_id: ...}]`` resolves correctly.
+
+    *depth* counts the containers above *value*, the payload itself being 0. A
+    container at :data:`MAX_SCRUB_DEPTH` or deeper comes back as
+    :data:`DEPTH_REDACTION` without being walked.
     """
     if isinstance(value, str):
         return scrub_secrets(value, field=field)
+    if beyond_scrub_depth(value, depth):
+        return DEPTH_REDACTION
     if isinstance(value, dict):
         out = value
         for k, v in value.items():
-            cleaned = _scrub_value(v, k if isinstance(k, str) else None)
+            cleaned = _scrub_value(v, k if isinstance(k, str) else None, depth + 1)
             if cleaned is not v:
                 if out is value:
                     out = dict(value)
                 out[k] = cleaned
         return out
     if isinstance(value, list):
-        cleaned_items = [_scrub_value(v, field) for v in value]
+        cleaned_items = [_scrub_value(v, field, depth + 1) for v in value]
         if any(ci is not orig for ci, orig in zip(cleaned_items, value)):
             return cleaned_items
         return value
     if isinstance(value, tuple):
-        cleaned_items = [_scrub_value(v, field) for v in value]
+        cleaned_items = [_scrub_value(v, field, depth + 1) for v in value]
         if any(ci is not orig for ci, orig in zip(cleaned_items, value)):
             return tuple(cleaned_items)
         return value
@@ -235,6 +272,9 @@ def scrub_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     (LAY-3625 / A10, user-approved 2026-06-25) so a leaked key anywhere is
     caught, not just in an error string. Copy-on-write via :func:`_scrub_value`
     — a clean payload (the common case) is returned unchanged with no allocation.
+    Nesting deeper than :data:`MAX_SCRUB_DEPTH` is replaced by
+    :data:`DEPTH_REDACTION`, so no payload, however deep, can make the scrub
+    exhaust the recursion limit.
     """
     cleaned = _scrub_value(payload)
     return cleaned if isinstance(cleaned, dict) else payload

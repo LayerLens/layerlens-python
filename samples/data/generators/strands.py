@@ -34,6 +34,10 @@ import sys
 
 # Make the seam (_generate_fixtures) + src importable regardless of entrypoint.
 _HERE = os.path.dirname(os.path.abspath(__file__))
+# Run as a script, this folder is sys.path[0], and this file has the name of the library it
+# records: ``import <library>`` would import this file. Look the library up elsewhere.
+if sys.path and os.path.abspath(sys.path[0] or os.curdir) == _HERE:
+    sys.path.pop(0)
 _DATA = os.path.dirname(_HERE)  # samples/data
 _SAMPLES = os.path.dirname(_DATA)  # samples
 _REPO = os.path.dirname(_SAMPLES)
@@ -41,7 +45,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 from layerlens.instrument import trace_context  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
@@ -71,7 +75,7 @@ _SINGLE_QUESTION = (
 )
 
 
-def generate_strands_single(client: Stratix) -> None:
+def generate_strands_single(client: LayerLens) -> None:
     """Record a single named strands Agent (OpenAIModel) manufacturing QA run."""
     from strands import Agent  # type: ignore[import-not-found]
     from strands.models.openai import OpenAIModel  # type: ignore[import-not-found]
@@ -156,7 +160,7 @@ def _swarm_agent(name: str, system_prompt: str):
     )
 
 
-def generate_strands_multi(client: Stratix) -> None:
+def generate_strands_multi(client: LayerLens) -> None:
     """Record a REAL strands Swarm with handoff_to_agent -> one multi-agent trace."""
     from strands.multiagent import Swarm  # type: ignore[import-not-found]
 
@@ -255,6 +259,6 @@ def generate_strands_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_strands_single(_client)
     generate_strands_multi(_client)

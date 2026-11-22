@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-boto3 = pytest.importorskip("boto3")
+from tests._optional_deps import importorskip
+
+boto3 = importorskip("boto3")
 from botocore.stub import Stubber  # noqa: E402
 
 import layerlens.instrument.adapters.frameworks.bedrock_agents as _mod  # noqa: E402

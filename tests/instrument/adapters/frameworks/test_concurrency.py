@@ -15,11 +15,11 @@ import time
 import asyncio
 from typing import Any, Dict, List
 
-import pytest
+from tests._optional_deps import importorskip
 
 from .conftest import record_for_schema_lock
 
-pydantic_ai = pytest.importorskip("pydantic_ai")
+pydantic_ai = importorskip("pydantic_ai")
 
 from pydantic_ai import Agent  # noqa: E402
 from pydantic_ai.models.test import TestModel  # noqa: E402

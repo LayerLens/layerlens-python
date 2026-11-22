@@ -198,6 +198,13 @@ class OllamaProvider(MonkeyPatchProvider):
 
 
 def instrument_ollama(client: Any, *, cost_per_second: float | None = None) -> OllamaProvider:
+    """Trace the Ollama calls ``client`` makes; returns the adapter.
+
+    One client at a time: the client instrumented before is restored first, and
+    :func:`uninstrument_ollama` restores the last one. To trace several clients at once,
+    connect an adapter to each, ``OllamaProvider().connect(other_client)``: each adapter's
+    ``disconnect()`` restores its own client.
+    """
     from .._registry import get, register
 
     existing = get("ollama")

@@ -7,27 +7,45 @@ import json
 
 import click
 
+from .._command import LayerLensGroup
 from ...synthetic import SyntheticDataBuilder
 
 
-@click.group()
+@click.group(cls=LayerLensGroup)
 def synthetic() -> None:
     """Generate synthetic traces from templates."""
 
 
 @synthetic.command("templates")
-def templates() -> None:
+@click.pass_context
+def templates(ctx: click.Context) -> None:
     """List available templates."""
-    for t in SyntheticDataBuilder().list_templates():
+    found = SyntheticDataBuilder().list_templates()
+    if ctx.obj["output_format"] == "json":
+        click.echo(json.dumps([{"id": t.id, "category": t.category.value, "title": t.title} for t in found], indent=2))
+        return
+    for t in found:
         click.echo(f"{t.id:30s} {t.category.value:15s} {t.title}")
 
 
 @synthetic.command("generate")
-@click.option("--template", "template_id", required=True)
-@click.option("--count", type=int, default=10)
-@click.option("--provider", default=None)
-@click.option("--project-id", default=None)
-@click.option("--organization-id", default=None)
+@click.option(
+    "--template", "template_id", required=True, help="The template to generate from (`synthetic templates` lists them)."
+)
+@click.option(
+    "--count",
+    type=click.IntRange(min=1),
+    default=10,
+    show_default=True,
+    help="How many traces to generate, at least 1; a template's own maximum caps it.",
+)
+@click.option(
+    "--provider", default=None, help="The provider that generates them (default: the template's; built in: stochastic)."
+)
+@click.option("--project-id", default=None, help="The project id written into each trace (default: synthetic).")
+@click.option(
+    "--organization-id", default=None, help="The organization id written into each trace (default: synthetic)."
+)
 @click.option(
     "--out",
     type=click.Path(dir_okay=False, writable=True),
@@ -53,7 +71,11 @@ def generate(
     if result.errors:
         click.echo(f"errors: {result.errors}", err=True)
         sys.exit(1)
-    sink = open(out, "w", encoding="utf-8") if out else sys.stdout
+    try:
+        sink = open(out, "w", encoding="utf-8") if out else sys.stdout
+    except OSError as err:
+        click.echo(f"Error: the traces could not be written to {out}: {err.strerror or err}", err=True)
+        sys.exit(1)
     try:
         for trace in result.traces:
             sink.write(json.dumps(trace.model_dump()) + "\n")

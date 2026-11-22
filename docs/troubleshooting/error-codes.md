@@ -5,7 +5,7 @@ This reference guide provides detailed information about all error codes and exc
 ## Exception Hierarchy
 
 ```
-StratixError (Base exception)
+LayerLensError (Base exception)
 ├── APIError (Base for API-related errors)
 │   ├── APIConnectionError (Network/connection issues)
 │   │   └── APITimeoutError (Request timeouts)
@@ -13,6 +13,7 @@ StratixError (Base exception)
 │   └── APIStatusError (HTTP status errors)
 │       ├── BadRequestError (400)
 │       ├── AuthenticationError (401)
+│       ├── PaymentRequiredError (402: no credit left)
 │       ├── PermissionDeniedError (403)
 │       ├── NotFoundError (404)
 │       ├── ConflictError (409)

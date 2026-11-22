@@ -20,10 +20,11 @@ from typing import Any, Dict, List
 from typing_extensions import TypedDict
 
 import httpx
-import pytest
 
-pytest.importorskip("langgraph.graph")  # skips in envs without langgraph
-pytest.importorskip("langchain_openai")  # ...or without langchain-openai
+from tests._optional_deps import importorskip
+
+importorskip("langgraph.graph")  # skips in envs without langgraph
+importorskip("langchain_openai")  # ...or without langchain-openai
 
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402

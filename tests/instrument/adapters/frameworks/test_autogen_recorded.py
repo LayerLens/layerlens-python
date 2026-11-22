@@ -38,13 +38,15 @@ import asyncio
 import httpx
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):  # pragma: no cover - env guard
     pytest.skip("autogen requires Python >= 3.10", allow_module_level=True)
-try:
-    from autogen_core.models import UserMessage  # noqa: E402
-    from autogen_ext.models.openai import OpenAIChatCompletionClient  # noqa: E402
-except (ImportError, Exception):  # pragma: no cover - env guard
-    pytest.skip("autogen not installed or incompatible", allow_module_level=True)
+importorskip("autogen_core")
+importorskip("autogen_ext.models.openai")
+
+from autogen_core.models import UserMessage  # noqa: E402
+from autogen_ext.models.openai import OpenAIChatCompletionClient  # noqa: E402
 
 from layerlens.instrument.adapters.frameworks.autogen import AutoGenAdapter  # noqa: E402
 

@@ -31,6 +31,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests._optional_deps import importorskip
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.frameworks.openinference import (
     OpenInferenceAdapter,
@@ -360,7 +361,7 @@ class TestBridge:
 
 class TestProtobufPath:
     def test_protobuf_roundtrip(self) -> None:
-        pytest.importorskip("opentelemetry.proto")
+        importorskip("opentelemetry.proto")
         from opentelemetry.proto.trace.v1.trace_pb2 import Span, Status, ScopeSpans, ResourceSpans
         from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
         from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
@@ -391,7 +392,7 @@ class TestProtobufPath:
         assert record["attributes"]["llm.token_count.prompt"] == 1000
 
     def test_protobuf_resource_attributes_merge_with_span_winning(self) -> None:
-        pytest.importorskip("opentelemetry.proto")
+        importorskip("opentelemetry.proto")
         from opentelemetry.proto.trace.v1.trace_pb2 import Span, ScopeSpans, ResourceSpans
         from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
         from opentelemetry.proto.resource.v1.resource_pb2 import Resource

@@ -1,4 +1,4 @@
-# Table of Contents - Stratix Python SDK
+# Table of Contents - LayerLens Python SDK
 
 * [Introduction](README.md)
 
@@ -6,6 +6,7 @@
 * [Installation](getting-started/installation.md)
 * [Authentication & Configuration](getting-started/authentication.md)
 * [Quick Start Guide](getting-started/quickstart.md)
+* [Migrating from Stratix](migrating-from-stratix.md)
 
 ## API Reference
 * [Overview](api-reference/README.md)
@@ -17,13 +18,16 @@
   * [Judges](api-reference/judges.md)
   * [Scorers](api-reference/scorers.md)
   * [Traces](api-reference/traces.md)
+    * [Trace tags](instrumentation/tags.md)
   * [Trace Evaluations](api-reference/trace-evaluations.md)
   * [Judge Optimizations](api-reference/judge-optimizations.md)
+  * [Environments](api-reference/environments.md)
   * [Error Handling](api-reference/errors.md)
 
 ## CLI
 * [Getting Started](cli/getting-started.md)
 * [Command Reference](cli/commands.md)
+  * [layerlens env](cli/env.md)
 * [Workflow Examples](cli/examples.md)
 
 ## Code Examples

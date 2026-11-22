@@ -10,11 +10,11 @@ from ...models import (
     TestIntegrationResponse,
 )
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 def _unwrap(resp: Any) -> Any:
@@ -32,8 +32,13 @@ class Integrations(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Integration]:
+        """An integration, by id.
+
+        Raises :class:`NotFoundError` when the organization has no integration with this id.
+        Returns None only for a reply that holds no integration.
+        """
         resp = self._get(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -52,7 +57,7 @@ class Integrations(SyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[IntegrationsResponse]:
         params: Dict[str, Any] = {}
 
@@ -96,7 +101,7 @@ class Integrations(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[TestIntegrationResponse]:
         resp = self._post(
             f"{self._base_url()}/{id}/test",
@@ -121,8 +126,13 @@ class AsyncIntegrations(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Integration]:
+        """An integration, by id.
+
+        Raises :class:`NotFoundError` when the organization has no integration with this id.
+        Returns None only for a reply that holds no integration.
+        """
         resp = await self._get(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -141,7 +151,7 @@ class AsyncIntegrations(AsyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[IntegrationsResponse]:
         params: Dict[str, Any] = {}
 
@@ -185,7 +195,7 @@ class AsyncIntegrations(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[TestIntegrationResponse]:
         resp = await self._post(
             f"{self._base_url()}/{id}/test",

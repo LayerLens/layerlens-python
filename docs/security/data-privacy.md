@@ -1,6 +1,6 @@
 # Data Privacy
 
-This guide covers data privacy considerations when using the LayerLens Stratix SDK.
+This guide covers data privacy considerations when using the LayerLens SDK.
 
 ## Data Sent to the API
 
@@ -45,7 +45,7 @@ The SDK does not write any data to disk. All operations are performed in-memory 
 Store API keys in environment variables rather than in source code:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+export LAYERLENS_API_KEY="your-api-key"
 ```
 
 See [API Key Management](api-key-management.md) and [Environment Variables](environment-variables.md) for detailed guidance.

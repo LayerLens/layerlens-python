@@ -96,7 +96,7 @@ export function useLayerLensContext(params: LayerLensContextParams) {
   // -- Current navigation state --
   useCopilotReadable({
     description:
-      "The current page/route the user is viewing in the LayerLens Stratix dashboard.",
+      "The current page/route the user is viewing in the LayerLens dashboard.",
     value: currentPage ?? "unknown",
   });
 

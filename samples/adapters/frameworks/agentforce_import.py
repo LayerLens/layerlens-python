@@ -26,7 +26,7 @@ def main() -> None:
             AgentforceAdapter,
         )
     except ImportError:
-        print("Install: pip install 'layerlens[agentforce]' httpx")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[agentforce]" httpx')
         return
 
     required = {"SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_INSTANCE_URL"}

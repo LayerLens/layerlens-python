@@ -8,8 +8,8 @@ model/token/cost events and renders the Agent, Framework, and Status columns
 from real data.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package anthropic
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens anthropic
+    export LAYERLENS_API_KEY=your-api-key
     export ANTHROPIC_API_KEY=your-anthropic-key
 
 Usage:
@@ -22,7 +22,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, poll_evaluation_results, trace_call
@@ -51,7 +51,7 @@ JUDGE_DEFINITIONS = [
 ]
 
 
-def _ensure_judges(client: Stratix) -> list[tuple[str, str]]:
+def _ensure_judges(client: LayerLens) -> list[tuple[str, str]]:
     """Create the sample's judges and return (judge_id, display_label) tuples.
 
     Judges are namespaced per sample (via ``create_judge(namespace=...)``) so
@@ -79,7 +79,8 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"\nERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -150,7 +151,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:14s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:14s} -- timed out waiting for results")
+                print(f"  {label:14s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

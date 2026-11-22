@@ -69,7 +69,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES, _REPO):
 # installed framework (a no-op in the integrated ``generators.instructor`` path).
 sys.path[:] = [_q for _q in sys.path if os.path.abspath(_q) != _HERE]
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument import trace  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
@@ -161,7 +161,7 @@ _SYSTEM_PROMPT = (
 
 
 def _capture_instructor(
-    client: Stratix,
+    client: LayerLens,
     *,
     agent_name: str,
     response_model,
@@ -277,7 +277,7 @@ def _write_corpus(interactions, *, openai_version: str) -> None:
     )
 
 
-def generate_instructor_single(client: Stratix) -> None:
+def generate_instructor_single(client: LayerLens) -> None:
     """Instructor SINGLE (Legal contract-metadata extraction).
 
     A NAMED ``contract-metadata-extractor`` abstracts a real Master Services
@@ -360,4 +360,4 @@ def generate_instructor_single(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    generate_instructor_single(Stratix())
+    generate_instructor_single(LayerLens())

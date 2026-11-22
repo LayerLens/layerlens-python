@@ -18,7 +18,7 @@ def main() -> None:
         from haystack.document_stores.in_memory import InMemoryDocumentStore  # type: ignore[import-not-found]
         from haystack.components.retrievers.in_memory import InMemoryBM25Retriever  # type: ignore[import-not-found]
     except ImportError:
-        print("Install: pip install 'layerlens[haystack]' haystack-ai")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens haystack-ai')
         return
 
     store = InMemoryDocumentStore()

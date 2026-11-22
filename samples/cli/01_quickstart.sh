@@ -2,26 +2,27 @@
 # Quick start: configure, list traces, inspect, evaluate
 #
 # Usage: ./01_quickstart.sh [MODEL_ID]
-# MODEL_ID defaults to the first available judge model.
+# MODEL_ID is the judge's model; it defaults to GPT-4o-mini (openai/gpt-4o-mini).
+# A judge on a model the catalog marks deprecated is created, but refused when it runs.
 set -euo pipefail
 
-MODEL_ID="${1:-67e1fe69e014f9fa6e50d7be}"
+MODEL_ID="${1:-6a0b692ced57a8fd01d1433a}"
 
 # 1. List available traces
 echo "==> Listing traces..."
-stratix trace list --page-size 5
+layerlens trace list --page-size 5
 
 # 2. Get the first trace ID
-TRACE_ID=$(stratix --format json trace list --page-size 1 \
+TRACE_ID=$(layerlens --format json trace list --page-size 1 \
   | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
 echo "==> First trace: $TRACE_ID"
 
 # 3. Inspect it
-stratix trace get "$TRACE_ID"
+layerlens trace get "$TRACE_ID"
 
 # 4. Create a judge (capture ID from the "Judge created: <id>" line)
 echo "==> Creating judge..."
-JUDGE_ID=$(stratix judge create \
+JUDGE_ID=$(layerlens judge create \
   --name "Quick Start Judge $(date +%s)" \
   --goal "Rate whether the response is accurate and helpful" \
   --model-id "$MODEL_ID" \
@@ -30,4 +31,4 @@ echo "==> Created judge: $JUDGE_ID"
 
 # 5. Test the judge against the trace
 echo "==> Testing judge against trace..."
-stratix judge test --judge-id "$JUDGE_ID" --trace-id "$TRACE_ID"
+layerlens judge test --judge-id "$JUDGE_ID" --trace-id "$TRACE_ID"

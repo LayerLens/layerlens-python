@@ -6,31 +6,31 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      # One red version must not cancel the others: each version's result is a separate signal.
+      fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rye
-        uses: eifinger/setup-rye@v4
+      - name: Install Python ${{ matrix.python-version }} and exactly uv.lock
+        uses: ./.github/actions/setup-locked-env
         with:
-          enable-cache: true
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: |
-          rye pin ${{ matrix.python-version }}
-          rye sync
+          python-version: ${{ matrix.python-version }}
 
       - name: Run lints
-        run: rye run lint
+        run: ./scripts/lint
 
       - name: Run tests
-        run: rye run pytest
+        run: ./scripts/test
 
   coverage:
     # Core-scoped coverage gate (LAY-3614 / W3): floor on the shared core
@@ -39,31 +39,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rye
-        uses: eifinger/setup-rye@v4
+      - name: Install Python 3.11 and exactly uv.lock
+        uses: ./.github/actions/setup-locked-env
         with:
-          enable-cache: true
-
-      - name: Set up Python 3.11
-        run: |
-          rye pin 3.11
-          rye sync
+          python-version: "3.11"
 
       - name: Core coverage gate
-        run: rye run test:cov-core
+        run: ./scripts/test_cov_core
 
   test-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rye
-        uses: eifinger/setup-rye@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # Reads [tool.uv] required-version; "lowest" installs exactly its floor.
+          resolution-strategy: lowest
 
       - name: Build package
-        run: rye build
+        run: uv build
 
       - name: Check build artifacts
         run: |
@@ -71,3 +67,6 @@ jobs:
           # Verify wheel and source distribution were created
           test -f dist/*.whl
           test -f dist/*.tar.gz
+          # PEP 561: without the marker a user's mypy refuses the SDK's types (py.typed).
+          unzip -l dist/*.whl | grep -q ' layerlens/py.typed$'
+          tar tzf dist/*.tar.gz | grep -q '/src/layerlens/py.typed$'

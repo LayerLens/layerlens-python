@@ -15,12 +15,11 @@ from typing import Any, Optional
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("autogen-core requires Python >= 3.10", allow_module_level=True)
-try:
-    import autogen_core  # noqa: F401
-except (ImportError, TypeError):
-    pytest.skip("autogen-core not installed or incompatible", allow_module_level=True)
+importorskip("autogen_core")
 
 from autogen_core import EVENT_LOGGER_NAME, AgentId  # noqa: E402
 from autogen_core.logging import (  # noqa: E402

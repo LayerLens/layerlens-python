@@ -36,7 +36,7 @@ adapter's `emit_llm_error` path ran. See `*_sdk_surface.json` + `full_config_err
 - `atlas_duplicate_trace_id` — same `trace_id` uploaded twice yields TWO distinct backend record ids (NOT idempotent / no de-dup).
 - `atlas_crossorg_bola_200` — **BOLA F-L3-001**: org-A app key reads org-B integrations (200). Sensitive field VALUES redacted in the fixture; key names + count retained.
 - `atlas_crossorg_traces_401_control` — control: the traces route DOES enforce org membership (401 "user is not the member of the organization").
-- `atlas_sdk_badkey_surface` — `Stratix(api_key=bad)` raises `AuthenticationError` at construction; the bad key is NOT in `str(exc)`.
+- `atlas_sdk_badkey_surface` — `LayerLens(api_key=bad)` raises `AuthenticationError` at construction; the bad key is NOT in `str(exc)`.
 
 ## Spend
 ~$0.00004 — one real `claude-haiku-4-5` call (`anthropic_real_haiku_success`) to

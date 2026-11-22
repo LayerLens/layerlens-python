@@ -44,8 +44,9 @@ import httpx
 import pytest
 
 import openai
+from tests._optional_deps import importorskip
 
-pytest.importorskip("instructor")  # skips in the base venv (not installed there)
+importorskip("instructor")  # skips in the base venv (not installed there)
 
 import instructor  # noqa: E402
 from pydantic import Field, BaseModel  # noqa: E402

@@ -64,7 +64,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # ``generators.smolagents``, since the package dir is not on the path then).
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -150,7 +150,7 @@ def _read_article_impl(article_id: str) -> str:
 # own collector on run-end; we register it, drive a REAL ``agent.run``, and
 # observe the flushed payload (self-flushing adapter, like crewai/autogen).
 # --------------------------------------------------------------------------
-def _capture_smolagents(client: Stratix, agent, task: str) -> dict:
+def _capture_smolagents(client: LayerLens, agent, task: str) -> dict:
     from layerlens.instrument.adapters.frameworks.smolagents import SmolAgentsAdapter
 
     captured: dict = {}
@@ -177,7 +177,7 @@ def _capture_smolagents(client: Stratix, agent, task: str) -> dict:
 # --------------------------------------------------------------------------
 # Single agent + a real two-tool research loop (media newsroom research)
 # --------------------------------------------------------------------------
-def generate_smolagents_single(client: Stratix) -> dict:
+def generate_smolagents_single(client: LayerLens) -> dict:
     """Record a single ``newsroom_research_agent`` running a real search/read loop."""
     from smolagents import ToolCallingAgent, OpenAIServerModel, tool
 
@@ -243,7 +243,7 @@ def generate_smolagents_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # Multi-agent: manager delegates to two named managed sub-agents (newsroom team)
 # --------------------------------------------------------------------------
-def generate_smolagents_multi(client: Stratix) -> dict:
+def generate_smolagents_multi(client: LayerLens) -> dict:
     """Record a genuine multi-agent newsroom team: a ``newsroom_editor`` manager
     delegates research to ``research_agent`` (real tools) and writing to
     ``story_writer`` via smolagents managed-agent delegation (real handoffs)."""
@@ -338,6 +338,6 @@ def generate_smolagents_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_smolagents_single(_client)
     generate_smolagents_multi(_client)

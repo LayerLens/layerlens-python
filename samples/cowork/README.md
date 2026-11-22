@@ -20,8 +20,8 @@ between agents. The patterns apply to any multi-agent architecture:
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 ## Quick Start

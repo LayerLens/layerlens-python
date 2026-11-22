@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens.models.scorer import Scorer
 from layerlens.resources.scorers.scorers import (
     Scorers,
@@ -183,7 +183,7 @@ class TestScorers:
         scorers_resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/scorers",
             body={"name": "X", "description": "D", "model_id": "m-1", "prompt": "Y"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 

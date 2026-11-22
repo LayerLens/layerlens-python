@@ -1,0 +1,66 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/runs/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6af31090280c73a1bc845644",
+      "kind": "external",
+      "status": "success",
+      "stop_reason": "finished",
+      "error": null,
+      "environment_version": 1,
+      "agent_name": "sdk-corpus",
+      "label": "corpus-early",
+      "model": "external:sdk-corpus",
+      "set_name": null,
+      "total": 2,
+      "passed": 1,
+      "failed": 0,
+      "errored": 1,
+      "timed_out": 0,
+      "pending": 0,
+      "counted": 2,
+      "pass_rate": 0.5,
+      "cost_usd": 0,
+      "created_at": "2026-11-10T12:39:44.259Z",
+      "started_at": "2026-11-10T12:39:44.259Z",
+      "finished_at": "2026-11-10T12:39:44.41Z",
+      "attempts": [
+        {
+          "attempt_id": "6af31090280c73a1bc845642",
+          "task_id": "6af30e45b124e9198e97638f",
+          "task_name": "ticket-count",
+          "task_version": 1,
+          "verdict": "pass",
+          "grader": "answer",
+          "evidence": "looked for \"30\" in the agent's answer",
+          "error_source": null,
+          "agent_answer": "30",
+          "agent_answer_truncated": false,
+          "cost_usd": 0,
+          "trace_id": "6af31090280c73a1bc845646",
+          "agent_trace_id": null
+        },
+        {
+          "attempt_id": "6af31090280c73a1bc845643",
+          "task_id": "6af30e45e160c1494e765b0c",
+          "task_name": "wrong-answer",
+          "task_version": 1,
+          "verdict": "error",
+          "grader": "answer",
+          "evidence": "not submitted",
+          "error_source": "agent",
+          "agent_answer": null,
+          "agent_answer_truncated": false,
+          "cost_usd": null,
+          "trace_id": null,
+          "agent_trace_id": null
+        }
+      ]
+    }
+  }
+}

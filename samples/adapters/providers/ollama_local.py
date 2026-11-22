@@ -19,7 +19,7 @@ def main() -> None:
     try:
         import ollama  # type: ignore[import-not-found]
     except ImportError:
-        print("Install the Ollama extra: pip install 'layerlens[ollama]'")
+        print('Install the Ollama extra: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[ollama]"')
         return
 
     client = ollama.Client()

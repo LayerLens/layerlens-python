@@ -1,6 +1,6 @@
 # Scorers
 
-The `scorers` resource on the Stratix client allows you to create and manage custom scorers for evaluating benchmark results. Scorers use an LLM model to evaluate model outputs using a custom prompt.
+The `scorers` resource on the LayerLens client allows you to create and manage custom scorers for evaluating benchmark results. Scorers use an LLM model to evaluate model outputs using a custom prompt.
 
 ## Overview
 
@@ -9,9 +9,9 @@ A scorer defines a custom evaluation criterion backed by a specific LLM model an
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Fetch a model to use for the scorer
 models = client.models.get(type="public", name="gpt-4o")
@@ -25,8 +25,7 @@ scorer = client.scorers.create(
     prompt="Rate the helpfulness of the following response on a scale of 0 to 1.",
 )
 
-if scorer:
-    print(f"Created scorer: {scorer.name} (id={scorer.id})")
+print(f"Created scorer: {scorer.name} (id={scorer.id})")
 
 # List all scorers
 response = client.scorers.get_many()
@@ -39,10 +38,10 @@ if response:
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     scorer = await client.scorers.create(
         name="Helpfulness Scorer",
@@ -51,8 +50,7 @@ async def main():
         prompt="Rate the helpfulness of the following response on a scale of 0 to 1.",
     )
 
-    if scorer:
-        print(f"Created scorer: {scorer.name}")
+    print(f"Created scorer: {scorer.name}")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -60,9 +58,13 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
-### `create(name, description, model_id, prompt, timeout=None)`
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
+
+### `create(name, description, model_id, prompt)`
 
 Creates a new custom scorer.
 
@@ -74,13 +76,16 @@ Creates a new custom scorer.
 | `description` | `str`                            | Yes      | Description of what the scorer evaluates           |
 | `model_id`    | `str`                            | Yes      | ID of the LLM model to use for scoring             |
 | `prompt`      | `str`                            | Yes      | Prompt template used to evaluate model outputs     |
-| `timeout`     | `float \| httpx.Timeout \| None` | No       | Override request timeout                           |
+| `timeout`     | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `Scorer` object if successful, `None` if the scorer could not be created.
+Returns the `Scorer` as stored: the API answers with the new scorer's id, and the scorer is read
+back by it (if that read fails, the scorer is returned as sent, with its id). A create the API
+refuses raises the API's error: `ConflictError` (409) for a name already taken in the project,
+`BadRequestError` (400) for a field it refuses, such as a description under 10 characters.
 
-### `get(id, timeout=None)`
+### `get(id)`
 
 Retrieves a scorer by its unique identifier.
 
@@ -89,13 +94,13 @@ Retrieves a scorer by its unique identifier.
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
 | `id`      | `str`                            | Yes      | The unique scorer ID     |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `Scorer` object if found, `None` otherwise.
+Returns a `Scorer`. Raises `NotFoundError` if no scorer has this id.
 
-### `get_many(page=None, page_size=None, timeout=None)`
+### `get_many(page=None, page_size=None)`
 
 Retrieves multiple scorers with pagination.
 
@@ -104,8 +109,8 @@ Retrieves multiple scorers with pagination.
 | Parameter   | Type                             | Required | Description                                          |
 | ----------- | -------------------------------- | -------- | ---------------------------------------------------- |
 | `page`      | `int \| None`                    | No       | Page number (1-based, defaults to 1)                 |
-| `page_size` | `int \| None`                    | No       | Number of scorers per page (default: 100, max: 500)  |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout                             |
+| `page_size` | `int \| None`                    | No       | Number of scorers per page (default and maximum: 100) |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -115,9 +120,9 @@ Returns a `ScorersResponse` object containing:
 - `count`: Number of scorers in this page
 - `total_count`: Total number of scorers
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
 
-### `update(id, name=None, description=None, model_id=None, prompt=None, timeout=None)`
+### `update(id, name=None, description=None, model_id=None, prompt=None)`
 
 Updates an existing scorer. Only provided fields are modified; omitted fields remain unchanged.
 
@@ -130,13 +135,13 @@ Updates an existing scorer. Only provided fields are modified; omitted fields re
 | `description` | `str \| None`                    | No       | Updated description                    |
 | `model_id`    | `str \| None`                    | No       | Updated model ID                       |
 | `prompt`      | `str \| None`                    | No       | Updated prompt template                |
-| `timeout`     | `float \| httpx.Timeout \| None` | No       | Override request timeout               |
+| `timeout`     | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns `True` if the update succeeded, `False` otherwise.
+Returns `True` if the update succeeded. It returns `False` for any failure, a missing id included, and does not raise.
 
-### `delete(id, timeout=None)`
+### `delete(id)`
 
 Deletes a scorer by its unique identifier.
 
@@ -145,11 +150,11 @@ Deletes a scorer by its unique identifier.
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
 | `id`      | `str`                            | Yes      | The unique scorer ID     |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns `True` if the scorer was deleted, `False` otherwise.
+Returns `True` if the scorer was deleted. It returns `False` for any failure, a missing id included, and does not raise.
 
 ## Response Objects
 

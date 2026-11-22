@@ -1,0 +1,35 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/build",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "status": "ready",
+      "version": 1,
+      "steps": [
+        {
+          "name": "Read the description into an org",
+          "state": "done",
+          "detail": "Org c278ee4c2e48…, read from the description."
+        },
+        {
+          "name": "Build sdk-corpus-lay4490 — Zendesk (1 of 1)",
+          "state": "done",
+          "detail": "Version 1 of \"sdk-corpus-lay4490 — Zendesk\": 12 tools, 39 invariants passed."
+        },
+        {
+          "name": "Compose the members into one surface",
+          "state": "done",
+          "detail": ""
+        }
+      ],
+      "tools": 12,
+      "records": null,
+      "answer_key": null,
+      "refused_because": null
+    }
+  }
+}

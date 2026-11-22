@@ -4,8 +4,23 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-echo "==> Running lints"
-rye run lint
+# Type-checks src/ by default; --all type-checks tests/ too.
+if [ "${1:-}" = "--all" ]; then
+  pyright_args=() # [tool.pyright] include covers src and tests
+  mypy_target=.
+else
+  pyright_args=(src)
+  mypy_target=src
+fi
+
+echo "==> Running ruff"
+uv run --all-extras ruff check .
+
+echo "==> Running pyright"
+uv run --all-extras pyright "${pyright_args[@]}"
+
+echo "==> Running mypy"
+uv run --all-extras mypy "$mypy_target"
 
 echo "==> Making sure it imports"
-rye run python -c 'import layerlens'
+uv run --all-extras python -c 'import layerlens'

@@ -2,7 +2,7 @@
 Async Patterns -- LayerLens Python SDK Sample
 =============================================
 
-Demonstrates async SDK usage with ``AsyncStratix``:
+Demonstrates async SDK usage with ``AsyncLayerLens``:
 
   1. **Concurrent result fetching** -- fetch results for multiple
      evaluations in parallel using ``asyncio.gather``.
@@ -13,15 +13,15 @@ Demonstrates async SDK usage with ``AsyncStratix``:
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* Set ``LAYERLENS_API_KEY`` environment variable
 * At least one model and benchmark configured in the project
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python async_results.py
 """
 
@@ -32,7 +32,7 @@ import sys
 import time
 import asyncio
 
-from layerlens import Stratix, AsyncStratix
+from layerlens import LayerLens, AsyncLayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge
@@ -43,7 +43,7 @@ from _helpers import create_judge
 
 
 async def fetch_evaluation_results(
-    client: AsyncStratix, evaluation_id: str
+    client: AsyncLayerLens, evaluation_id: str
 ) -> tuple[str, list | None]:
     """Fetch results for a single evaluation."""
     try:
@@ -62,7 +62,7 @@ async def fetch_evaluation_results(
         return evaluation_id, None
 
 
-async def demo_concurrent_fetch(client: AsyncStratix) -> None:
+async def demo_concurrent_fetch(client: AsyncLayerLens) -> None:
     """Fetch results from multiple evaluations concurrently."""
     # Get some existing evaluations to work with
     response = await client.evaluations.get_many(page_size=3)
@@ -90,7 +90,7 @@ async def demo_concurrent_fetch(client: AsyncStratix) -> None:
 
 
 async def create_and_run_evaluation(
-    client: AsyncStratix, model, benchmark, eval_number: int
+    client: AsyncLayerLens, model, benchmark, eval_number: int
 ) -> tuple[int, str | None, int, bool]:
     """Create, run, and collect results for a single evaluation."""
     try:
@@ -119,7 +119,7 @@ async def create_and_run_evaluation(
         return eval_number, None, 0, False
 
 
-async def demo_concurrent_evaluations(client: AsyncStratix) -> None:
+async def demo_concurrent_evaluations(client: AsyncLayerLens) -> None:
     """Create and run multiple evaluations in parallel."""
     models = await client.models.get()
     benchmarks = await client.benchmarks.get()
@@ -170,10 +170,10 @@ async def demo_concurrent_evaluations(client: AsyncStratix) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def demo_judge_and_traces(client: AsyncStratix) -> None:
+async def demo_judge_and_traces(client: AsyncLayerLens) -> None:
     """Create a judge, upload traces, evaluate concurrently, fetch results."""
     # Use sync client + create_judge helper (resolves model automatically)
-    sync_client = Stratix()
+    sync_client = LayerLens()
     judge = await asyncio.to_thread(
         create_judge,
         sync_client,
@@ -222,7 +222,7 @@ async def demo_judge_and_traces(client: AsyncStratix) -> None:
 
         # Poll for results with exponential backoff
         print("Polling for evaluation results...")
-        sync_client_for_poll = Stratix()
+        sync_client_for_poll = LayerLens()
         for evaluation in evaluations:
             if not evaluation:
                 continue
@@ -256,7 +256,12 @@ async def demo_judge_and_traces(client: AsyncStratix) -> None:
 
 
 async def main() -> None:
-    client = AsyncStratix()
+    try:
+        client = AsyncLayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
+    except Exception as exc:
+        print(f"ERROR: Failed to initialize LayerLens client: {exc}")
+        sys.exit(1)
 
     print("=" * 60)
     print("1. CONCURRENT RESULT FETCHING")

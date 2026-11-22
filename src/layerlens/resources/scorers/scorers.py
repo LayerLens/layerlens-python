@@ -3,14 +3,16 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import httpx
+from pydantic import ValidationError
 
 from ...models import Scorer, ScorersResponse
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
+from ..._exceptions import LayerLensError
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 def _unwrap(resp: Any) -> Any:
@@ -37,11 +39,40 @@ def _normalize_keys(d: Dict[str, Any]) -> Dict[str, Any]:
     return d
 
 
+def _created(resp: Any) -> "Scorer | str":
+    """What the API answered a create with: the whole scorer, or the new scorer's id.
+
+    The API answers ``{"data": {"id": ...}}`` (BUG-05: ``Scorer(**data)`` on that failed for want of
+    a name, and the scorer that had been created was reported as a failure). A whole scorer that
+    does not validate raises, as does an answer with neither.
+    """
+    data = _unwrap(resp)
+    if isinstance(data, dict):
+        data = _normalize_keys(data)
+        new_id = data.get("id")
+        if "name" in data:
+            try:
+                return Scorer(**data)
+            except ValidationError:
+                # The scorer exists: read it back by its id rather than lose it to the reply's shape.
+                if isinstance(new_id, str) and new_id:
+                    return new_id
+                raise
+        if isinstance(new_id, str) and new_id:
+            return new_id
+    raise LayerLensError(f"the API answered the scorer create without the new scorer: {data!r}")
+
+
 class Scorers(SyncAPIResource):
     def _base_url(self) -> str:
         return f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/scorers"
 
-    def get(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Scorer]:
+    def get(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> Optional[Scorer]:
+        """A scorer, by id.
+
+        Raises :class:`NotFoundError` when the project has no scorer with this id. Returns None only
+        for a reply that holds no scorer.
+        """
         resp = self._get(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
         data = _unwrap(resp)
         if isinstance(data, dict):
@@ -56,7 +87,7 @@ class Scorers(SyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ScorersResponse]:
         params: Dict[str, Any] = {}
         effective_page_size = min(max(page_size, 1), MAX_PAGE_SIZE) if page_size is not None else DEFAULT_PAGE_SIZE
@@ -86,8 +117,14 @@ class Scorers(SyncAPIResource):
         description: str,
         model_id: str,
         prompt: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
-    ) -> Optional[Scorer]:
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> Scorer:
+        """Create a scorer and return it, as stored.
+
+        The API answers with the new scorer's id; the scorer is read back by it. If that read
+        fails, the scorer still exists, so it is returned as sent, with its id. Raises
+        ``LayerLensError`` when the answer holds no new scorer, never returns ``None``.
+        """
         body: Dict[str, Any] = {
             "name": name,
             "description": description,
@@ -95,14 +132,14 @@ class Scorers(SyncAPIResource):
             "prompt": prompt,
         }
         resp = self._post(self._base_url(), body=body, timeout=timeout, cast_to=dict)
-        data = _unwrap(resp)
-        if isinstance(data, dict):
-            data = _normalize_keys(data)
-            try:
-                return Scorer(**data)
-            except Exception:
-                return None
-        return None
+        data = _created(resp)
+        if isinstance(data, Scorer):
+            return data
+        try:
+            stored = self.get(data, timeout=timeout)
+        except LayerLensError:
+            stored = None
+        return stored or Scorer(id=data, **body)
 
     def update(
         self,
@@ -112,7 +149,7 @@ class Scorers(SyncAPIResource):
         description: Optional[str] = None,
         model_id: Optional[str] = None,
         prompt: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         body: Dict[str, Any] = {}
         if name is not None:
@@ -129,7 +166,12 @@ class Scorers(SyncAPIResource):
         except Exception:
             return False
 
-    def delete(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> bool:
+    def delete(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> bool:
+        """Delete a scorer: True once deleted.
+
+        False when the API refused it or could not be reached, a missing id included: unlike the
+        other deletes, this one raises nothing.
+        """
         try:
             self._delete(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
             return True
@@ -141,7 +183,12 @@ class AsyncScorers(AsyncAPIResource):
     def _base_url(self) -> str:
         return f"/organizations/{self._client.organization_id}/projects/{self._client.project_id}/scorers"
 
-    async def get(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> Optional[Scorer]:
+    async def get(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> Optional[Scorer]:
+        """A scorer, by id.
+
+        Raises :class:`NotFoundError` when the project has no scorer with this id. Returns None only
+        for a reply that holds no scorer.
+        """
         resp = await self._get(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
         data = _unwrap(resp)
         if isinstance(data, dict):
@@ -156,7 +203,7 @@ class AsyncScorers(AsyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[ScorersResponse]:
         params: Dict[str, Any] = {}
         effective_page_size = min(max(page_size, 1), MAX_PAGE_SIZE) if page_size is not None else DEFAULT_PAGE_SIZE
@@ -184,8 +231,14 @@ class AsyncScorers(AsyncAPIResource):
         description: str,
         model_id: str,
         prompt: str,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
-    ) -> Optional[Scorer]:
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> Scorer:
+        """Create a scorer and return it, as stored.
+
+        The API answers with the new scorer's id; the scorer is read back by it. If that read
+        fails, the scorer still exists, so it is returned as sent, with its id. Raises
+        ``LayerLensError`` when the answer holds no new scorer, never returns ``None``.
+        """
         body: Dict[str, Any] = {
             "name": name,
             "description": description,
@@ -193,14 +246,14 @@ class AsyncScorers(AsyncAPIResource):
             "prompt": prompt,
         }
         resp = await self._post(self._base_url(), body=body, timeout=timeout, cast_to=dict)
-        data = _unwrap(resp)
-        if isinstance(data, dict):
-            data = _normalize_keys(data)
-            try:
-                return Scorer(**data)
-            except Exception:
-                return None
-        return None
+        data = _created(resp)
+        if isinstance(data, Scorer):
+            return data
+        try:
+            stored = await self.get(data, timeout=timeout)
+        except LayerLensError:
+            stored = None
+        return stored or Scorer(id=data, **body)
 
     async def update(
         self,
@@ -210,7 +263,7 @@ class AsyncScorers(AsyncAPIResource):
         description: Optional[str] = None,
         model_id: Optional[str] = None,
         prompt: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> bool:
         body: Dict[str, Any] = {}
         if name is not None:
@@ -227,7 +280,12 @@ class AsyncScorers(AsyncAPIResource):
         except Exception:
             return False
 
-    async def delete(self, id: str, *, timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT) -> bool:
+    async def delete(self, id: str, *, timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN) -> bool:
+        """Delete a scorer: True once deleted.
+
+        False when the API refused it or could not be reached, a missing id included: unlike the
+        other deletes, this one raises nothing.
+        """
         try:
             await self._delete(f"{self._base_url()}/{id}", timeout=timeout, cast_to=dict)
             return True

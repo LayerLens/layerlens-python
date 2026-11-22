@@ -7,8 +7,8 @@ and uploads them, while a Reviewer agent evaluates each trace across multiple
 quality dimensions using LayerLens judge types.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python code_review.py
@@ -20,7 +20,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -116,7 +116,8 @@ def main() -> None:
     print("=== LayerLens Co-Work: Automated Code Review ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -189,14 +190,17 @@ def main() -> None:
                     judge_id=judge_obj.id,
                 )
                 results = poll_evaluation_results(client, evaluation.id)
-                score = 0.0
-                if results:
-                    score = results[0].score
+                if not results:
+                    # The evaluation failed or did not finish (the helper logged why): no score.
+                    print(f"[Reviewer]   {label:12s} no verdict (the evaluation failed or did not finish)")
+                    continue
+                score = results[0].score
                 scores[label] = score
                 status = "PASS" if score >= 0.7 else "WARN" if score >= 0.4 else "FAIL"
                 print(f"[Reviewer]   {label:12s} {status} ({score:.2f})")
 
-            avg_score = sum(scores.values()) / len(scores) if scores else 0.0
+            # No verdict from any judge: no average, rather than a 0.00 that reads as LOW quality.
+            avg_score = sum(scores.values()) / len(scores) if scores else None
             review_results.append(
                 {
                     "trace_id": tid,
@@ -214,8 +218,11 @@ def main() -> None:
         print("[ReviewReport] Code Review Summary")
         print("=" * 64)
 
-        total_avg = 0.0
+        judged = [r for r in review_results if r["average"] is not None]
         for result in review_results:
+            if result["average"] is None:
+                print(f"  {result['description']:30s}  no verdict (no judge's evaluation finished)")
+                continue
             quality = (
                 "HIGH"
                 if result["average"] >= 0.7
@@ -224,15 +231,17 @@ def main() -> None:
             print(
                 f"  {result['description']:30s}  avg={result['average']:.2f}  quality={quality}"
             )
-            total_avg += result["average"]
 
-        overall = total_avg / len(review_results) if review_results else 0.0
-        print(f"\n  Overall quality score: {overall:.2f}")
+        if judged:
+            overall = sum(r["average"] for r in judged) / len(judged)
+            print(f"\n  Overall quality score: {overall:.2f} (over the {len(judged)} trace(s) with a verdict)")
+        else:
+            print("\n  Overall quality score: no verdict (no evaluation finished)")
         print(f"  Traces reviewed: {len(review_results)}")
         print(f"  Judge dimensions: {', '.join(review_judges.keys())}")
 
-        high_count = sum(1 for r in review_results if r["average"] >= 0.7)
-        print(f"  High quality: {high_count}/{len(review_results)}")
+        high_count = sum(1 for r in judged if r["average"] >= 0.7)
+        print(f"  High quality: {high_count}/{len(judged)} with a verdict")
         print("  All evaluations stored in LayerLens.")
 
     except RuntimeError as exc:

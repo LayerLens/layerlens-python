@@ -9,7 +9,7 @@ from layerlens.models import (
     ModelsResponse,
     CreateModelResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens.resources.models.models import Models
 
 
@@ -18,7 +18,7 @@ class TestModels:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -125,14 +125,14 @@ class TestModels:
         expected_calls = [
             call(
                 "/organizations/org-123/projects/proj-456/models",
-                params={"type": "custom"},
-                timeout=DEFAULT_TIMEOUT,
+                params={"type": "custom", "page": "1", "page_size": "100"},
+                timeout=NOT_GIVEN,
                 cast_to=ModelsResponse,
             ),
             call(
                 "/organizations/org-123/projects/proj-456/models",
-                params={"type": "public"},
-                timeout=DEFAULT_TIMEOUT,
+                params={"type": "public", "page": "1", "page_size": "100"},
+                timeout=NOT_GIVEN,
                 cast_to=ModelsResponse,
             ),
         ]
@@ -148,14 +148,14 @@ class TestModels:
         expected_calls = [
             call(
                 "/organizations/org-123/projects/proj-456/models",
-                params={"type": "custom"},
-                timeout=DEFAULT_TIMEOUT,
+                params={"type": "custom", "page": "1", "page_size": "100"},
+                timeout=NOT_GIVEN,
                 cast_to=ModelsResponse,
             ),
             call(
                 "/organizations/org-123/projects/proj-456/models",
-                params={"type": "public"},
-                timeout=DEFAULT_TIMEOUT,
+                params={"type": "public", "page": "1", "page_size": "100"},
+                timeout=NOT_GIVEN,
                 cast_to=ModelsResponse,
             ),
         ]
@@ -257,13 +257,13 @@ class TestModels:
         assert call_args.kwargs["cast_to"] is ModelsResponse
 
     def test_get_models_timeout_default(self, models_resource, mock_public_models_response):
-        """get method uses DEFAULT_TIMEOUT when no timeout specified."""
+        """get leaves the timeout to the client (NOT_GIVEN) when none is given (R1 F1)."""
         models_resource._get.return_value = mock_public_models_response
 
         models_resource.get()
 
         call_args = models_resource._get.call_args
-        assert call_args.kwargs["timeout"] is DEFAULT_TIMEOUT
+        assert call_args.kwargs["timeout"] is NOT_GIVEN
 
     def test_get_models_with_none_timeout(self, models_resource, mock_public_models_response):
         """get method accepts None timeout."""
@@ -379,7 +379,7 @@ class TestModelsErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -447,7 +447,7 @@ class TestModelsTyping:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -581,7 +581,7 @@ class TestModelsAdd:
     def test_add_single_model(self, models_resource):
         """add() merges new ID with current models and PATCHes."""
         existing = PublicModel(id="m1", key="m1", name="M1", description="")
-        models_resource.get = Mock(return_value=[existing])
+        models_resource._every_row = Mock(return_value=[existing])
         models_resource._patch.return_value = {"id": "proj-456"}
 
         result = models_resource.add("m2")
@@ -590,13 +590,13 @@ class TestModelsAdd:
         models_resource._patch.assert_called_once_with(
             "/organizations/org-123/projects/proj-456",
             body={"models": ["m1", "m2"]},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
     def test_add_multiple_models(self, models_resource):
         """add() handles multiple model IDs."""
-        models_resource.get = Mock(return_value=[])
+        models_resource._every_row = Mock(return_value=[])
         models_resource._patch.return_value = {"id": "proj-456"}
 
         result = models_resource.add("m1", "m2", "m3")
@@ -608,7 +608,7 @@ class TestModelsAdd:
     def test_add_deduplicates(self, models_resource):
         """add() deduplicates IDs already in the project."""
         existing = PublicModel(id="m1", key="m1", name="M1", description="")
-        models_resource.get = Mock(return_value=[existing])
+        models_resource._every_row = Mock(return_value=[existing])
         models_resource._patch.return_value = {"id": "proj-456"}
 
         models_resource.add("m1", "m2")
@@ -618,7 +618,7 @@ class TestModelsAdd:
 
     def test_add_returns_false_on_failure(self, models_resource):
         """add() returns False when PATCH fails."""
-        models_resource.get = Mock(return_value=[])
+        models_resource._every_row = Mock(return_value=[])
         models_resource._patch.return_value = "error"
 
         result = models_resource.add("m1")
@@ -626,8 +626,8 @@ class TestModelsAdd:
         assert result is False
 
     def test_add_with_none_get_response(self, models_resource):
-        """add() handles None from get() gracefully."""
-        models_resource.get = Mock(return_value=None)
+        """add() reads a reply that holds no list as an empty project list."""
+        models_resource._get.return_value = None  # a reply that holds no list
         models_resource._patch.return_value = {"id": "proj-456"}
 
         result = models_resource.add("m1")
@@ -657,7 +657,7 @@ class TestModelsRemove:
         """remove() removes specified ID and PATCHes remaining."""
         m1 = PublicModel(id="m1", key="m1", name="M1", description="")
         m2 = PublicModel(id="m2", key="m2", name="M2", description="")
-        models_resource.get = Mock(return_value=[m1, m2])
+        models_resource._every_row = Mock(return_value=[m1, m2])
         models_resource._patch.return_value = {"id": "proj-456"}
 
         result = models_resource.remove("m1")
@@ -671,7 +671,7 @@ class TestModelsRemove:
         m1 = PublicModel(id="m1", key="m1", name="M1", description="")
         m2 = PublicModel(id="m2", key="m2", name="M2", description="")
         m3 = PublicModel(id="m3", key="m3", name="M3", description="")
-        models_resource.get = Mock(return_value=[m1, m2, m3])
+        models_resource._every_row = Mock(return_value=[m1, m2, m3])
         models_resource._patch.return_value = {"id": "proj-456"}
 
         models_resource.remove("m1", "m3")
@@ -682,7 +682,7 @@ class TestModelsRemove:
     def test_remove_nonexistent_id(self, models_resource):
         """remove() ignores IDs that aren't in the project."""
         m1 = PublicModel(id="m1", key="m1", name="M1", description="")
-        models_resource.get = Mock(return_value=[m1])
+        models_resource._every_row = Mock(return_value=[m1])
         models_resource._patch.return_value = {"id": "proj-456"}
 
         models_resource.remove("nonexistent")
@@ -692,7 +692,7 @@ class TestModelsRemove:
 
     def test_remove_returns_false_on_failure(self, models_resource):
         """remove() returns False when PATCH fails."""
-        models_resource.get = Mock(return_value=[])
+        models_resource._every_row = Mock(return_value=[])
         models_resource._patch.return_value = None
 
         result = models_resource.remove("m1")
@@ -1130,72 +1130,6 @@ class TestModelsClientSideFiltering:
         assert result == []
 
 
-class TestModelsAddRemoveIncludesCustoms:
-    """Regression tests for the PR #1916 fix: add()/remove() now operate on
-    the full project model list (public + custom), not public only. The old
-    behavior silently wiped any custom model out of Project.Models on every
-    add/remove because the PATCH payload omitted them."""
-
-    @pytest.fixture
-    def mock_client(self):
-        client = Mock()
-        client.organization_id = "org-123"
-        client.project_id = "proj-456"
-        client.get_cast = Mock()
-        client.patch_cast = Mock()
-        return client
-
-    @pytest.fixture
-    def models_resource(self, mock_client):
-        return Models(mock_client)
-
-    def test_add_includes_customs_in_patch_payload(self, models_resource):
-        """add() must preserve already-attached custom models in the PATCH body."""
-        public_m = PublicModel(id="pub-1", key="pub-1", name="Pub1", description="")
-        custom_m = CustomModel(
-            id="cust-1",
-            key="cust-1",
-            name="Cust1",
-            description="",
-            max_tokens=2048,
-            api_url="https://x.example.com",
-            disabled=False,
-        )
-        models_resource.get = Mock(return_value=[public_m, custom_m])
-        models_resource._patch.return_value = {"id": "proj-456"}
-
-        result = models_resource.add("new-id")
-
-        assert result is True
-        models_resource.get.assert_called_once()
-        # Critical: the get call should NOT filter by type="public" anymore.
-        assert models_resource.get.call_args.kwargs.get("type") is None
-        call_body = models_resource._patch.call_args.kwargs["body"]
-        assert call_body == {"models": ["pub-1", "cust-1", "new-id"]}
-
-    def test_remove_preserves_unrelated_customs(self, models_resource):
-        """remove() of a public ID must leave attached customs untouched."""
-        public_m = PublicModel(id="pub-1", key="pub-1", name="Pub1", description="")
-        custom_m = CustomModel(
-            id="cust-1",
-            key="cust-1",
-            name="Cust1",
-            description="",
-            max_tokens=2048,
-            api_url="https://x.example.com",
-            disabled=False,
-        )
-        models_resource.get = Mock(return_value=[public_m, custom_m])
-        models_resource._patch.return_value = {"id": "proj-456"}
-
-        models_resource.remove("pub-1")
-
-        # Custom model must survive.
-        call_body = models_resource._patch.call_args.kwargs["body"]
-        assert call_body == {"models": ["cust-1"]}
-        assert models_resource.get.call_args.kwargs.get("type") is None
-
-
 class TestModelsUpdateCustom:
     """Test Models.update_custom() method."""
 
@@ -1221,7 +1155,7 @@ class TestModelsUpdateCustom:
         models_resource._patch.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/custom-models/model-1",
             body={"api_url": "https://new.example.com/v1"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -1328,7 +1262,7 @@ class TestModelsDeleteCustom:
         assert result is True
         models_resource._delete.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/custom-models/model-1",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 

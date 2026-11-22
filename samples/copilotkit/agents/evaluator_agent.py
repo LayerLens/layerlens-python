@@ -28,7 +28,7 @@ Flow driven by the system prompt:
 5. LLM summarises the pass/fail results for the user.
 
 Requires ``OPENAI_API_KEY`` in the environment. Set
-``LAYERLENS_STRATIX_API_KEY`` so the tools can call the LayerLens API.
+``LAYERLENS_API_KEY`` so the tools can call the LayerLens API.
 """
 
 import os
@@ -51,7 +51,7 @@ from langchain_core.tools.base import InjectedToolCallId
 from langchain.agents.middleware import AgentState
 from langgraph.checkpoint.memory import InMemorySaver
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 logger = logging.getLogger(__name__)
 # When run under uvicorn the root logger is configured at INFO; make sure
@@ -70,19 +70,19 @@ MAX_POLL_WAIT_SECONDS = 60.0
 # ---------------------------------------------------------------------------
 
 _client_lock = threading.Lock()
-_client: Optional[Stratix] = None
+_client: Optional[LayerLens] = None
 
 
-def _get_client() -> Stratix:
-    """Return (and lazily create) a module-level ``Stratix`` client.
+def _get_client() -> LayerLens:
+    """Return (and lazily create) a module-level ``LayerLens`` client.
 
-    Reads ``LAYERLENS_STRATIX_API_KEY`` automatically from the environment.
+    Reads ``LAYERLENS_API_KEY`` automatically from the environment.
     """
     global _client
     if _client is None:
         with _client_lock:
             if _client is None:
-                _client = Stratix()
+                _client = LayerLens()
     return _client
 
 
@@ -584,7 +584,7 @@ def main() -> None:
     print("Import `evaluator_graph` into your CopilotKit FastAPI server.")
     print()
     print("Required env vars:")
-    print("  LAYERLENS_STRATIX_API_KEY  -- LayerLens API key")
+    print("  LAYERLENS_API_KEY  -- LayerLens API key")
     print("  OPENAI_API_KEY             -- credentials for the LLM")
     print()
     print("Optional (for non-OpenAI endpoints):")

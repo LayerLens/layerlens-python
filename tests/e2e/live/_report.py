@@ -12,7 +12,7 @@ import os
 import datetime as _dt
 from typing import Any, Dict, List
 
-_DEFAULT_APP_BASE = "https://stratix.layerlens.ai"
+_DEFAULT_APP_BASE = "https://app.layerlens.ai"
 
 
 def _report_dir() -> str:
@@ -31,7 +31,10 @@ def _app_base() -> str:
     explicit = os.environ.get("LAYERLENS_APP_BASE_URL")
     if explicit:
         return explicit.rstrip("/")
-    api = os.environ.get("LAYERLENS_STRATIX_BASE_URL", "")
+    from layerlens._env import find_base_url
+
+    found = find_base_url()
+    api = found.value if found else ""
     if "localhost" in api or "127.0.0.1" in api:
         return "http://localhost:3000"
     return _DEFAULT_APP_BASE

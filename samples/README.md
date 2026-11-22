@@ -13,13 +13,13 @@ Three steps to your first evaluation:
 **1. Install the SDK**
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 **2. Set your API key**
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 **3. Run the quickstart**
@@ -62,27 +62,27 @@ Master the building blocks of trace management, judge creation, evaluation execu
 
 **What you will learn:** How every LayerLens resource (traces, judges, evaluations, results, models, benchmarks) works individually and together, including async patterns and pagination.
 
-| Sample | Scenario |
-|--------|----------|
-| `quickstart.py` | Run your first end-to-end evaluation in under 30 lines of code |
-| `basic_trace.py` | Upload, list, retrieve, and delete traces to manage your evaluation corpus |
-| `run_evaluation.py` | Create a model evaluation and poll for completion to automate scoring |
-| `create_judge.py` | Define, read, update, and delete judges to codify your quality criteria |
-| `judge_creation_and_test.py` | Build a custom PII detection judge and validate it against known inputs |
-| `trace_evaluation.py` | Connect a trace to a judge and run a complete evaluation workflow |
-| `benchmark_evaluation.py` | Run a model against a benchmark, wait for completion, retrieve scored results |
-| `trace_investigation.py` | Surface errors, latency outliers, and anomalies in trace data |
-| `evaluation_pipeline.py` | Chain judges, traces, and result retrieval into a single automated pipeline |
-| `judge_optimization.py` | Estimate, execute, and apply judge optimizations to improve scoring accuracy |
-| `compare_evaluations.py` | Compare evaluation runs side-by-side to measure improvement over time |
-| `async_workflow.py` | Use AsyncStratix for concurrent operations when throughput matters |
-| `model_benchmark_management.py` | Register models and benchmarks to organize large-scale evaluations |
-| `public_catalog.py` | Browse the public catalog of models, benchmarks, and community evaluations |
-| `custom_model.py` | Register your own models via OpenAI-compatible endpoints for evaluation |
-| `custom_benchmark.py` | Create custom and smart benchmarks tailored to your domain |
-| `evaluation_filtering.py` | Filter and sort evaluations by status, accuracy, and date to find what matters |
-| `paginated_results.py` | Handle large result sets with manual and automatic pagination |
-| `async_results.py` | Fetch results from multiple concurrent evaluations without blocking |
+| Sample                          | Scenario                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `quickstart.py`                 | Run your first end-to-end evaluation in under 30 lines of code                 |
+| `basic_trace.py`                | Upload, list, retrieve, and delete traces to manage your evaluation corpus     |
+| `run_evaluation.py`             | Create a model evaluation and poll for completion to automate scoring          |
+| `create_judge.py`               | Define, read, update, and delete judges to codify your quality criteria        |
+| `judge_creation_and_test.py`    | Build a custom PII detection judge and validate it against known inputs        |
+| `trace_evaluation.py`           | Connect a trace to a judge and run a complete evaluation workflow              |
+| `benchmark_evaluation.py`       | Run a model against a benchmark, wait for completion, retrieve scored results  |
+| `trace_investigation.py`        | Surface errors, latency outliers, and anomalies in trace data                  |
+| `evaluation_pipeline.py`        | Chain judges, traces, and result retrieval into a single automated pipeline    |
+| `judge_optimization.py`         | Estimate, execute, and apply judge optimizations to improve scoring accuracy   |
+| `compare_evaluations.py`        | Compare evaluation runs side-by-side to measure improvement over time          |
+| `async_workflow.py`             | Use AsyncLayerLens for concurrent operations when throughput matters           |
+| `model_benchmark_management.py` | Register models and benchmarks to organize large-scale evaluations             |
+| `public_catalog.py`             | Browse the public catalog of models, benchmarks, and community evaluations     |
+| `custom_model.py`               | Register your own models via OpenAI-compatible endpoints for evaluation        |
+| `custom_benchmark.py`           | Create custom and smart benchmarks tailored to your domain                     |
+| `evaluation_filtering.py`       | Filter and sort evaluations by status, accuracy, and date to find what matters |
+| `paginated_results.py`          | Handle large result sets with manual and automatic pagination                  |
+| `async_results.py`              | Fetch results from multiple concurrent evaluations without blocking            |
 
 ---
 
@@ -124,7 +124,7 @@ Trace and evaluate outputs from major LLM providers -- both manual trace upload 
 |--------|----------|
 | `openai_traced.py` | Trace an OpenAI completion and evaluate it with a judge (manual trace upload) |
 | `anthropic_traced.py` | Capture multi-turn Claude conversations with tracing and evaluation (manual trace upload) |
-| `openai_instrumented.py` | Auto-instrument OpenAI with `instrument_openai()`, `@trace`, and `span()` for zero-code span capture |
+| `openai_instrumented.py` | Auto-instrument OpenAI with `instrument_openai()`, `@trace`, `span()` and `emit()`: each call recorded in a trace |
 | `langchain_instrumented.py` | Auto-capture LangChain LCEL chain execution with `LangChainCallbackHandler` |
 
 ---
@@ -184,12 +184,12 @@ Full-stack integration with CopilotKit using LangGraph CoAgents and generative U
 
 **What you will learn:** How to build interactive evaluation and investigation experiences with LangGraph agents on the backend and rich React card components on the frontend.
 
-| Sample | Scenario |
-|--------|----------|
-| `agents/evaluator_agent.py` | LangGraph CoAgent that drives evaluation workflows from a CopilotKit interface |
-| `agents/investigator_agent.py` | LangGraph CoAgent that investigates trace data interactively |
-| `components/*.tsx` | React card components for rendering evaluations, traces, judge verdicts, metrics, and compliance status |
-| `hooks/*.ts` | CopilotKit hooks for wiring LayerLens actions and context into your React application |
+| Sample                         | Scenario                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `agents/evaluator_agent.py`    | LangGraph CoAgent that drives evaluation workflows from a CopilotKit interface                          |
+| `agents/investigator_agent.py` | LangGraph CoAgent that investigates trace data interactively                                            |
+| `components/*.tsx`             | React card components for rendering evaluations, traces, judge verdicts, metrics, and compliance status |
+| `hooks/*.ts`                   | CopilotKit hooks for wiring LayerLens actions and context into your React application                   |
 
 ---
 
@@ -221,10 +221,10 @@ Trace, evaluate, and monitor [OpenClaw](https://openclaw.ai/) autonomous AI agen
 
 **LayerLens Skill for OpenClaw:**
 
-| File | Purpose |
-|------|---------|
-| `layerlens_skill/SKILL.md` | OpenClaw skill definition that lets agents interact with LayerLens directly |
-| `layerlens_skill/scripts/evaluate.py` | Evaluation script for trace upload, judge creation, and structured results |
+| File                                  | Purpose                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `layerlens_skill/SKILL.md`            | OpenClaw skill definition that lets agents interact with LayerLens directly |
+| `layerlens_skill/scripts/evaluate.py` | Evaluation script for trace upload, judge creation, and structured results  |
 
 ---
 

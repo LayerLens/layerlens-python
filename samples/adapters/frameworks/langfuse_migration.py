@@ -23,7 +23,7 @@ def main() -> None:
     try:
         from layerlens.instrument.adapters.frameworks.langfuse import LangfuseAdapter
     except ImportError:
-        print("Install: pip install 'layerlens[langfuse]' httpx")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens')
         return
 
     required = {"LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST"}

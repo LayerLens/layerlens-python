@@ -10,24 +10,24 @@ Demonstrates two ways to create project-specific benchmarks:
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* Set ``LAYERLENS_API_KEY`` environment variable
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python custom_benchmark.py
 """
 
 from __future__ import annotations
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
 
     # ── 1. Create a custom benchmark from a JSONL file ────────────────
     #

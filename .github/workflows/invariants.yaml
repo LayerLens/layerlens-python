@@ -33,20 +33,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rye
-        uses: eifinger/setup-rye@v4
+      - name: Install Python 3.11 and exactly uv.lock
+        uses: ./.github/actions/setup-locked-env
         with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: |
-          rye pin 3.11
-          rye sync
+          python-version: "3.11"
 
       - name: Run invariant gates (-m invariant)
         run: |
           set -o pipefail
-          if ! rye run pytest -m invariant -q; then
+          if ! uv run pytest -m invariant -q; then
             echo "::error title=SDK invariant broken::A privacy / observability / schema contract is violated. \
             See CONTRIBUTING.md > 'Invariants & guards'. Do NOT merge until this is green."
             exit 1

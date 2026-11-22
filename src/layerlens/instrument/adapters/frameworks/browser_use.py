@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from ._utils import truncate, safe_serialize
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -288,7 +289,7 @@ class BrowserUseAdapter(FrameworkAdapter):
             # The free-text error echoes the failing task/URL, so it is content
             # and is gated; error_type is a CATEGORY and always survives, so a
             # failure stays visible under capture_content=False.
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
             self._set_if_capturing(payload, "error", truncate(str(error), _ERROR_LIMIT))
         else:
             payload["status"] = "ok"
@@ -309,7 +310,7 @@ class BrowserUseAdapter(FrameworkAdapter):
         payload["old_value"] = "running"
         payload["new_value"] = "failed" if error else "complete"
         if error is not None:
-            payload["error_type"] = type(error).__name__
+            payload.update(error_category(error))
             self._set_if_capturing(payload, "error", truncate(str(error), _ERROR_LIMIT))
         self._emit("agent.state.change", payload)
 
@@ -772,7 +773,7 @@ def instrument_browser_use(
 
     Args:
         agent: A BrowserUse ``Agent`` with an async ``.run()``.
-        client: The ``layerlens.Stratix`` instance events are uploaded through.
+        client: The ``layerlens.LayerLens`` instance events are uploaded through.
         capture_config: Optional ``CaptureConfig``; defaults to ``standard()``.
         agent_name: Agent identity stamped on every event. A real browser-use
             Agent declares no name, so without this the Agent column stays

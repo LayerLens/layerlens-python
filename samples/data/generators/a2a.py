@@ -58,6 +58,10 @@ import uuid
 # Reuse the record-real-once seam from the sibling ``_generate_fixtures`` module
 # (single source of truth for the fixture writer + capture config).
 _HERE = os.path.dirname(os.path.abspath(__file__))
+# Run as a script, this folder is sys.path[0], and this file has the name of the library it
+# records: ``import <library>`` would import this file. Look the library up elsewhere.
+if sys.path and os.path.abspath(sys.path[0] or os.curdir) == _HERE:
+    sys.path.pop(0)
 _DATA = os.path.dirname(_HERE)        # samples/data
 _SAMPLES = os.path.dirname(_DATA)     # samples
 _REPO = os.path.dirname(_SAMPLES)
@@ -65,7 +69,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import TraceCollector, set_trace_observer  # noqa: E402
 from layerlens.instrument._context import (  # noqa: E402
@@ -135,7 +139,7 @@ class _A2AParticipant:
         )
 
 
-def _capture_a2a(client: Stratix, *, root_name: str, drive) -> dict:
+def _capture_a2a(client: LayerLens, *, root_name: str, drive) -> dict:
     """Run *drive* under a live collector + instrumented a2a client, then flush
     the sealed payload (identity/root synthesis + attestation chain) via the
     ``_generate_fixtures`` capture seam, WITHOUT the background upload.
@@ -190,7 +194,7 @@ def _delegation_edges(payload: dict):
 # --------------------------------------------------------------------------
 # single-hop: dispute-orchestrator -> billing-specialist (one refund delegation)
 # --------------------------------------------------------------------------
-def generate_a2a_single(client: Stratix) -> dict:
+def generate_a2a_single(client: LayerLens) -> dict:
     """Record a single-hop A2A delegation: an orchestrator discovers a billing
     specialist's signed card and delegates one refund task to it."""
     from a2a.compat.v0_3 import types as a2a_types
@@ -256,7 +260,7 @@ def generate_a2a_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # multi-hop: dispute-orchestrator -> billing-specialist -> ledger-adjuster
 # --------------------------------------------------------------------------
-def generate_a2a_multi(client: Stratix) -> dict:
+def generate_a2a_multi(client: LayerLens) -> dict:
     """Record a genuine MULTI-HOP A2A delegation graph: an orchestrator delegates
     a refund to a billing specialist, which delegates the ledger posting to a
     ledger-adjuster — two real ``a2a.delegation`` edges (a 3-node agent DAG)."""
@@ -338,6 +342,6 @@ def generate_a2a_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_a2a_single(_client)
     generate_a2a_multi(_client)

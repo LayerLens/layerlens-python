@@ -1,6 +1,6 @@
 # Evaluations
 
-The `evaluations` resource on the Stratix client allows you to create and manage evaluations against various benchmarks for your organization on the Stratix platform. This is one of the core functionalities of the Stratix platform.
+The `evaluations` resource on the LayerLens client allows you to create and manage evaluations against various benchmarks for your organization on the LayerLens platform. This is one of the core functionalities of the LayerLens platform.
 
 ## Overview
 
@@ -15,10 +15,10 @@ The below example trigger evaluations using `gpt-4o` against `simpleQA`.
 Below is an example showing how to trigger an evaluation, waiting for it to complete and finally fetching the evaluations results.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Construct sync client (API key from env or inline)
-client = Stratix()
+client = LayerLens()
 
 # --- Models
 models = client.models.get(type="public", name="gpt-4o")
@@ -62,12 +62,12 @@ if evaluation.is_success:
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
     # Construct async client
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # --- Models
     models = await client.models.get(type="public", name="gpt-4o")
@@ -95,9 +95,13 @@ if __name__ == "__main__":
 
 ## Methods
 
-Both the `Stratix` (synchronous) and `AsyncStratix` (asynchronous) clients support the following methods.
+Both the `LayerLens` (synchronous) and `AsyncLayerLens` (asynchronous) clients support the following methods.
 
-### `create(model, benchmark, timeout=None)`
+Each method also takes `timeout=`: that call's timeout in place of the client's (seconds or an
+`httpx.Timeout`; `None` is no timeout). Without it, the call uses the client's timeout: see
+[Timeout Configuration](client.md#timeout-configuration).
+
+### `create(model, benchmark)`
 
 Creates a new evaluation for the specified model and benchmark.
 
@@ -107,15 +111,15 @@ Creates a new evaluation for the specified model and benchmark.
 | ----------- | -------------------------------- | -------- | ------------------------- |
 | `model`     | `Model`                          | Yes      | The model to evaluate     |
 | `benchmark` | `Benchmark`                      | Yes      | The benchmark to evaluate |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout  |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns an `Evaluation` object if successful, `None` if the evaluation could not be created.
+Returns the new `Evaluation`, or `None` if the API's answer holds no evaluation. A create the API refuses raises its error, such as `BadRequestError` (400).
 
 ### `wait_for_completion(evaluation, interval_seconds=30, timeout_seconds=None)`
 
-Polls an evaluation until it completes (success, failure, or timeout) or the specified timeout is reached.
+Polls an evaluation until it ends (success, failure, timeout or cancelled) or the specified timeout is reached.
 
 #### Parameters
 
@@ -123,13 +127,36 @@ Polls an evaluation until it completes (success, failure, or timeout) or the spe
 | ------------------ | ------------- | -------- | -------------------------------------------------- |
 | `evaluation`       | `Evaluation`  | Yes      | The evaluation object to monitor                   |
 | `interval_seconds` | `int`         | No       | Polling interval in seconds (default: 30)          |
-| `timeout_seconds`  | `int \| None` | No       | Maximum time to wait in seconds (no limit if None) |
+| `timeout_seconds`  | `int \| None` | No       | Maximum time to wait in seconds (no limit if None or 0) |
 
 #### Returns
 
-Returns the updated `Evaluation` object when completed, or `None` if polling fails.
+Returns the updated `Evaluation` object when it has finished (success, failure, timeout
+or cancelled), or `None` if the API's answer holds no evaluation. An evaluation that no longer
+exists raises `NotFoundError` at once.
 
-### `get_by_id(evaluation_id, timeout=None)`
+Raises `TimeoutError` if it has not finished after `timeout_seconds`.
+
+`timeout_seconds` decides when the wait stops sending polls, not how long one answer may take
+to arrive. Each poll's timeout is cut to the time left, but an HTTP timeout limits connecting
+and each wait for data, not the whole answer: an answer that keeps arriving slowly can hold the
+wait past `timeout_seconds`.
+
+#### Errors while polling
+
+A poll that fails on a 429, a 5xx or a lost connection does not end the wait: the
+evaluation goes on running on the server. This is what parallel CI jobs sharing one API key
+run into. The wait sends each poll once and does the retrying itself: the next poll follows
+half a second later, then after twice as long each time it fails again, up to
+`interval_seconds`. A wait never polls sooner than a `Retry-After` asks. When the `Retry-After`
+reaches past the wait's deadline, the wait sleeps until the deadline and then raises, with the
+429 as the cause. A wait with no deadline (`timeout_seconds=None`, or `0` on an evaluation
+wait) reads a `Retry-After` longer than 5 minutes as 5 minutes. A `Retry-After` is read as seconds or as an HTTP date.
+If those errors last until `timeout_seconds`, the `TimeoutError` says the last poll
+failed and carries that error as its `__cause__`. Any other error, such as a revoked
+API key (`AuthenticationError`), is raised at once.
+
+### `get_by_id(evaluation_id)`
 
 Retrieves an existing evaluation by its unique identifier.
 
@@ -138,18 +165,18 @@ Retrieves an existing evaluation by its unique identifier.
 | Parameter       | Type                             | Required | Description                      |
 | --------------- | -------------------------------- | -------- | -------------------------------- |
 | `evaluation_id` | `str`                            | Yes      | The unique evaluation identifier |
-| `timeout`       | `float \| httpx.Timeout \| None` | No       | Override request timeout         |
+| `timeout`       | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns an `Evaluation` object if found, `None` if the evaluation does not exist or cannot be accessed.
+Returns an `Evaluation`. Raises `NotFoundError` if no evaluation has this id.
 
 #### Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Retrieve an evaluation by ID
 evaluation_id = "eval_abc123xyz"
@@ -159,25 +186,25 @@ evaluation = client.evaluations.get_by_id(evaluation_id)
 #### Async Usage
 
 ```python
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens, NotFoundError
 import asyncio
 
 async def get_evaluation():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
-    evaluation = await client.evaluations.get_by_id("eval_abc123xyz")
-    if evaluation:
-        print(f"Found evaluation: {evaluation.id}")
-        return evaluation
-    else:
+    try:
+        evaluation = await client.evaluations.get_by_id("eval_abc123xyz")
+    except NotFoundError:
         print("Evaluation not found")
         return None
+    print(f"Found evaluation: {evaluation.id}")
+    return evaluation
 
 # Run the async function
 asyncio.run(get_evaluation())
 ```
 
-### `get_many(page=None, page_size=None, sort_by=None, order=None, model_ids=None, benchmark_ids=None, status=None, unique=False, timeout=None)`
+### `get_many(page=None, page_size=None, sort_by=None, order=None, model_ids=None, benchmark_ids=None, status=None, unique=False)`
 
 Retrieves multiple evaluations with optional pagination, sorting, and filtering.
 
@@ -186,14 +213,14 @@ Retrieves multiple evaluations with optional pagination, sorting, and filtering.
 | Parameter       | Type                             | Required | Description                                                                         |
 | --------------- | -------------------------------- | -------- | ----------------------------------------------------------------------------------- |
 | `page`          | `int \| None`                    | No       | Page number for pagination (1-based, defaults to 1)                                 |
-| `page_size`     | `int \| None`                    | No       | Number of evaluations per page (default: 100, max: 500)                             |
+| `page_size`     | `int \| None`                    | No       | Number of evaluations per page (default and maximum: 100)                             |
 | `sort_by`       | `str \| None`                    | No       | Sort by field: `submitted_at`, `accuracy`, or `average_duration`                    |
 | `order`         | `str \| None`                    | No       | Sort order: `asc` or `desc`                                                         |
 | `model_ids`     | `List[str] \| None`              | No       | Filter by model IDs                                                                 |
 | `benchmark_ids` | `List[str] \| None`              | No       | Filter by benchmark/dataset IDs                                                     |
 | `status`        | `EvaluationStatus \| None`       | No       | Filter by evaluation status                                                         |
 | `unique`        | `bool`                           | No       | If `True`, deduplicate by model+benchmark pair, keeping only the latest evaluation  |
-| `timeout`       | `float \| httpx.Timeout \| None` | No       | Override request timeout                                                            |
+| `timeout`       | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -202,15 +229,17 @@ Returns an `EvaluationsResponse` object containing:
 - `evaluations`: List of `Evaluation` objects
 - `pagination`: Pagination metadata with `page`, `page_size`, `total_pages`, and `total_count`
 
-Returns `None` if the request fails.
+A request the API refuses raises its error; see [Errors](errors.md).
+
+The API returns at most 100 rows a page: a larger `page_size` is read as 100, and `pagination.page_size` and `total_pages` say so, so paging through `total_pages` reads every evaluation.
 
 #### Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.models import EvaluationStatus
 
-client = Stratix()
+client = LayerLens()
 
 # Get top evaluations by accuracy
 response = client.evaluations.get_many(
@@ -220,9 +249,8 @@ response = client.evaluations.get_many(
     page_size=10,
 )
 
-if response:
-    for evaluation in response.evaluations:
-        print(f"{evaluation.id}: accuracy={evaluation.accuracy:.2f}%")
+for evaluation in response.evaluations:
+    print(f"{evaluation.id}: accuracy={evaluation.accuracy:.2f}%")
 
 # Get only the latest evaluation per model+benchmark pair
 response = client.evaluations.get_many(
@@ -232,7 +260,7 @@ response = client.evaluations.get_many(
 )
 ```
 
-### `get_results(page=None, page_size=None, timeout=None)`
+### `get_results(page=None, page_size=None)`
 
 Fetches results for this evaluation with pagination support. This is a synchronous method.
 
@@ -241,62 +269,26 @@ Fetches results for this evaluation with pagination support. This is a synchrono
 | Parameter   | Type                             | Required | Description                                         |
 | ----------- | -------------------------------- | -------- | --------------------------------------------------- |
 | `page`      | `int \| None`                    | No       | Page number for pagination (1-based, defaults to 1) |
-| `page_size` | `int \| None`                    | No       | Number of results per page (default: 100, max: 500) |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout                            |
+| `page_size` | `int \| None`                    | No       | Number of results per page (default and maximum: 100) |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `ResultsResponse` object containing results and pagination metadata, or `None` if the request fails.
+Returns a `ResultsResponse` object containing results and pagination metadata. A request the API refuses raises its error; see [Errors](errors.md).
 
 #### Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
-# Get evaluation first
+# Get evaluation first (raises NotFoundError for an unknown id)
 evaluation = client.evaluations.get_by_id("eval_12345")
-if not evaluation:
-    print("Evaluation not found")
-else:
-    #
-    results_first_page = evaluation.get_results()
+results_first_page = evaluation.get_results()
 ```
 
-Fetches all results for this evaluation by automatically handling pagination. This is a synchronous method
-
-#### Parameters
-
-| Parameter | Type                             | Required | Description              |
-| --------- | -------------------------------- | -------- | ------------------------ |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
-
-#### Returns
-
-Returns a list of `Result` objects containing all results for the evaluation.
-
-#### Example
-
-```python
-from layerlens import Stratix
-
-client = Stratix()
-
-# Get an evaluation
-evaluation = client.evaluations.get_by_id("eval_12345")
-
-if evaluation:
-    # Fetch all results (handles pagination automatically)
-    all_results = evaluation.get_all_results()
-```
-
-{{ ... }}
-
-| `"success"` | Evaluation finished successfully |
-| `"failure"` | Evaluation failed due to an error |
-
-### `get_results_async(page=None, page_size=None, timeout=None)`
+### `get_results_async(page=None, page_size=None)`
 
 Asynchronously fetches results for this evaluation with pagination support. This requires an async client to be attached.
 
@@ -305,38 +297,32 @@ Asynchronously fetches results for this evaluation with pagination support. This
 | Parameter   | Type                             | Required | Description                                         |
 | ----------- | -------------------------------- | -------- | --------------------------------------------------- |
 | `page`      | `int \| None`                    | No       | Page number for pagination (1-based, defaults to 1) |
-| `page_size` | `int \| None`                    | No       | Number of results per page (default: 100, max: 500) |
-| `timeout`   | `float \| httpx.Timeout \| None` | No       | Override request timeout                            |
+| `page_size` | `int \| None`                    | No       | Number of results per page (default and maximum: 100) |
+| `timeout`   | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
-Returns a `ResultsResponse` object containing results and pagination metadata, or `None` if the request fails.
+Returns a `ResultsResponse` object containing results and pagination metadata. A request the API refuses raises its error; see [Errors](errors.md).
 
 #### Example
 
 ```python
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 import asyncio
 
 async def fetch_evaluation_results():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
-    # Get an evaluation
+    # Get an evaluation (raises NotFoundError for an unknown id)
     evaluation = await client.evaluations.get_by_id("eval_12345")
 
-    if evaluation:
-        # Fetch first page of results asynchronously
-        first_page_results = await evaluation.get_results_async(page=1, page_size=50)
-
-        if first_page_results:
-            return first_page_results
-
-    return []
+    # Fetch first page of results asynchronously
+    return await evaluation.get_results_async(page=1, page_size=50)
 
 results = asyncio.run(fetch_evaluation_results())
 ```
 
-### `get_all_results(timeout=None)`
+### `get_all_results()`
 
 Fetches all results for this evaluation by automatically handling pagination. This is a synchronous method.
 
@@ -344,7 +330,7 @@ Fetches all results for this evaluation by automatically handling pagination. Th
 
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -353,21 +339,20 @@ Returns a list of `Result` objects containing all results for the evaluation.
 #### Example
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
-# Get an evaluation
+# Get an evaluation (raises NotFoundError for an unknown id)
 evaluation = client.evaluations.get_by_id("eval_12345")
 
-if evaluation:
-    # Fetch all results (handles pagination automatically)
-    all_results = evaluation.get_all_results()
+# Fetch all results (handles pagination automatically)
+all_results = evaluation.get_all_results()
 
-    print(f"Retrieved {len(all_results)} total results")
+print(f"Retrieved {len(all_results)} total results")
 ```
 
-### `get_all_results_async(timeout=None)`
+### `get_all_results_async()`
 
 Asynchronously fetches all results for this evaluation by automatically handling pagination.
 
@@ -375,7 +360,7 @@ Asynchronously fetches all results for this evaluation by automatically handling
 
 | Parameter | Type                             | Required | Description              |
 | --------- | -------------------------------- | -------- | ------------------------ |
-| `timeout` | `float \| httpx.Timeout \| None` | No       | Override request timeout |
+| `timeout` | `float \| httpx.Timeout \| None` | No       | This call's timeout instead of the client's; `None` is no timeout |
 
 #### Returns
 
@@ -384,24 +369,21 @@ Returns a list of `Result` objects containing all results for the evaluation.
 #### Example
 
 ```python
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 import asyncio
 
 async def fetch_all_evaluation_results():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
-    # Get an evaluation
+    # Get an evaluation (raises NotFoundError for an unknown id)
     evaluation = await client.evaluations.get_by_id("eval_12345")
 
-    if evaluation:
-        # Fetch all results asynchronously (handles pagination automatically)
-        all_results = await evaluation.get_all_results_async()
+    # Fetch all results asynchronously (handles pagination automatically)
+    all_results = await evaluation.get_all_results_async()
 
-        print(f"Retrieved {len(all_results)} total results")
+    print(f"Retrieved {len(all_results)} total results")
 
-        return all_results
-
-    return None
+    return all_results
 
 results = asyncio.run(fetch_all_evaluation_results())
 ```
@@ -417,16 +399,16 @@ The `create`, `get_by_id` and `get_many` method returns an `Evaluation` objects 
 | `id`                 | `str`                         | Unique evaluation identifier                              |
 | `status`             | `EvaluationStatus`            | Current evaluation status (enum)                          |
 | `status_description` | `str`                         | Human-readable status description (default: `""`)         |
-| `submitted_at`       | `int`                         | Unix timestamp when evaluation was submitted              |
-| `finished_at`        | `int`                         | Unix timestamp when evaluation finished                   |
+| `submitted_at`       | `int`                         | When the evaluation was submitted, in Unix seconds        |
+| `finished_at`        | `int`                         | When the evaluation finished, in Unix seconds; `0` until it has |
 | `model_id`           | `str`                         | ID of the model used in the evaluation                    |
 | `model_name`         | `str`                         | Name of the model (default: `""`)                         |
 | `model_key`          | `str`                         | Key identifier of the model (default: `""`)               |
 | `model_company`      | `str`                         | Company/provider of the model (default: `""`)             |
 | `benchmark_id`       | `str`                         | ID of the benchmark used (aliased as "dataset_id" in API) |
 | `benchmark_name`     | `str`                         | Name of the benchmark (aliased as "dataset_name" in API, default: `""`) |
-| `average_duration`   | `int`                         | Average response time in milliseconds                     |
-| `accuracy`           | `float`                       | Overall accuracy score (0.0 to 1.0)                       |
+| `average_duration`   | `int`                         | The average time the model took on a prompt, in nanoseconds; `0` until results are in |
+| `accuracy`           | `float`                       | Overall accuracy, as a percentage (0 to 100). Until the evaluation succeeds, it covers only the prompts graded so far |
 | `readability_score`  | `float \| None`               | Readability score, or `None` if the metric was not computed for this evaluation |
 | `toxicity_score`     | `float \| None`               | Toxicity score, or `None` if the metric was not computed for this evaluation |
 | `ethics_score`       | `float \| None`               | Ethics score, or `None` if the metric was not computed for this evaluation |

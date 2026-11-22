@@ -13,22 +13,26 @@ from typing import Any, Dict
 from collections.abc import Callable
 
 from ...._events import AGENT_ERROR, PROTOCOL_STREAM_EVENT
-from .event_mapper import map_agui_to_stratix, build_run_error_payload
+from .event_mapper import (
+    map_agui_to_stratix as map_agui_to_stratix,  # deprecated; importable from here, as in 1.11.0
+    map_agui_to_layerlens,
+    build_run_error_payload,
+)
 
 log = logging.getLogger(__name__)
 
 
 def _emit_event(adapter: Any, event_type: str, data: Dict[str, Any]) -> None:
     """Forward a decoded AG-UI event to the adapter's emit pipeline."""
-    mapping = map_agui_to_stratix(event_type)
-    stratix_event = mapping.get("stratix_event", PROTOCOL_STREAM_EVENT)
-    if stratix_event == AGENT_ERROR:
+    mapping = map_agui_to_layerlens(event_type)
+    layerlens_event = mapping.get("layerlens_event", PROTOCOL_STREAM_EVENT)
+    if layerlens_event == AGENT_ERROR:
         # A run failure surfaces with the canonical agent.error shape, not the
         # generic stream wrapper, so its status/error_type/error are honest.
         adapter.emit(AGENT_ERROR, build_run_error_payload(data.get("message"), data.get("code")))
         return
     adapter.emit(
-        stratix_event,
+        layerlens_event,
         {
             "protocol": "agui",
             "agui_event": event_type,

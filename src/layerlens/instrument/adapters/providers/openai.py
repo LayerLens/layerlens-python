@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import json
-import logging
 from typing import Any, Dict
 
 from ._base_provider import MonkeyPatchProvider
-
-log: logging.Logger = logging.getLogger(__name__)
 
 _CAPTURE_PARAMS = frozenset(
     {
@@ -38,6 +34,10 @@ class OpenAIProvider(MonkeyPatchProvider):
     #: instead of claiming ``openai.*``. ``_derive_operation`` reads the suffix,
     #: so it resolves identically for any prefix.
     event_prefix: str = "openai"
+
+    #: OpenAI sends a tool call's ``arguments`` as a JSON string, and the hooks below
+    #: return it as sent; the emit path decodes it, only when content is captured.
+    tool_arguments_json = True
 
     @staticmethod
     def extract_output(response: Any) -> Any:
@@ -80,6 +80,14 @@ class OpenAIProvider(MonkeyPatchProvider):
                 usage, "input_tokens_details", None
             )
             cached = _opt_int(getattr(prompt_details, "cached_tokens", None)) if prompt_details is not None else None
+            # Prompt-cache WRITES ride in the same details object (openai >= 2.45;
+            # an undeclared extra on older SDKs, so read it with getattr). Like
+            # ``cached_tokens`` they are counted INSIDE prompt_tokens; pricing
+            # moves them out (pricing.usage_from_payload), so the raw count is
+            # reported here unchanged.
+            cache_write = (
+                _opt_int(getattr(prompt_details, "cache_write_tokens", None)) if prompt_details is not None else None
+            )
             # Reasoning-token details: chat -> completion_tokens_details;
             # responses -> output_tokens_details.
             completion_details = getattr(usage, "completion_tokens_details", None) or getattr(
@@ -95,6 +103,7 @@ class OpenAIProvider(MonkeyPatchProvider):
                 "completion_tokens": completion or 0,
                 "total_tokens": total or 0,
                 **({"cached_tokens": cached} if cached is not None else {}),
+                **({"cache_write_tokens": cache_write} if cache_write is not None else {}),
                 **({"reasoning_tokens": reasoning} if reasoning is not None else {}),
             }
         for attr in ("model", "id", "system_fingerprint", "service_tier"):
@@ -135,6 +144,8 @@ class OpenAIProvider(MonkeyPatchProvider):
     def aggregate_stream(chunks: list[Any]) -> Any:
         if not chunks:
             return None
+        if _is_responses_stream(chunks):
+            return _aggregate_responses_stream(chunks)
         return _StreamedChatResponse.from_chunks(chunks)
 
     def connect(self, target: Any = None, **kwargs: Any) -> Any:  # noqa: ARG002
@@ -200,39 +211,27 @@ def _is_iterable(obj: Any) -> bool:
 
 
 def _serialize_tool_call(tc: Any) -> Dict[str, Any]:
-    """Normalize both streaming ``ChoiceDeltaToolCall`` and non-streaming ``ToolCall``."""
+    """Normalize both streaming ``ChoiceDeltaToolCall`` and non-streaming ``ToolCall``.
+
+    ``arguments`` stays the JSON string OpenAI sent. It is content, so it is decoded
+    where the events are emitted, and only when the trace captures content
+    (``tool_arguments_json``): decoding a malformed string logs a snippet of it.
+    """
     if isinstance(tc, dict):
         fn = tc.get("function", {}) or {}
         return {
             "id": tc.get("id"),
             "type": tc.get("type", "function"),
             "tool_name": fn.get("name"),
-            "arguments": _maybe_load_json(fn.get("arguments")),
+            "arguments": fn.get("arguments"),
         }
     fn = getattr(tc, "function", None)
     return {
         "id": getattr(tc, "id", None),
         "type": getattr(tc, "type", "function"),
         "tool_name": getattr(fn, "name", None) if fn is not None else None,
-        "arguments": _maybe_load_json(getattr(fn, "arguments", None) if fn is not None else None),
+        "arguments": getattr(fn, "arguments", None) if fn is not None else None,
     }
-
-
-def _maybe_load_json(s: Any) -> Any:
-    """Parse JSON-looking tool args. Per LAY-3331 AC, malformed JSON logs a
-    WARNING and we surface the raw string rather than crashing the trace."""
-    if not isinstance(s, str):
-        return s
-    if not s.strip():
-        return s
-    try:
-        return json.loads(s)
-    except (json.JSONDecodeError, TypeError) as exc:
-        # Truncate the offending string in the log to keep arbitrary tool
-        # arguments out of long-lived log files.
-        snippet = s if len(s) <= 200 else s[:200] + "..."
-        log.warning("malformed tool_call JSON arguments (%s): %r", exc, snippet)
-        return s
 
 
 def _is_responses_shaped(response: Any) -> bool:
@@ -273,7 +272,10 @@ def _responses_text(response: Any) -> Any:
 
 
 def _responses_tool_calls(response: Any) -> list[Dict[str, Any]]:
-    """Normalize Responses ``function_call`` output items to our tool-call shape."""
+    """Normalize Responses ``function_call`` output items to our tool-call shape.
+
+    ``arguments`` stays the JSON string, as in :func:`_serialize_tool_call`.
+    """
     calls: list[Dict[str, Any]] = []
     for item in getattr(response, "output", None) or []:
         if getattr(item, "type", None) != "function_call":
@@ -283,7 +285,7 @@ def _responses_tool_calls(response: Any) -> list[Dict[str, Any]]:
                 "id": getattr(item, "call_id", None) or getattr(item, "id", None),
                 "type": "function",
                 "tool_name": getattr(item, "name", None),
-                "arguments": _maybe_load_json(getattr(item, "arguments", None)),
+                "arguments": getattr(item, "arguments", None),
             }
         )
     return calls
@@ -306,6 +308,63 @@ def _extract_responses_output(response: Any) -> Any:
     if tool_calls:
         out["tool_calls"] = tool_calls
     return out
+
+
+# The events that end a Responses stream, each carrying the whole ``Response``.
+_RESPONSES_FINAL_EVENTS = frozenset({"response.completed", "response.incomplete", "response.failed"})
+
+
+def _is_responses_stream(chunks: list[Any]) -> bool:
+    """True for the events of a Responses API stream (``type`` ``response.*``), not chat chunks."""
+    for chunk in chunks:
+        kind = getattr(chunk, "type", None)
+        if isinstance(kind, str) and kind.startswith("response."):
+            return True
+    return False
+
+
+def _aggregate_responses_stream(chunks: list[Any]) -> Any:
+    """The response of a Responses API stream, read as the non-stream call's response is.
+
+    Its events carry no ``usage``, ``model`` or ``choices`` of their own: the last one
+    (``response.completed``, ``.incomplete`` or ``.failed``) holds the whole ``Response``, with
+    its usage, model, id and output, which the extractors already read (BUG-12: the stream was
+    aggregated as chat chunks, so its usage and cost were never recorded). A stream that ends
+    without that event keeps what came: the text of its deltas, and the model and id of
+    ``response.created``. Its usage is unknown, so none is recorded and nothing is priced.
+    """
+    final: Any = None
+    started: Any = None
+    text: list[str] = []
+    for event in chunks:
+        kind = getattr(event, "type", None)
+        response = getattr(event, "response", None)
+        if kind in _RESPONSES_FINAL_EVENTS and response is not None:
+            final = response
+        elif response is not None:
+            started = response
+        elif kind == "response.output_text.delta":
+            delta = getattr(event, "delta", None)
+            if isinstance(delta, str):
+                text.append(delta)
+    if final is not None:
+        return final
+    return _StreamedResponsesResponse(
+        model=getattr(started, "model", None), response_id=getattr(started, "id", None), output_text="".join(text)
+    )
+
+
+class _StreamedResponsesResponse:
+    """What a Responses stream cut before its last event gave: Responses-shaped, without usage."""
+
+    __slots__ = ("model", "id", "output_text", "output", "usage")
+
+    def __init__(self, *, model: Any, response_id: Any, output_text: str) -> None:
+        self.model = model
+        self.id = response_id
+        self.output_text = output_text
+        self.output: list[Any] = []
+        self.usage = None
 
 
 class _StreamedChatResponse:
@@ -416,6 +475,13 @@ class _StreamedChatResponse:
 
 
 def instrument_openai(client: Any) -> OpenAIProvider:
+    """Trace the OpenAI calls ``client`` makes; returns the adapter.
+
+    One client at a time: the client instrumented before is restored first, and
+    :func:`uninstrument_openai` restores the last one. To trace several clients at once,
+    connect an adapter to each, ``OpenAIProvider().connect(other_client)``: each adapter's
+    ``disconnect()`` restores its own client.
+    """
     from .._registry import get, register
 
     existing = get("openai")

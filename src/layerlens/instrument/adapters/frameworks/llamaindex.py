@@ -8,6 +8,7 @@ from ._utils import safe_serialize
 from ..._context import _current_collector
 from ..._identity import _s, honest_agent_type
 from ..._collector import TraceCollector
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -732,7 +733,7 @@ class LlamaIndexAdapter(FrameworkAdapter):
         exc = getattr(event, "exception", None)
         payload = self._payload(
             error=str(exc) if exc else "unknown error",
-            error_type=(type(exc).__name__ if isinstance(exc, BaseException) else "Exception"),
+            **(error_category(exc) if isinstance(exc, BaseException) else {"error_type": "Exception"}),
         )
         self._fire("agent.error", payload, span_id=span_id)
 

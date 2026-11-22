@@ -6,11 +6,11 @@ import httpx
 
 from ...models import PublicModelsListResponse
 from ..._resource import SyncPublicAPIResource, AsyncPublicAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 class PublicModelsResource(SyncPublicAPIResource):
@@ -41,7 +41,7 @@ class PublicModelsResource(SyncPublicAPIResource):
         page: Optional[int] = None,
         page_size: Optional[int] = None,
         include_deprecated: Optional[bool] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[PublicModelsListResponse]:
         params = {}
         if query:
@@ -116,7 +116,7 @@ class AsyncPublicModelsResource(AsyncPublicAPIResource):
         page: Optional[int] = None,
         page_size: Optional[int] = None,
         include_deprecated: Optional[bool] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[PublicModelsListResponse]:
         params = {}
         if query:

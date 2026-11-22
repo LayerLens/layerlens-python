@@ -1,8 +1,9 @@
 """Offline redaction + error + attestation + cost floor for the DSPy adapter.
 
-Runs in plain CI with no credentials and no network: DSPy's own ``DummyLM`` is
-the model, every other object (programs, signatures, the ``dspy.settings``
-callback bus, ``BootstrapFewShot``) is real.
+Runs in plain CI with no credentials and no outside network: DSPy's own ``DummyLM`` is
+the model (the usage-bearing cost cells use a real ``dspy.LM`` against a local
+server, see ``_dspy_support``), and every other object (programs, signatures, the
+``dspy.settings`` callback bus, ``BootstrapFewShot``) is real.
 
 * Redaction   — a real nested program call with ``capture_content=False`` keeps
                 the question/answer/prompt/tool content — and a SENTINEL sweep
@@ -28,10 +29,12 @@ import json
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 10):
     pytest.skip("dspy requires Python >= 3.10", allow_module_level=True)
 
-dspy = pytest.importorskip("dspy", reason="dspy not installed")
+dspy = importorskip("dspy", reason="dspy not installed")
 
 from importlib.metadata import version as _pkg_version  # noqa: E402
 
@@ -50,6 +53,7 @@ from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.frameworks.dspy import DSPyAdapter  # noqa: E402
 
 from .conftest import find_event, find_events, capture_framework_trace  # noqa: E402
+from ._dspy_support import served_lm  # noqa: E402
 
 SENTINEL = "LL-SENTINEL-9d4b7e1a"
 
@@ -70,21 +74,6 @@ class FloorProgram(dspy.Module):
 
     def forward(self, question: str):
         return self.pred(question=question)
-
-
-class _UsageLM(DummyLM):
-    """A DummyLM whose response carries usage, so DSPy's own
-    ``_process_lm_response`` records it onto the history entry the adapter reads."""
-
-    def __init__(self, answers, usage=None):
-        super().__init__(answers)
-        self._usage = usage
-
-    def forward(self, prompt=None, messages=None, **kwargs):
-        response = super().forward(prompt=prompt, messages=messages, **kwargs)
-        if self._usage is not None:
-            response.usage = self._usage
-        return response
 
 
 @pytest.fixture(autouse=True)
@@ -338,12 +327,9 @@ class TestAttestationOffline:
 # ---------------------------------------------------------------------------
 class TestCostFloor:
     def test_priced_model_with_real_usage_carries_cost_usd(self, mock_client):
-        lm = _UsageLM(
-            [{"answer": "blue"} for _ in range(4)],
-            usage={"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500},
-        )
-        lm.model = "openai/gpt-4o-mini"
-        uploaded = _drive_program(mock_client, CaptureConfig.full(), lm=lm)
+        usage = {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500}
+        with served_lm("openai/gpt-4o-mini", {"answer": "blue"}, usage) as (lm, _):
+            uploaded = _drive_program(mock_client, CaptureConfig.full(), lm=lm)
         events = uploaded["events"]
 
         cost = find_event(events, "cost.record")
@@ -373,12 +359,9 @@ class TestCostFloor:
     def test_unpriced_local_model_reports_tokens_without_cost(self, mock_client):
         """A local ollama model resolves no rate — tokens still land, cost_usd is
         honestly absent rather than fabricated as 0.0."""
-        lm = _UsageLM(
-            [{"answer": "blue"} for _ in range(4)],
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        )
-        lm.model = "ollama/llama3"
-        uploaded = _drive_program(mock_client, CaptureConfig.full(), lm=lm)
+        usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        with served_lm("ollama/llama3", {"answer": "blue"}, usage) as (lm, _):
+            uploaded = _drive_program(mock_client, CaptureConfig.full(), lm=lm)
 
         cost = find_event(uploaded["events"], "cost.record")
         assert cost is not None

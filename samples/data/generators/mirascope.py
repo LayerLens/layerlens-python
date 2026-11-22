@@ -61,7 +61,7 @@ sys.path[:] = [_q for _q in sys.path if os.path.abspath(_q) != _HERE]
 
 import httpx  # noqa: E402
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
@@ -192,7 +192,7 @@ FNOL_NARRATIVE = (
 )
 
 
-def generate_mirascope_single(client: Stratix) -> None:
+def generate_mirascope_single(client: LayerLens) -> None:
     """Mirascope SINGLE (typed FNOL intake): a NAMED ``fnol_intake_agent``
     ``@llm.call`` with a typed ``format=`` spec turns a policyholder's free-text
     first-notice-of-loss narrative into the structured FNOL record a claims system
@@ -317,5 +317,5 @@ def generate_mirascope_single(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_mirascope_single(_client)

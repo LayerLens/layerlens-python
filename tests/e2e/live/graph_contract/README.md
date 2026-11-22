@@ -18,7 +18,7 @@ live seed→read-back (gated on a running atlas).
   upload payloads for the live half).
 - `_contract.py` — pure assertion helpers (dual-oracle math, node-set/column
   projection, the SDK-generic guard anchor). Unit-testable, no stack.
-- `_live.py` — seed a lane via a real `Stratix()` client + raw-HTTP read-back
+- `_live.py` — seed a lane via a real `LayerLens()` client + raw-HTTP read-back
   (the SDK `Trace` model omits `graph`/`agent`, so read-back is raw API).
 - `test_dual_oracle.py` — deterministic; the honestGuard divergence, surfaced.
 - `test_live_contract.py` — gated live seed→read-back.
@@ -35,8 +35,8 @@ invents) and that genuinely-honest lanes are guard-invariant. This SURFACES the
 `honestGuard` product decision as a monitored fact without changing it.
 
 ## test_live_contract.py (gated live)
-Seeds each corpus lane through a real `Stratix()` client to
-`LAYERLENS_STRATIX_BASE_URL` and asserts, over the raw trace-detail API:
+Seeds each corpus lane through a real `LayerLens()` client to
+`LAYERLENS_BASE_URL` and asserts, over the raw trace-detail API:
 `graph` present iff topology; server node-set == shipped oracle; count-aware
 Agent column == graph projection; re-upload with agentless events UNSETS the
 stale graph (keyed on `sdk_trace_id`); the live server's divergence vs the
@@ -47,9 +47,9 @@ guarded oracle is SDK-generic; and each served graph is FE-renderable (label +
 The whole `tests/e2e/live` tree is skipped unless `LAYERLENS_LIVE=1`. Then:
 ```
 set -a; source tests/e2e/live/.env; set +a
-LAYERLENS_LIVE=1 rye run pytest tests/e2e/live/graph_contract/
+LAYERLENS_LIVE=1 uv run pytest tests/e2e/live/graph_contract/
 ```
-It is **base-URL-driven**: point `LAYERLENS_STRATIX_BASE_URL` at a local `:8080`
+It is **base-URL-driven**: point `LAYERLENS_BASE_URL` at a local `:8080`
 stack **or** a dev deploy — whichever carries the engine and a valid key.
 
 **Honest note on where this was executed (2026-07-13):** the goal specified the

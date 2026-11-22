@@ -42,8 +42,10 @@ import json
 import httpx
 import pytest
 
-llama_index_core = pytest.importorskip("llama_index.core")
-pytest.importorskip("llama_index.llms.openai")
+from tests._optional_deps import importorskip
+
+llama_index_core = importorskip("llama_index.core")
+importorskip("llama_index.llms.openai")
 
 from llama_index.core import Document, VectorStoreIndex
 from llama_index.llms.openai import OpenAI as LIOpenAI

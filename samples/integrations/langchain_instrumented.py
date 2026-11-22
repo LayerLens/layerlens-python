@@ -1,8 +1,8 @@
 """Example: Instrument a LangChain chain with automatic span capture.
 
 Requires:
-    pip install layerlens[langchain] langchain-openai
-    export LAYERLENS_STRATIX_API_KEY="your-api-key"
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]" langchain-openai
+    export LAYERLENS_API_KEY="your-api-key"
     export OPENAI_API_KEY="your-openai-key"
 """
 
@@ -10,12 +10,12 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-from layerlens import Stratix
+from layerlens import LayerLens
 from layerlens.instrument.adapters.frameworks.langchain import LangChainCallbackHandler
 
 
 def main() -> None:
-    client = Stratix()
+    client = LayerLens()
     handler = LangChainCallbackHandler(client)
 
     # Build a simple chain

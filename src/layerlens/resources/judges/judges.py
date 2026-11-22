@@ -11,11 +11,11 @@ from ...models import (
     UpdateJudgeResponse,
 )
 from ..._resource import SyncAPIResource, AsyncAPIResource
-from ..._constants import DEFAULT_TIMEOUT
+from ..._constants import NOT_GIVEN, API_MAX_PAGE_SIZE, NotGiven
 
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 100
-MAX_PAGE_SIZE = 500
+MAX_PAGE_SIZE = API_MAX_PAGE_SIZE
 
 
 class Judges(SyncAPIResource):
@@ -28,7 +28,7 @@ class Judges(SyncAPIResource):
         name: str,
         evaluation_goal: str,
         model_id: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Judge]:
         body: Dict[str, Any] = {
             "name": name,
@@ -54,8 +54,13 @@ class Judges(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Judge]:
+        """A judge, by id.
+
+        Raises :class:`NotFoundError` when the project has no judge with this id. Returns None only
+        for a reply that holds no judge.
+        """
         resp = self._get(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -74,7 +79,7 @@ class Judges(SyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[JudgesResponse]:
         params: dict[str, str] = {}
 
@@ -113,7 +118,7 @@ class Judges(SyncAPIResource):
         name: Optional[str] = None,
         evaluation_goal: Optional[str] = None,
         model_id: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[UpdateJudgeResponse]:
         body: Dict[str, Any] = {}
         if name is not None:
@@ -141,8 +146,13 @@ class Judges(SyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[DeleteJudgeResponse]:
+        """Delete a judge.
+
+        Raises :class:`NotFoundError` when the project has no judge with this id. Returns None only
+        for a reply that does not say what was deleted.
+        """
         resp = self._delete(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -167,7 +177,7 @@ class AsyncJudges(AsyncAPIResource):
         name: str,
         evaluation_goal: str,
         model_id: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Judge]:
         body: Dict[str, Any] = {
             "name": name,
@@ -193,8 +203,13 @@ class AsyncJudges(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[Judge]:
+        """A judge, by id.
+
+        Raises :class:`NotFoundError` when the project has no judge with this id. Returns None only
+        for a reply that holds no judge.
+        """
         resp = await self._get(
             f"{self._base_url()}/{id}",
             timeout=timeout,
@@ -213,7 +228,7 @@ class AsyncJudges(AsyncAPIResource):
         *,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[JudgesResponse]:
         params: dict[str, str] = {}
 
@@ -252,7 +267,7 @@ class AsyncJudges(AsyncAPIResource):
         name: Optional[str] = None,
         evaluation_goal: Optional[str] = None,
         model_id: Optional[str] = None,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[UpdateJudgeResponse]:
         body: Dict[str, Any] = {}
         if name is not None:
@@ -280,8 +295,13 @@ class AsyncJudges(AsyncAPIResource):
         self,
         id: str,
         *,
-        timeout: float | httpx.Timeout | None = DEFAULT_TIMEOUT,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> Optional[DeleteJudgeResponse]:
+        """Delete a judge.
+
+        Raises :class:`NotFoundError` when the project has no judge with this id. Returns None only
+        for a reply that does not say what was deleted.
+        """
         resp = await self._delete(
             f"{self._base_url()}/{id}",
             timeout=timeout,

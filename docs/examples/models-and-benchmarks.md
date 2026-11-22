@@ -9,11 +9,11 @@ Examples for browsing, filtering, creating, and managing models and benchmarks u
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # --- Filter by name
     model_name = "gpt-4o"
@@ -21,7 +21,7 @@ async def main():
     print(f"Found {len(models)} models with name {model_name}")
 
     # --- Filter by company
-    company_names = ["openai", "anthropic"]
+    company_names = ["OpenAI", "Anthropic"]  # as the catalog spells them: the match is case-sensitive
     models = await client.models.get(companies=company_names)
     print(f"Found {len(models)} models with companies {company_names}")
 
@@ -61,11 +61,11 @@ if __name__ == "__main__":
 ```python
 import asyncio
 
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     # --- Filter by name
     benchmark_name = "mmlu"
@@ -105,11 +105,11 @@ Custom models let you evaluate any model accessible via an OpenAI-compatible cha
 ```python
 import os
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main():
-    client = Stratix()
+    client = LayerLens()
 
     result = client.models.create_custom(
         name="My Custom Model",
@@ -142,11 +142,11 @@ if __name__ == "__main__":
 Use this when your model's endpoint URL changes — for example, when serving a vLLM instance behind a cloudflared tunnel that rotates its hostname between sessions.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main():
-    client = Stratix()
+    client = LayerLens()
 
     result = client.models.create_custom(
         name="My Tunnel-backed Model",
@@ -176,11 +176,11 @@ if __name__ == "__main__":
 `delete_custom` releases the model's name so it can be reused. This is useful for replacing a misconfigured model without picking a new name.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main():
-    client = Stratix()
+    client = LayerLens()
 
     # Tear down the old version
     client.models.delete_custom("old-model-id")
@@ -207,11 +207,11 @@ if __name__ == "__main__":
 Custom benchmarks are created from JSONL files with `input` and `truth` fields.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main():
-    client = Stratix()
+    client = LayerLens()
 
     # Basic custom benchmark
     result = client.benchmarks.create_custom(
@@ -265,11 +265,11 @@ Optional field: `subset` (for grouping prompts into categories).
 Smart benchmarks use AI to automatically generate benchmark prompts from uploaded documents. Supported file types: `.txt`, `.pdf`, `.html`, `.docx`, `.csv`, `.json`, `.jsonl`, `.parquet`.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main():
-    client = Stratix()
+    client = LayerLens()
 
     result = client.benchmarks.create_smart(
         name="Product Knowledge Benchmark",
@@ -306,11 +306,11 @@ if __name__ == "__main__":
 Add and remove public models and benchmarks from your project.
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 def main():
-    client = Stratix()
+    client = LayerLens()
 
     # --- Add public models to the project
     success = client.models.add("model-id-1", "model-id-2")

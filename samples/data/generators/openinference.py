@@ -84,7 +84,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # the installed package (a no-op when imported as ``generators.openinference``).
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -254,7 +254,7 @@ def _write_corpus(doc: dict, model: str, instrumentor_version: str, scenario: st
 # --------------------------------------------------------------------------
 # The real instrumented run
 # --------------------------------------------------------------------------
-def generate_openinference_single(client: Stratix) -> dict:
+def generate_openinference_single(client: LayerLens) -> dict:
     """Record ONE real OpenInference-instrumented retail-support RAG run.
 
     Drives the workload under a real OTel ``TracerProvider`` carrying BOTH the
@@ -423,7 +423,7 @@ def generate_openinference_single(client: Stratix) -> dict:
     return payload
 
 
-def generate_openinference_multi(client: Stratix) -> dict:
+def generate_openinference_multi(client: LayerLens) -> dict:
     """Record ONE real MULTI-AGENT OpenInference-instrumented support run.
 
     A genuine delegation: a ``support-triage-supervisor`` routes the customer's
@@ -604,6 +604,6 @@ def generate_openinference_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_openinference_single(_client)
     generate_openinference_multi(_client)

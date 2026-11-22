@@ -48,6 +48,10 @@ import json
 # --- path bootstrap so this module runs standalone AND when imported by the
 #     central _generate_fixtures.main() ---------------------------------------
 _HERE = os.path.dirname(os.path.abspath(__file__))          # samples/data/generators
+# Run as a script, this folder is sys.path[0], and this file has the name of the library it
+# records: ``import <library>`` would import this file. Look the library up elsewhere.
+if sys.path and os.path.abspath(sys.path[0] or os.curdir) == _HERE:
+    sys.path.pop(0)
 _DATA = os.path.dirname(_HERE)                              # samples/data
 _SAMPLES = os.path.dirname(_DATA)                           # samples
 _REPO = os.path.dirname(_SAMPLES)                           # repo root
@@ -60,7 +64,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
 # installed framework (a no-op in the integrated ``generators.haystack`` path).
 sys.path[:] = [_q for _q in sys.path if os.path.abspath(_q) != _HERE]
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
@@ -85,7 +89,7 @@ except Exception:  # pragma: no cover - standalone fallback
 OPENAI_MODEL = os.environ.get("SAMPLE_OPENAI_MODEL", "gpt-4o-mini")
 
 
-def _capture_haystack(client: Stratix, pipeline, run_inputs: dict, *, tags: list) -> tuple:
+def _capture_haystack(client: LayerLens, pipeline, run_inputs: dict, *, tags: list) -> tuple:
     """Run a real ``haystack.Pipeline`` under the real ``HaystackAdapter`` +
     observer seam (no background upload) and return ``(sealed_payload, result)``.
 
@@ -160,7 +164,7 @@ _CLAUSE_QUESTION = (
 )
 
 
-def generate_haystack_single(client: Stratix) -> None:
+def generate_haystack_single(client: LayerLens) -> None:
     """Haystack SINGLE (single-component clause Q&A): a minimal pipeline with one
     honest ``llm`` node (``OpenAIGenerator``) that interprets a specific contract
     clause and answers a plain-language question about it. Real OpenAI
@@ -249,7 +253,7 @@ _RAG_TEMPLATE = (
 )
 
 
-def generate_haystack_multi(client: Stratix) -> None:
+def generate_haystack_multi(client: LayerLens) -> None:
     """Haystack MULTI == genuine multi-COMPONENT RAG pipeline (MARKED).
 
     haystack is a pipeline framework, not a multi-agent one: it emits no
@@ -309,6 +313,6 @@ def generate_haystack_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_haystack_single(_client)
     generate_haystack_multi(_client)

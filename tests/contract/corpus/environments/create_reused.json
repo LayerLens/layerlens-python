@@ -1,0 +1,23 @@
+{
+  "_recorded": {
+    "method": "POST",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/worlds",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "environment": {
+        "id": "6af30e45280c73a1bc8455ab",
+        "name": "sdk-corpus-lay4490",
+        "type": "composite",
+        "current_version": 1
+      },
+      "job": {
+        "id": "6af30e45280c73a1bc8455ad",
+        "status": "success"
+      },
+      "reused": true
+    }
+  }
+}

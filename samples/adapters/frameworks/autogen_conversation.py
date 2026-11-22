@@ -20,7 +20,7 @@ def main() -> None:
         from autogen_agentchat.conditions import MaxMessageTermination  # type: ignore[import-not-found]
         from autogen_ext.models.openai import OpenAIChatCompletionClient  # type: ignore[import-not-found]
     except ImportError:
-        print("Install: pip install 'layerlens[autogen]' 'autogen-ext[openai]'")
+        print('Install: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[autogen]" "autogen-ext[openai]"')
         return
 
     if not os.environ.get("OPENAI_API_KEY"):

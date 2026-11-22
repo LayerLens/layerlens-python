@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from ._utils import safe_serialize
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -280,7 +281,7 @@ class GoogleADKAdapter(FrameworkAdapter):
         agent_name = getattr(callback_context, "agent_name", None) or "unknown"
         self._stop_timer(f"model:{agent_name}")  # clear timer
         model = getattr(llm_request, "model", None)
-        payload = self._payload(error=str(error), error_type=type(error).__name__)
+        payload = self._payload(error=str(error), **error_category(error))
         if model:
             payload["model"] = str(model)
         self._fire("agent.error", payload, parent_span_id=self._leaf_parent())
@@ -330,7 +331,7 @@ class GoogleADKAdapter(FrameworkAdapter):
         self._stop_timer(f"tool:{call_id}")  # clear timer
         self._fire(
             "agent.error",
-            self._payload(tool_name=tool_name, error=str(error), error_type=type(error).__name__),
+            self._payload(tool_name=tool_name, error=str(error), **error_category(error)),
             parent_span_id=self._leaf_parent(),
         )
 

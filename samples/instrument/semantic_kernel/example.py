@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[semantic-kernel]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[semantic-kernel]"
     python samples/instrument/semantic_kernel/example.py
 
 Note: Semantic Kernel requires Python 3.10+.
@@ -22,14 +22,14 @@ def main() -> int:
         adapter = SemanticKernelAdapter(client=layerlens_client)
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Semantic Kernel with: pip install layerlens[semantic-kernel] (Python 3.10+)")
+        print('Install Semantic Kernel with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[semantic-kernel]" (Python 3.10+)')
         return 0
 
     try:
         from semantic_kernel import Kernel  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Semantic Kernel with: pip install layerlens[semantic-kernel] (Python 3.10+)")
+        print('Install Semantic Kernel with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[semantic-kernel]" (Python 3.10+)')
         return 0
 
     kernel = Kernel()

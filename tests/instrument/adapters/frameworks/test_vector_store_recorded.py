@@ -23,7 +23,9 @@ from typing import Any
 
 import pytest
 
-chromadb = pytest.importorskip("chromadb")
+from tests._optional_deps import importorskip
+
+chromadb = importorskip("chromadb")
 
 from layerlens.instrument import trace_context  # noqa: E402
 from layerlens.instrument.adapters.frameworks.vector_store import VectorStoreAdapter  # noqa: E402

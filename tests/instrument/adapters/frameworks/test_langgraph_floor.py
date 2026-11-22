@@ -35,13 +35,14 @@ from typing import Any, List
 from typing_extensions import TypedDict
 
 import httpx
-import pytest
+
+from tests._optional_deps import importorskip
 
 # LangGraph reuses the langchain-core callback protocol; these imports transitively
 # require langchain-core, so gating on the real packages skips the module cleanly
 # in environments without the langchain audit venv (and satisfies skip-hygiene).
-pytest.importorskip("langgraph.graph")
-pytest.importorskip("langchain_openai")
+importorskip("langgraph.graph")
+importorskip("langchain_openai")
 
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402

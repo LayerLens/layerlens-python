@@ -7,7 +7,7 @@ handled via the dispatcher fallback.
 ## Install
 
 ```bash
-pip install layerlens[crewai]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[crewai]"
 ```
 
 Pulls `crewai>=0.30.0`. CrewAI 0.30+ is Pydantic v2-only
@@ -39,9 +39,21 @@ adapter.disconnect()             # tears down handlers when done
 - `agent.handoff` when CrewAI delegates between agents.
 - `agent.error` for agent/tool failures.
 
-Thread-safety: CrewAI dispatches handlers across threads, so the adapter
-manages collector and span state on the instance rather than via
-ContextVars.
+## Traces
+
+One trace per top-level execution: a `crew.kickoff()`, or a `Flow.kickoff()`
+of your own. Whatever starts inside it is a nested span of that trace,
+placed by CrewAI's event lineage: a crew run from a Flow method, an
+`Agent.kickoff()`, and the internal `AgentExecutor` flow that CrewAI ≥ 1.14.7
+runs each agent execution in. The trace is uploaded when the execution that
+opened it finishes or fails. CrewAI reports a failed Flow from 1.15 on
+(`FlowFailedEvent`); on earlier versions a failed Flow emits no end event, so
+its trace is uploaded at `disconnect()`.
+
+Thread-safety: CrewAI dispatches every handler on a thread pool, each in its
+own copy of the emitting context, so the adapter keeps one run per top-level
+execution and resolves each event to its run through that lineage. Concurrent
+kickoffs through one adapter each get their own trace.
 
 ## Sample
 

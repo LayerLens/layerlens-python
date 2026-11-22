@@ -9,29 +9,26 @@ Requires crewai >= 1.0.0 (Python >= 3.10).
 
 from __future__ import annotations
 
-# Skip entire module if crewai is not importable (Python < 3.10 or not installed).
-# crewai uses `type | None` syntax which causes TypeError on Python < 3.10,
-# and importorskip only catches ImportError, so we guard explicitly.
+# Skip the module when crewai is not installed. Every crewai release needs
+# Python 3.10+ (it uses `type | None`), so skip older interpreters first.
 import sys
 import datetime
 from types import SimpleNamespace
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import find_event, find_events, capture_framework_trace
 
 if sys.version_info < (3, 10):
     pytest.skip("crewai requires Python >= 3.10", allow_module_level=True)
-try:
-    import crewai  # noqa: F401
-except (ImportError, TypeError):
-    pytest.skip("crewai not installed or incompatible", allow_module_level=True)
+crewai = importorskip("crewai")
 
-# The adapter needs crewai's modern typed event bus (the 1.14 line). The dev floor
-# is loose (crewai>=0.5.0) and the combined base lock resolves whatever the cross-
-# adapter solve allows — 0.193.2 or 1.6.1 depending on platform, both predating that
-# event surface. Only the pinned matrix (crewai==1.14.6) row is supported; skip below
-# 1.14 rather than fail in the base ``test`` job.
+# The adapter needs crewai's modern typed event bus (the 1.14 line). The dev lock
+# and the matrix row install 1.15.28 (the pyproject dev floor keeps it there); only
+# Intel Macs, where crewai >= 1.14 can't install, resolve an older crewai. Skip
+# below 1.14 rather than fail there.
 from packaging.version import Version  # noqa: E402
 
 if Version(crewai.__version__) < Version("1.14"):
@@ -736,10 +733,7 @@ class TestMCPToolEvents:
     """Test MCP tool execution event handling."""
 
     def test_mcp_tool_completed(self, adapter_and_trace):
-        try:
-            from crewai.events import MCPToolExecutionCompletedEvent
-        except ImportError:
-            pytest.skip("installed crewai version ships no MCPToolExecutionCompletedEvent")
+        from crewai.events import MCPToolExecutionCompletedEvent
 
         adapter, uploaded = adapter_and_trace
         adapter._on_crew_started(None, CrewKickoffStartedEvent(crew_name="C", inputs={}))
@@ -771,10 +765,7 @@ class TestMCPToolEvents:
         assert tool_call["payload"]["output"] == "127.0.0.1 localhost"
 
     def test_mcp_tool_failed(self, adapter_and_trace):
-        try:
-            from crewai.events import MCPToolExecutionFailedEvent
-        except ImportError:
-            pytest.skip("installed crewai version ships no MCPToolExecutionFailedEvent")
+        from crewai.events import MCPToolExecutionFailedEvent
 
         adapter, uploaded = adapter_and_trace
         adapter._on_crew_started(None, CrewKickoffStartedEvent(crew_name="C", inputs={}))

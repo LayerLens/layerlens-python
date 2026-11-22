@@ -44,7 +44,9 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-pytest.importorskip("a2a")
+from tests._optional_deps import importorskip
+
+importorskip("a2a")
 
 from a2a.compat.v0_3 import types as a2a_types  # noqa: E402
 

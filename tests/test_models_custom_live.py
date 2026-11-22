@@ -3,28 +3,24 @@
 Exercises the customer's exact workflow against a real LayerLens API:
 create_custom → update_custom (repoint api_url) → delete_custom → verify gone.
 
-Skipped unless ``LAYERLENS_STRATIX_API_KEY`` is set. Run with::
+Skipped unless selected with ``-m live`` and ``LAYERLENS_API_KEY`` is set. Run with::
 
     pytest tests/test_models_custom_live.py -m live
 """
 
 from __future__ import annotations
 
-import os
 import time
 import uuid
 
 import pytest
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 
 @pytest.mark.live
-def test_custom_model_lifecycle_live() -> None:
-    if not os.environ.get("LAYERLENS_STRATIX_API_KEY"):
-        pytest.skip("LAYERLENS_STRATIX_API_KEY not set")
-
-    client = Stratix()
+def test_custom_model_lifecycle_live(live_api_key: str) -> None:
+    client = LayerLens(api_key=live_api_key)
 
     # Use a unique key per run so the test can re-run cleanly.
     suffix = uuid.uuid4().hex[:8]

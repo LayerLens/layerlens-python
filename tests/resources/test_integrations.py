@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens.models.integration import Integration
 from layerlens.resources.integrations.integrations import Integrations
 
@@ -119,7 +119,7 @@ class TestIntegrations:
         integrations_resource._get.assert_called_once_with(
             "/organizations/org-123/integrations",
             params={"page": "2", "page_size": "5"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 

@@ -17,15 +17,15 @@ by showing how to define a purpose-built judge and validate it end-to-end.
 
 Prerequisites
 -------------
-* ``pip install layerlens --index-url https://sdk.layerlens.ai/package``
-* Set ``LAYERLENS_STRATIX_API_KEY`` environment variable
+* ``uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens``
+* Set ``LAYERLENS_API_KEY`` environment variable
 * Some traces should already exist (run ``basic_trace.py`` first)
 
 Usage
 -----
 ::
 
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    export LAYERLENS_API_KEY=your-api-key
     python judge_creation_and_test.py
 """
 
@@ -36,7 +36,7 @@ import sys
 import logging
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge, poll_evaluation_results
@@ -83,7 +83,7 @@ def step_define_criteria() -> dict[str, Any]:
     return JUDGE_SPEC
 
 
-def step_create_judge(client: Stratix, spec: dict[str, Any]) -> str:
+def step_create_judge(client: LayerLens, spec: dict[str, Any]) -> str:
     """Step 2 -- Create the judge via the SDK."""
     logger.info("=" * 60)
     logger.info("Step 2: Create judge via SDK")
@@ -103,7 +103,7 @@ def step_create_judge(client: Stratix, spec: dict[str, Any]) -> str:
     return judge_id
 
 
-def step_verify_judge(client: Stratix, judge_id: str) -> None:
+def step_verify_judge(client: LayerLens, judge_id: str) -> None:
     """Step 3 -- Verify the judge was created correctly."""
     logger.info("=" * 60)
     logger.info("Step 3: Verify judge details")
@@ -122,7 +122,7 @@ def step_verify_judge(client: Stratix, judge_id: str) -> None:
         logger.warning("  Could not retrieve judge details")
 
 
-def step_test_judge(client: Stratix, judge_id: str) -> None:
+def step_test_judge(client: LayerLens, judge_id: str) -> None:
     """Step 4 -- Test the judge on recent traces."""
     logger.info("=" * 60)
     logger.info("Step 4: Test judge on sample traces")
@@ -197,7 +197,8 @@ def main() -> None:
     logger.info("LayerLens — Judge Creation and Testing Demo")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         logger.error("Failed to initialize client: %s", exc)
         sys.exit(1)

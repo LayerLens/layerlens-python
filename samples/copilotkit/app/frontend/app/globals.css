@@ -14,7 +14,7 @@
    conventions used across CopilotKit's own samples (research-canvas,
    travel, banking) so the cards feel native to the ecosystem.
 
-   Brand accent for LayerLens Stratix is layered on top via Tailwind
+   Brand accent for LayerLens is layered on top via Tailwind
    class strings (e.g. `bg-[#6766FC]`) at component sites — the same
    pattern research-canvas uses for its `#6766FC` indigo. */
 

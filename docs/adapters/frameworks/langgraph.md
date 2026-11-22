@@ -7,7 +7,7 @@ template) and adds graph-state hashing for replay.
 ## Install
 
 ```bash
-pip install layerlens[langgraph]
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langgraph]"
 ```
 
 Pulls `langgraph>=0.2.0` and `langchain-core>=0.1.0`. LangGraph 0.2+ requires

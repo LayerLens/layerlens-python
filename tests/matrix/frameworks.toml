@@ -4,6 +4,9 @@
 # (extracted from the phase-1/2 audit venvs, all suites green on these pins —
 # this doubles as the tested-version table consumed by the drift canary,
 # LAY-3581). The canary reruns the same rows with `--latest` (unpinned).
+# `extras` (optional) installs the SDK with those extras, so a row tests what
+# `pip install layerlens[<extra>]` resolves, the extras' own bounds included
+# (they apply in `--latest` mode too).
 #
 # Zero LLM spend by design: the suites drive real framework objects with fake
 # models (pydantic-ai TestModel, autogen ReplayChatCompletionClient, langchain
@@ -12,7 +15,9 @@
 
 [frameworks.langchain]
 python = "3.11"
-install = ["langchain-core==0.3.84", "langchain==0.3.28", "langchain-openai==0.3.35"]
+# langchain-openai 1.7 no longer copies OpenAI's raw tool call into additional_kwargs.
+# test_langchain.py builds the message of both versions, so the older one stays covered.
+install = ["langchain-core==1.6.11", "langchain==1.4.6", "langchain-openai==1.7.2"]
 tests = [
     "tests/instrument/adapters/frameworks/test_langchain.py",
     "tests/instrument/adapters/frameworks/test_langchain_memory.py",
@@ -33,18 +38,23 @@ tests = [
 
 [frameworks.crewai]
 python = "3.11"
-install = ["crewai==1.14.6", "openai"]
+# 1.14.7+ runs each agent execution inside an internal Flow; the run-boundary
+# tests cover that nesting (LAY-4241).
+install = ["crewai==1.15.28", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_crewai.py",
     "tests/instrument/adapters/frameworks/test_crewai_recorded.py",
     "tests/instrument/adapters/frameworks/test_concurrency_crewai.py",
     "tests/instrument/adapters/frameworks/test_crewai_floor.py",
+    "tests/instrument/adapters/frameworks/test_crewai_run_boundaries.py",
     "tests/e2e/test_e2e_crewai_delegation.py",
 ]
 
 [frameworks.openai_agents]
 python = "3.11"
-install = ["openai-agents==0.4.2", "openai==2.32.0"]
+# 0.24 needs openai >= 3, which the shared dev lock can't hold (crewai and litellm
+# cap openai below 3), so this row is the only CI coverage of that pairing.
+install = ["openai-agents==0.24.0", "openai==3.31.0"]
 tests = [
     "tests/instrument/adapters/frameworks/test_openai_agents.py",
     "tests/instrument/adapters/frameworks/test_openai_agents_recorded.py",
@@ -68,12 +78,13 @@ tests = [
 
 [frameworks.pydantic_ai]
 python = "3.11"
-# opentelemetry-api is pinned <1.44 because 1.44.0 dropped the
-# ``opentelemetry._events`` module that pydantic-ai 0.8.1's logfire path imports
-# at collection time; unpinned, the row fresh-resolves 1.44.0 and errors on
-# import. This is a pre-existing transitive drift (not part of the adapter port),
-# fixed here so the row resolves an env with the module present (1.43.0).
-install = ["pydantic-ai==0.8.1", "opentelemetry-api<1.44"]
+# The extra's floor, pydantic-ai 0.8.1, still runs these suites: run-tests.yaml runs
+# them on Python 3.9, where uv.lock resolves 0.8.1. Pinning this row back to 0.8.1
+# also needs "opentelemetry-api<1.44": 0.8.1's logfire path imports
+# ``opentelemetry._events``, which 1.44 removed.
+# From 2.64 a provider's 404 raises a ModelHTTPError subclass named for its category,
+# ModelNotFoundError; the floor test reads the name off the error raised (LAY-4454).
+install = ["pydantic-ai==2.66.0"]
 tests = [
     "tests/instrument/adapters/frameworks/test_pydantic_ai.py",
     "tests/instrument/adapters/frameworks/test_concurrency.py",
@@ -92,7 +103,7 @@ tests = [
 
 [frameworks.strands]
 python = "3.11"
-install = ["strands-agents==1.42.0", "openai"]
+install = ["strands-agents==1.61.1", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_strands.py",
     "tests/instrument/adapters/frameworks/test_strands_recorded.py",
@@ -123,11 +134,14 @@ tests = [
 
 [frameworks.haystack]
 python = "3.11"
-install = ["haystack-ai==2.30.1", "openai"]
+# haystack-ai 3.0 removed the text OpenAIGenerator; the suites drive
+# OpenAIChatGenerator, which the 2.x line has too.
+install = ["haystack-ai==3.4.0", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_haystack.py",
     "tests/instrument/adapters/frameworks/test_haystack_recorded.py",
     "tests/instrument/adapters/frameworks/test_haystack_floor.py",
+    "tests/instrument/adapters/frameworks/test_haystack_agent_recorded.py",
 ]
 
 [frameworks.autogen]
@@ -174,10 +188,10 @@ tests = ["tests/instrument/adapters/frameworks/test_vector_store.py"]
 
 [frameworks.dspy]
 python = "3.11"
-# litellm is pinned because DSPy pulls it transitively and 1.92.0 fails to BUILD
-# on this toolchain (its Rust dep needs a Cargo `edition2024` that ships with a
-# newer Cargo than the pinned one); 1.90.2 resolves from wheels.
-install = ["dspy==3.2.1", "litellm==1.90.2", "openai"]
+# litellm is pinned because DSPy pulls it transitively and some releases (1.92.0)
+# ship no wheel for this toolchain and fail to BUILD from source; 1.105.1 has a
+# manylinux abi3 wheel.
+install = ["dspy==3.4.1", "litellm==1.105.1", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_dspy.py",
     "tests/instrument/adapters/frameworks/test_dspy_floor.py",
@@ -199,11 +213,19 @@ python = "3.11"
 # bound but breaks at RUNTIME from 1.95.0 (pre-1.95 ModelResponsePartsManager
 # signature). Bisected: 1.94.0 last-good, 1.95.0 first-broken. An unpinned row
 # resolves happily and then TypeErrors on the first primitive call.
-install = ["marvin==3.2.7", "pydantic-ai==1.94.0", "openai"]
+# The row installs the `[marvin]` extra, so its genai-prices `<0.1` cap applies:
+# pydantic-ai 1.94.0 loses every run's token usage with genai-prices >= 0.1
+# (LAY-4241). genai-prices is listed unpinned only so the row reports its version.
+extras = ["marvin"]
+install = ["marvin==3.2.7", "pydantic-ai==1.94.0", "genai-prices", "openai"]
 tests = [
     "tests/instrument/adapters/frameworks/test_marvin.py",
     "tests/instrument/adapters/frameworks/test_marvin_floor.py",
     "tests/instrument/adapters/frameworks/test_marvin_recorded.py",
+    # The pydantic-ai adapter's real-token-shape tests, in the pydantic-ai the
+    # `[marvin]` extra installs: without the genai-prices cap they report zero tokens.
+    "tests/instrument/adapters/frameworks/test_pydantic_ai_recorded.py",
+    "tests/instrument/adapters/frameworks/test_pydantic_ai_floor.py",
 ]
 
 [frameworks.mirascope]
@@ -258,4 +280,110 @@ tests = [
     # contract. Carries one STRICT xfail recording a known redaction-backstop
     # defect (xfail is counted apart from skips, so the zero-skip gate holds).
     "tests/instrument/adapters/frameworks/test_openinference_ingest_contract.py",
+]
+
+# --- What the shared dev lock can't hold (LAY-4242). One lock carries every
+# extra, so where extras cap a shared dependency, the lock stays below the release
+# a customer installing one extra gets today. These rows pin that release instead.
+
+[frameworks.openai]
+python = "3.11"
+# `layerlens[openai]` installs openai 3.x; crewai and litellm cap the dev lock at 2.x.
+# anthropic only because the providers conftest builds anthropic objects at import.
+install = ["openai==3.31.0", "anthropic==1.14.0"]
+tests = [
+    "tests/instrument/adapters/providers/test_openai.py",
+    "tests/instrument/adapters/providers/test_openai_bugfix.py",
+    "tests/instrument/adapters/providers/test_openai_floor.py",
+    "tests/instrument/adapters/providers/test_openai_recorded.py",
+    "tests/instrument/adapters/providers/test_azure_openai.py",
+    "tests/instrument/adapters/providers/test_azure_openai_floor.py",
+    "tests/instrument/adapters/providers/test_azure_openai_recorded.py",
+    "tests/instrument/adapters/providers/test_openrouter.py",
+    "tests/instrument/adapters/providers/test_openrouter_floor.py",
+    "tests/instrument/adapters/providers/test_openrouter_recorded.py",
+]
+
+[frameworks.mcp]
+python = "3.11"
+# `layerlens[mcp]` installs mcp 2.x; crewai (~=1.28.1) and semantic-kernel (<2) cap
+# the dev lock at 1.x.
+install = ["mcp==2.3.0"]
+tests = [
+    "tests/instrument/adapters/protocols/test_mcp_invariants.py",
+    "tests/instrument/adapters/protocols/test_mcp_floor.py",
+    "tests/instrument/adapters/protocols/test_mcp_app_handler.py",
+    "tests/instrument/adapters/protocols/test_mcp_server_connected.py",
+    "tests/instrument/adapters/protocols/test_mcp_tool_wrapper.py",
+]
+
+[frameworks.core]
+python = "3.11"
+# The SDK with no extras, as a plain `pip install layerlens` gets it: the newest
+# pydantic and httpx in its bounds. crewai and semantic-kernel cap the dev lock's
+# pydantic below 2.13. The tests are the ones that need no optional dependency.
+install = ["pydantic==2.14.1", "httpx==0.28.1"]
+tests = [
+    "tests/attestation",
+    "tests/benchmarks",
+    "tests/contract",
+    "tests/datasets",
+    "tests/evaluation_runs",
+    "tests/replay",
+    "tests/resources",
+    "tests/synthetic",
+    "tests/test_base_client.py",
+    "tests/test_base_client_taxonomy.py",
+    "tests/test_bytecap_filename.py",
+    "tests/test_client.py",
+    "tests/test_exceptions.py",
+    "tests/test_integration.py",
+    "tests/test_linkage_verify.py",
+    "tests/test_models.py",
+    "tests/test_rename_compat.py",
+    "tests/test_resource.py",
+    "tests/test_ssrf.py",
+    "tests/test_utils.py",
+    "tests/instrument/test_agent_identity.py",
+    "tests/instrument/test_attestation_quarantine.py",
+    "tests/instrument/test_capture_config.py",
+    "tests/instrument/test_collector.py",
+    "tests/instrument/test_collector_seam.py",
+    "tests/instrument/test_content_keys_guard.py",
+    "tests/instrument/test_core.py",
+    "tests/instrument/test_cost_chokepoint.py",
+    "tests/instrument/test_event_schema.py",
+    "tests/instrument/test_graph_content_invariant.py",
+    "tests/instrument/test_ingest_contract.py",
+    "tests/instrument/test_layer_suppression.py",
+    "tests/instrument/test_param_deny_by_default.py",
+    "tests/instrument/test_prodready_fixes.py",
+    "tests/instrument/test_redaction_backstop.py",
+    "tests/instrument/test_secret_scrub.py",
+    "tests/instrument/test_trace_context.py",
+    "tests/instrument/test_trace_root_span.py",
+    "tests/instrument/test_types.py",
+    "tests/instrument/test_upload.py",
+    "tests/instrument/test_upload_loss.py",
+    "tests/instrument/test_w3c.py",
+]
+
+[frameworks.ap2]
+python = "3.11"
+# AP2 is not on PyPI, so the row installs a commit of its GitHub repository. It is
+# not in uv.lock either: it requires Python >= 3.11 and pins pydantic and pytest
+# versions the lock cannot hold. Its payment invariants skip in the lock
+# environment and run here, where a skip fails the row. `--latest` keeps a commit
+# pin as written, so the drift canary reruns this same commit.
+install = ["ap2 @ git+https://github.com/google-agentic-commerce/AP2@b4587ac1d055888a73b4b21750973cffba961793"]
+tests = [
+    # Real ap2 models through every guardrail; the module skips without the SDK.
+    "tests/instrument/adapters/protocols/test_ap2_payment.py",
+    # The no-content sweep's ap2 cases build real ap2 models and skip without it.
+    "tests/instrument/adapters/protocols/test_no_content_sweep.py",
+    # These run in the lock environment too. They are listed so that the row runs
+    # every module that exercises the ap2 adapter, next to the SDK's own pydantic.
+    "tests/instrument/adapters/protocols/test_ap2_expiry.py",
+    "tests/instrument/adapters/protocols/test_protocol_redaction.py",
+    "tests/instrument/adapters/protocols/test_certification.py",
 ]

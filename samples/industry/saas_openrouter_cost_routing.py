@@ -49,8 +49,8 @@ SEALED FIXTURE -- no OpenRouter credential exists
     output text and cost are unaffected (see ``metadata`` on the trace).
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
     (NO provider key needed -- the trace is already recorded.)
 
 Usage:
@@ -63,7 +63,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -103,15 +103,16 @@ def main() -> None:
 
     # Cred guard: only a LayerLens key is needed (no provider key -- the trace is
     # already recorded). Exit cleanly and say so rather than raising.
-    if not os.environ.get("LAYERLENS_STRATIX_API_KEY"):
-        print("SKIPPED: LAYERLENS_STRATIX_API_KEY is not set.")
+    if not os.environ.get("LAYERLENS_API_KEY"):
+        print("SKIPPED: LAYERLENS_API_KEY is not set.")
         print("  Set it to upload the recorded OpenRouter cost-routing trace:")
-        print("    export LAYERLENS_STRATIX_API_KEY=your-api-key")
+        print("    export LAYERLENS_API_KEY=your-api-key")
         print("  No provider key is required -- the trace is already recorded.")
         sys.exit(1)
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -179,7 +180,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:20s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:20s} -- timed out waiting for results")
+                print(f"  {label:20s} -- no verdict (the evaluation failed or did not finish)")
     except Exception as exc:
         # The trace — this sample's core deliverable — is already uploaded and
         # renders. A judge/evaluation failure (no model in the org, a rate limit,

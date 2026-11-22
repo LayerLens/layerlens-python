@@ -153,7 +153,7 @@ function TracesCard({
             <TraceCard
               key={t.id}
               traceId={t.id}
-              framework={t.model ? "openai" : "stratix"}
+              framework={t.model ? "openai" : "layerlens"}
               agentName={t.filename || "trace"}
               // ``status`` intentionally omitted — the
               // ``traces.get_many`` LayerLens API response doesn't
@@ -652,7 +652,7 @@ export default function Page() {
     >
       <header className="flex items-center justify-between border-b bg-background/80 px-6 py-3 text-sm font-medium backdrop-blur">
         <span>
-          LayerLens Stratix Evaluator{" "}
+          LayerLens Evaluator{" "}
           <span className="text-xs font-normal text-muted-foreground">
             (agent: <code className="font-mono">evaluator</code>)
           </span>
@@ -715,12 +715,12 @@ export default function Page() {
               data-testid="canvas-empty"
             >
               <p className="text-base text-foreground">
-                Welcome to the LayerLens Stratix evaluator.
+                Welcome to the LayerLens evaluator.
               </p>
               <p className="mt-2">
                 Click <span className="font-medium text-foreground">Evaluate
                 my traces</span> in the header (or ask in chat) to populate
-                this canvas with your real LayerLens Stratix traces, judges,
+                this canvas with your real LayerLens traces, judges,
                 and evaluation results.
               </p>
             </div>
@@ -739,7 +739,7 @@ export default function Page() {
             labels={{
               title: "Evaluator",
               initial:
-                "Hi — I can evaluate your LayerLens Stratix traces. Click Evaluate my traces, or ask in your own words.",
+                "Hi — I can evaluate your LayerLens traces. Click Evaluate my traces, or ask in your own words.",
             }}
             instructions=""
           />

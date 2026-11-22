@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Union, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import Field, BaseModel, ConfigDict, AliasChoices
 
 
 class PublicModelDetail(BaseModel):
@@ -45,7 +45,10 @@ class PublicBenchmarkDetail(BaseModel):
     id: str
     key: str
     name: str
-    description: Optional[str] = None
+    #: The API's ``full_description``, as on the project-side ``PublicBenchmark``. The rows of
+    #: ``/datasets`` carry no ``description``, so this was always None (PA-07).
+    description: Optional[str] = Field(None, validation_alias=AliasChoices("full_description", "description"))
+    short_description: Optional[str] = None
     created_at: Optional[Union[int, str]] = None
     prompt_count: Optional[int] = None
     language: Optional[str] = None

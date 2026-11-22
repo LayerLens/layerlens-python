@@ -63,8 +63,10 @@ from typing import Any, Dict
 import httpx
 import pytest
 
-openai = pytest.importorskip("openai")
-chromadb = pytest.importorskip("chromadb")
+from tests._optional_deps import importorskip
+
+openai = importorskip("openai")
+chromadb = importorskip("chromadb")
 
 from layerlens.instrument import trace_context  # noqa: E402
 from layerlens.attestation._verify import verify_chain  # noqa: E402

@@ -15,11 +15,11 @@ directories via relative path references.
 Upload a trace file to your LayerLens workspace:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY=your-api-key
-python -c "from layerlens import Stratix; Stratix().traces.upload('samples/data/traces/simple_llm_trace.json')"
+export LAYERLENS_API_KEY=your-api-key
+python -c "from layerlens import LayerLens; print(LayerLens().traces.upload('samples/data/traces/simple_llm_trace.json').trace_ids)"
 ```
 
-Expected output: the trace ID of the newly uploaded trace record.
+Expected output: the IDs of the uploaded traces, such as `['6afe4f36cdb2d4ff5d02309e']`.
 
 ## Traces
 
@@ -85,7 +85,7 @@ Safety judge has known-bad inputs to flag.
 To regenerate the fixtures from the domain scenarios, run:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 export OPENAI_API_KEY=...  ANTHROPIC_API_KEY=...   # + a local Ollama
 python samples/data/_generate_fixtures.py
 ```

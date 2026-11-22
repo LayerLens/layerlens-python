@@ -92,7 +92,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # package. A no-op when imported as ``generators.autogen``.
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -109,7 +109,7 @@ OPENAI_MODEL = _gf.OPENAI_MODEL
 # We connect it, drive a REAL ``asyncio.run(coro)``, and observe the flushed
 # payload via the shared capture seam (no background upload).
 # --------------------------------------------------------------------------
-def _capture_autogen(client: Stratix, coro) -> dict:
+def _capture_autogen(client: LayerLens, coro) -> dict:
     import asyncio
 
     from layerlens.instrument.adapters.frameworks.autogen import AutoGenAdapter
@@ -192,7 +192,7 @@ _ACCOUNT_BOOK = {
 # --------------------------------------------------------------------------
 # Single agent + a real ``lookup_account`` tool turn (telecom billing triage)
 # --------------------------------------------------------------------------
-def generate_autogen_single(client: Stratix) -> dict:
+def generate_autogen_single(client: LayerLens) -> dict:
     """Record a single AutoGen ``telecom_support_agent`` running a real tool-use
     turn: it calls ``lookup_account`` to fetch the customer's plan + recent
     charges, then answers the billing question grounded in the tool result.
@@ -256,7 +256,7 @@ def generate_autogen_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # Multi-agent: a real RoundRobinGroupChat telecom support panel (3 named agents)
 # --------------------------------------------------------------------------
-def generate_autogen_multi(client: Stratix) -> dict:
+def generate_autogen_multi(client: LayerLens) -> dict:
     """Record a genuine multi-agent AutoGen ``RoundRobinGroupChat``: a telecom
     support panel (triage_agent -> billing_specialist -> network_specialist)
     collaborates on a mixed billing + connectivity complaint. Each agent takes a
@@ -321,6 +321,6 @@ def generate_autogen_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_autogen_single(_client)
     generate_autogen_multi(_client)

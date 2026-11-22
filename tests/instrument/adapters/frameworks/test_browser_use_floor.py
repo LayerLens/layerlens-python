@@ -30,10 +30,12 @@ import asyncio
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 11):
     pytest.skip("browser-use requires Python >= 3.11", allow_module_level=True)
 
-pytest.importorskip("browser_use")
+importorskip("browser_use")
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-browser-use-floor-not-real")
 

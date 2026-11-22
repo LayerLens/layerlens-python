@@ -9,9 +9,11 @@ development environment.
 ## Prerequisites
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package mcp
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens mcp
+export LAYERLENS_API_KEY=your-api-key
 ```
+
+The server runs on `mcp` 1.x (1.2 or later) and 2.x.
 
 ## Quick Start
 
@@ -27,7 +29,7 @@ The server will start and wait for MCP protocol messages on stdin/stdout.
 
 | Tool | Description |
 |------|-------------|
-| `list_traces` | List recent traces with optional filters (date range, status, model). |
+| `list_traces` | List the most recent traces: up to 100 (default 20). |
 | `get_trace` | Retrieve a single trace by ID, including all spans and metadata. |
 | `run_evaluation` | Run a trace evaluation using a specified judge. |
 | `get_evaluation` | Fetch evaluation results by evaluation ID. |
@@ -47,7 +49,7 @@ Add the following to your MCP configuration file:
       "command": "python",
       "args": ["samples/mcp/layerlens_server.py"],
       "env": {
-        "LAYERLENS_STRATIX_API_KEY": "your-api-key"
+        "LAYERLENS_API_KEY": "your-api-key"
       }
     }
   }

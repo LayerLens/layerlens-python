@@ -57,7 +57,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -98,7 +98,7 @@ CLAIM_FOR_SUPERVISOR = (
 # openai_agents self-flushing recorders in this package.
 # --------------------------------------------------------------------------
 def _capture_invoke_agent(
-    client: Stratix, *, agent_id: str, alias_id: str, input_text: str, session_prefix: str
+    client: LayerLens, *, agent_id: str, alias_id: str, input_text: str, session_prefix: str
 ) -> dict:
     import boto3
     from layerlens.instrument.adapters.frameworks.bedrock_agents import (
@@ -143,7 +143,7 @@ def _capture_invoke_agent(
 # --------------------------------------------------------------------------
 # Single agent (government citizen-services / public-benefits explainer)
 # --------------------------------------------------------------------------
-def generate_bedrock_agents_single(client: Stratix) -> dict:
+def generate_bedrock_agents_single(client: LayerLens) -> dict:
     """Record a single real Bedrock ``InvokeAgent`` citizen-services turn."""
     agent_id = os.environ.get("BEDROCK_AGENT_ID")
     alias_id = os.environ.get("BEDROCK_AGENT_ALIAS_ID")
@@ -187,7 +187,7 @@ def generate_bedrock_agents_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # Multi-agent: supervisor -> collaborator delegation (DEFERRED — see docstring)
 # --------------------------------------------------------------------------
-def generate_bedrock_agents_multi(client: Stratix) -> dict:
+def generate_bedrock_agents_multi(client: LayerLens) -> dict:
     """Record a genuine multi-agent supervisor->collaborator delegation run.
 
     DEFERRED unless a provisioned supervisor agent is supplied via
@@ -242,7 +242,7 @@ def generate_bedrock_agents_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_bedrock_agents_single(_client)
     try:
         generate_bedrock_agents_multi(_client)

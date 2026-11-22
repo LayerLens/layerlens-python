@@ -1,34 +1,49 @@
 # Instrumentation
 
-The `layerlens.instrument` module provides automatic tracing for LLM applications. It captures execution spans — function calls, LLM requests, tool invocations — as a tree structure and uploads them as traces to LayerLens for evaluation.
+The `layerlens.instrument` module records what an LLM application does as traces and uploads them
+to LayerLens for evaluation. A trace is a list of events (the agent's input and output, each model
+call, each tool call, any error), each in a span, sealed with a hash chain.
 
 ## How It Works
 
-1. **`@trace(client)`** wraps a function as the root of a trace. When the function completes, the span tree is serialized to JSON and uploaded via `client.traces.upload()`.
-2. **`span()`** creates child spans inside a traced function. Spans nest automatically using Python's `contextvars`.
-3. **Provider adapters** (OpenAI, Anthropic, LiteLLM) monkey-patch SDK methods to create LLM spans automatically — no code changes needed inside your functions.
-4. **Framework adapters** (LangChain, LangGraph) plug in as callback handlers to capture chain/tool/retriever spans from agent frameworks.
+1. **`@trace(client)`** records one trace per call of a function: its input, its output or its
+   error, and every event emitted while it runs. When the call ends, the trace is sealed and uploaded
+   in the background.
+2. **`span()`** groups the events emitted inside it under a child span. Spans nest through Python's
+   `contextvars`, so they follow threads and `asyncio` tasks.
+3. **`emit()`** records an event of your own, such as a retrieval or a tool call.
+4. **Provider adapters** (OpenAI, Anthropic, LiteLLM, and others) wrap SDK methods, so every model
+   call made in a trace records `model.invoke`, `cost.record` when the response reports token usage,
+   and `agent.error` when it fails. A call made with `stream=True` records them once its stream has
+   been read to the end, in the trace the call was made in. A `@trace` function (or `trace_context`
+   block) that returns its stream keeps its trace open until the caller has read the stream, and
+   uploads it then. A stream closed early, dropped unread or still open at exit lets the trace
+   upload without that call.
+   An OpenAI Chat Completions stream reports token usage only with
+   `stream_options={"include_usage": True}`; an OpenAI Responses API stream reports it in its
+   last event, so one cut short before that event records its reply but no token counts or cost.
+5. **Framework adapters** (LangChain, LangGraph, and others) plug into a framework's callbacks or
+   hooks and record its runs as traces of their own.
 
 ## Quick Example
 
 ```python
-from layerlens import Stratix
-from layerlens.instrument import trace, span
+from layerlens import LayerLens
+from layerlens.instrument import emit, span, trace
 from layerlens.instrument.adapters.providers.openai import instrument_openai
 
-client = Stratix()
+client = LayerLens()
 
-# Auto-instrument OpenAI — all chat.completions.create calls
-# inside a @trace will generate LLM spans automatically
+# Instrument OpenAI: every chat.completions.create call made in a trace is recorded
 import openai
 openai_client = openai.OpenAI()
 instrument_openai(openai_client)
 
 @trace(client)
 def my_agent(question: str):
-    with span("retrieve", kind="retriever") as s:
+    with span("retrieve"):
         docs = search(question)
-        s.output = docs
+        emit("retrieval.query", {"query": question, "result_count": len(docs)})
 
     response = openai_client.chat.completions.create(
         model="gpt-4o",
@@ -42,34 +57,53 @@ def my_agent(question: str):
 my_agent("What is retrieval-augmented generation?")
 ```
 
-This produces a trace with three spans:
+This records one trace:
 
 ```
-my_agent (root, kind=internal)
-├── retrieve (kind=retriever)
-└── openai.chat.completions.create (kind=llm, auto-captured)
+my_agent (root span)
+├── agent.input          the question
+├── retrieve (span)
+│   └── retrieval.query  the query and how many documents came back
+├── model.invoke         gpt-4o: parameters, token usage, latency (recorded by the adapter)
+├── cost.record          the call's cost in USD (when the response reports token usage)
+└── agent.output         the answer
 ```
 
 ## Guides
 
-- [Quick Start](quickstart.md) — `@trace`, `span()`, and manual instrumentation
+- [Quick Start](quickstart.md) — `@trace`, `span()`, `emit()` and errors
 - [LLM Providers](providers.md) — Auto-instrument OpenAI, Anthropic, and LiteLLM
 - [Agent Frameworks](frameworks.md) — LangChain and LangGraph callback handlers
+- [API Reference](../api-reference/instrumentation.md) — every function, its parameters, and uploading
+- [Trace tags](tags.md) — Label traces with `tags=` or `LAYERLENS_TRACE_TAGS`, to find, grade and filter them
 
 ## Key Concepts
 
 | Concept | Description |
 | ------- | ----------- |
-| **Trace** | A complete execution tree, rooted at a `@trace`-decorated function |
-| **Span** | A single unit of work within a trace (function call, LLM request, tool use) |
-| **Kind** | Span type: `internal`, `llm`, `retriever`, `tool`, `chain` |
-| **Provider adapter** | Monkey-patches an LLM SDK to emit `llm` spans automatically |
-| **Framework adapter** | Callback handler that captures spans from agent frameworks |
+| **Trace** | Everything one run of your agent did, rooted at a `@trace` call, a `trace_context` block, or a framework adapter's run |
+| **Event** | One thing that happened, with a type (`agent.input`, `model.invoke`, `tool.call`, `agent.error`, ...) and a payload |
+| **Span** | A group of events within a trace; spans nest, and each event carries its span's id and its parent's |
+| **Capture config** | What a trace records. `CaptureConfig.standard()`, the default, records no content (prompts, outputs, error text) |
+| **Provider adapter** | Wraps an LLM SDK so each call records `model.invoke` and `cost.record` |
+| **Framework adapter** | Turns a framework's callbacks or hooks into a trace's events |
+
+## Sending OpenTelemetry Spans
+
+An application already instrumented with OpenTelemetry can export its spans to LayerLens's OTLP
+endpoint instead of using `layerlens.instrument`. LayerLens stores them only for a registered
+OpenTelemetry integration: in the LayerLens app, under the organization's **Integrations**,
+register a source of type **OTel Endpoint**. Its **Application name** must match the spans'
+`service.name`, its **Environment** their `deployment.environment.name` (or
+`deployment.environment`), and its **API key** the key the exporter sends in the `X-API-Key`
+header. Spans that match no integration are dropped, although the endpoint answers 200 and the
+exporter reports success, so register the integration before you point an exporter at
+LayerLens.
 
 ## No-Op Safety
 
 All instrumentation is no-op safe:
 
-- Provider adapters pass through to the original SDK method when called outside a `@trace` context
-- `span()` returns a dummy context manager when called outside a `@trace` context
-- No performance overhead when instrumentation is not active
+- Provider adapters pass through to the original SDK method when called outside a trace
+- `emit()` records nothing outside a trace, and `span()` still runs its block
+- Uploading happens on a background thread and never raises into your code

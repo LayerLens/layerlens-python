@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import sys
+import json
 import types
+import asyncio
+import logging
 from types import SimpleNamespace
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Iterator, Optional
 from unittest.mock import Mock
 
+import httpx
+import pytest
+
+import openai
 from layerlens.instrument import trace
 from layerlens.instrument._capture_config import CaptureConfig
 from layerlens.instrument.adapters.providers.litellm import (
@@ -23,6 +30,8 @@ from .conftest import (
     make_openai_response_empty_choices,
 )
 from ...conftest import find_event, find_events
+from ..._recorded import load_recorded
+from .test_openai_tool_arguments import _chat_stream_body
 
 
 def _expected_cost(model: str, usage: dict) -> float:
@@ -550,3 +559,159 @@ class TestRoutingEndToEnd:
         my_agent()
         cost = find_event(capture_trace["events"], "cost.record")
         assert cost["payload"]["provider"] == "anthropic"
+
+
+# ---------------------------------------------------------------------------
+# Tool calls the model requested, through the REAL litellm package. litellm
+# returns OpenAI's response shape for every provider it routes to, so the OpenAI
+# tool-call hook applies; the adapter inherited the base hook, which returns no
+# tool calls, so a litellm call never produced a tool.call.
+# ---------------------------------------------------------------------------
+
+_TOOL_CALL_ID = "call_N0cYZsPSiRm7o3khCvuy6J3M"
+_SENTINEL = "LL-SENTINEL-4267"
+
+
+def _tool_call_body(arguments: Optional[str] = None) -> Dict[str, Any]:
+    """The recorded OpenAI tool-call response body, as litellm returns it for a
+    routed call; *arguments* replaces the model's arguments (in memory only)."""
+    body: Dict[str, Any] = load_recorded("openai", "tool_call")["interactions"][0]["response"]["json"]
+    if arguments is not None:
+        body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = arguments
+    return body
+
+
+def _malformed_arguments_warnings(caplog: Any) -> List[str]:
+    return [r.getMessage() for r in caplog.records if "malformed tool_call JSON arguments" in r.getMessage()]
+
+
+@pytest.fixture
+def real_litellm() -> Iterator[Any]:
+    """The real litellm module, instrumented for the test and restored after it.
+
+    Imported here rather than at module level: the other tests in this module put a
+    fake ``litellm`` in ``sys.modules`` and evict every ``litellm*`` module when they
+    finish, so a module-level reference could be a module the adapter never patched.
+    """
+    import litellm
+
+    instrument_litellm()
+    try:
+        yield litellm
+    finally:
+        uninstrument_litellm()
+
+
+class TestToolCalls:
+    def test_tool_call_emitted(self, mock_client, capture_trace, real_litellm):
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            response = real_litellm.completion(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                mock_response=_tool_call_body(),
+            )
+            return type(response).__name__
+
+        # The real litellm class, not a stand-in.
+        assert my_agent() == "ModelResponse"
+        events = capture_trace["events"]
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_weather"
+        assert tool_call["id"] == _TOOL_CALL_ID
+        # '{"city":"Paris"}' on the wire, an object in the trace, as for OpenAI.
+        assert tool_call["arguments"] == {"city": "Paris"}
+        assert tool_call["model"] == "gpt-4o-mini-2024-07-18"
+        assert tool_call["provider"] == "openai"
+        assert tool_call["framework"] == "litellm"
+        output = find_event(events, "model.invoke")["payload"]["output_message"]
+        assert output["tool_calls"][0]["arguments"] == {"city": "Paris"}
+
+    def test_async_tool_call_emitted(self, mock_client, capture_trace, real_litellm):
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        async def my_agent():
+            response = await real_litellm.acompletion(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                mock_response=_tool_call_body(),
+            )
+            return type(response).__name__
+
+        assert asyncio.run(my_agent()) == "ModelResponse"
+        events = capture_trace["events"]
+        assert find_event(events, "model.invoke")["payload"]["name"] == "litellm.acompletion"
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_weather"
+        assert tool_call["id"] == _TOOL_CALL_ID
+        assert tool_call["arguments"] == {"city": "Paris"}
+
+    def test_streamed_tool_call_emitted(self, mock_client, capture_trace, real_litellm):
+        # litellm streams an OpenAI model through the openai client it is handed, so the
+        # recorded tool call is served as OpenAI's SSE chunks and litellm turns them into
+        # its own stream. (Its ``mock_response`` cannot stream a tool call on every
+        # litellm the lock resolves: 1.74 only streams a string.)
+        recorded = _tool_call_body()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+        requests: List[httpx.Request] = []
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            body = _chat_stream_body(recorded)
+            return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+        client = openai.OpenAI(api_key="test-key", http_client=httpx.Client(transport=httpx.MockTransport(serve)))
+
+        @trace(mock_client, capture_config=CaptureConfig.full())
+        def my_agent():
+            stream = real_litellm.completion(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                stream=True,
+                client=client,
+            )
+            return [type(chunk).__name__ for chunk in stream]
+
+        # litellm's own stream: ModelResponseStream chunks carrying the tool-call deltas,
+        # fetched through the given client.
+        assert set(my_agent()) == {"ModelResponseStream"}
+        assert [(r.method, r.url.path) for r in requests] == [("POST", "/v1/chat/completions")]
+        tool_call = find_event(capture_trace["events"], "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_weather"
+        assert tool_call["id"] == _TOOL_CALL_ID
+        assert tool_call["arguments"] == {"city": "Paris"}
+
+    @pytest.mark.parametrize("capture_content", [False, True])
+    def test_malformed_arguments_are_parsed_and_logged_only_with_capture_content(
+        self, mock_client, capture_trace, caplog, real_litellm, capture_content
+    ):
+        malformed = '{"city": "' + _SENTINEL
+
+        @trace(mock_client, capture_config=CaptureConfig(capture_content=capture_content))
+        def my_agent():
+            real_litellm.completion(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                mock_response=_tool_call_body(malformed),
+            )
+            return "done"
+
+        with caplog.at_level(logging.WARNING):
+            my_agent()
+
+        events = capture_trace["events"]
+        tool_call = find_event(events, "tool.call")["payload"]
+        assert tool_call["tool_name"] == "get_weather"
+        invoke = find_event(events, "model.invoke")["payload"]
+        warnings = _malformed_arguments_warnings(caplog)
+        if capture_content:
+            # Parsed once for the two places it appears: one WARNING, and the string
+            # the model sent in both.
+            assert len(warnings) == 1, warnings
+            assert tool_call["arguments"] == malformed
+            assert invoke["output_message"]["tool_calls"][0]["arguments"] == malformed
+        else:
+            # Not parsed at all: no WARNING (it would carry a snippet of the arguments),
+            # and nothing of them in the trace.
+            assert warnings == []
+            assert "arguments" not in tool_call
+            assert "output_message" not in invoke
+            assert _SENTINEL not in json.dumps(events)

@@ -1,0 +1,35 @@
+{
+  "_recorded": {
+    "method": "POST",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/external-runs",
+    "status": 201
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "run_id": "6af31090280c73a1bc845644",
+      "attempts": [
+        {
+          "attempt_id": "6af31090280c73a1bc845642",
+          "task_id": "6af30e45b124e9198e97638f",
+          "task_name": "ticket-count",
+          "prompt": "How many tickets does the desk hold?",
+          "base_url": "https://api.layerlens.ai/api/v1/attempts/6af31090280c73a1bc845642",
+          "token": "llat_v1_6af31090280c73a1bc845644_6af31090280c73a1bc845642_mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+          "call_url": "https://api.layerlens.ai/api/v1/env/organizations/691254ecd44a29f6926881a2/projects/691254eed44a29f6926881a3/environments/6af30e45280c73a1bc8455ab/call?run_id=6af31090280c73a1bc845644&task_id=6af30e45b124e9198e97638f",
+          "expires_at": "2026-11-11T12:39:44.259Z"
+        },
+        {
+          "attempt_id": "6af31090280c73a1bc845643",
+          "task_id": "6af30e45e160c1494e765b0c",
+          "task_name": "wrong-answer",
+          "prompt": "Reply with the word PONG.",
+          "base_url": "https://api.layerlens.ai/api/v1/attempts/6af31090280c73a1bc845643",
+          "token": "llat_v1_6af31090280c73a1bc845644_6af31090280c73a1bc845643_mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+          "call_url": "https://api.layerlens.ai/api/v1/env/organizations/691254ecd44a29f6926881a2/projects/691254eed44a29f6926881a3/environments/6af30e45280c73a1bc8455ab/call?run_id=6af31090280c73a1bc845644&task_id=6af30e45e160c1494e765b0c",
+          "expires_at": "2026-11-11T12:39:44.259Z"
+        }
+      ]
+    }
+  }
+}

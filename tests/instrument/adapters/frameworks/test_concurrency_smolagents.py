@@ -28,9 +28,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 from .conftest import record_for_schema_lock
 
-smolagents = pytest.importorskip("smolagents")
+smolagents = importorskip("smolagents")
 from smolagents import ToolCall, ActionStep  # noqa: E402
 from smolagents.memory import Timing  # noqa: E402
 from smolagents.monitoring import TokenUsage  # noqa: E402

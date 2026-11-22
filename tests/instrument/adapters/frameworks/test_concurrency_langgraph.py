@@ -28,12 +28,12 @@ from uuid import uuid4
 from typing import Any, Dict, List
 from collections import Counter
 
-import pytest
+from tests._optional_deps import importorskip
 
 from .conftest import record_for_schema_lock
 
-pytest.importorskip("langgraph.graph")
-pytest.importorskip("langchain_core")
+importorskip("langgraph.graph")
+importorskip("langchain_core")
 
 from langchain_core.outputs import LLMResult, Generation  # noqa: E402
 

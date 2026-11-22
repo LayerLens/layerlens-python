@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[providers-ollama]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-ollama]"
     # In another shell: ollama serve   (or use OLLAMA_HOST=...)
     python samples/instrument/ollama/example.py
 
@@ -23,7 +23,7 @@ def main() -> int:
         from layerlens.instrument.adapters.providers import OllamaProvider
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install Ollama deps with: pip install layerlens[providers-ollama]")
+        print('Install Ollama deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-ollama]"')
         return 0
 
     print("OllamaProvider available.")
@@ -31,7 +31,7 @@ def main() -> int:
         import ollama  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install the Ollama Python SDK: pip install layerlens[providers-ollama]")
+        print('Install the Ollama Python SDK: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[providers-ollama]"')
         return 0
 
     endpoint = os.environ.get("OLLAMA_HOST", "http://localhost:11434")

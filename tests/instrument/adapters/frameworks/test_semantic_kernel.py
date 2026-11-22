@@ -12,13 +12,15 @@ from typing import Any, Optional
 
 import pytest
 
-sk = pytest.importorskip("semantic_kernel")
+from tests._optional_deps import importorskip
+
+sk = importorskip("semantic_kernel")
 
 from semantic_kernel import Kernel  # noqa: E402
 from semantic_kernel.functions import kernel_function  # noqa: E402
 
 # The multi-agent (AgentGroupChat) honest-graph path needs the SK agents module.
-_sk_agents = pytest.importorskip("semantic_kernel.agents")
+_sk_agents = importorskip("semantic_kernel.agents")
 ChatCompletionAgent = _sk_agents.ChatCompletionAgent
 AgentGroupChat = _sk_agents.AgentGroupChat
 from semantic_kernel.contents.utils.author_role import AuthorRole  # noqa: E402

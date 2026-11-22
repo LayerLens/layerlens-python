@@ -5,16 +5,16 @@ This guide walks you through the most common SDK workflows.
 ## Setup
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY="your-api-key"
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+export LAYERLENS_API_KEY="your-api-key"
 ```
 
 ## Run a Benchmark Evaluation
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Get a model and benchmark by key
 model = client.models.get_by_key("openai/gpt-4o")
@@ -34,9 +34,9 @@ print(f"Accuracy: {result.accuracy}")
 ## Create a Judge and Evaluate Traces
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # Create a judge
 judge = client.judges.create(
@@ -63,14 +63,14 @@ if result:
 
 ## Async Usage
 
-Every method is available in async form via `AsyncStratix`:
+Every method is available in async form via `AsyncLayerLens`:
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 
 async def main():
-    client = AsyncStratix()
+    client = AsyncLayerLens()
 
     model = await client.models.get_by_key("openai/gpt-4o")
     benchmark = await client.benchmarks.get_by_key("arc-agi-2")
@@ -89,9 +89,9 @@ asyncio.run(main())
 ## Browse Public Data
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 # List public models
 models = client.public.models.get()
@@ -100,16 +100,16 @@ for model in models.models:
 
 # List public benchmarks
 benchmarks = client.public.benchmarks.get()
-for bm in benchmarks.benchmarks:
+for bm in benchmarks.datasets:
     print(f"{bm.key}: {bm.name}")
 ```
 
 ## Error Handling
 
 ```python
-from layerlens import Stratix, NotFoundError, AuthenticationError, APIError
+from layerlens import LayerLens, NotFoundError, AuthenticationError, APIError
 
-client = Stratix()
+client = LayerLens()
 
 try:
     model = client.models.get_by_id("nonexistent-id")

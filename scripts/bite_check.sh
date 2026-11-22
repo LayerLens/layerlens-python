@@ -60,7 +60,7 @@ for entry in "${MODULES[@]}"; do
     echo "::error title=bite-check $file::scoped tests are not green — fix before merging"; fail=1; echo "::endgroup::"; continue
   fi
   $MUT run --paths-to-mutate "$file" --runner "$PT $tests" --use-coverage --simple-output --no-progress --CI </dev/null > "/tmp/bite_$(basename "$file").mut.log" 2>&1 || true
-  read -r k s < <(sqlite3 .mutmut-cache "SELECT \
+  IFS='|' read -r k s < <(sqlite3 .mutmut-cache "SELECT \
     sum(case when status='ok_killed' then cnt else 0 end), \
     sum(case when status='bad_survived' then cnt else 0 end) \
     FROM (SELECT m.status status, count(*) cnt FROM Mutant m JOIN Line l ON m.line=l.id JOIN SourceFile sf ON l.sourcefile=sf.id WHERE sf.filename='$file' GROUP BY m.status);" 2>/dev/null)

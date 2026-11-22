@@ -26,6 +26,7 @@ import logging
 from typing import Any, Dict, Tuple, Optional
 
 from ..._context import _current_collector
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 
 log = logging.getLogger(__name__)
@@ -245,7 +246,7 @@ class EmbeddingAdapter(FrameworkAdapter):
         payload = self._payload(
             provider=provider,
             error=str(error),
-            error_type=type(error).__name__,
+            **error_category(error),
             status="error",
             latency_ms=round(latency_ms, 2),
         )

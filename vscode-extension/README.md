@@ -19,9 +19,12 @@ Trace viewer, debugger, and SDK integration for [LayerLens](https://layerlens.ai
 ```bash
 cd vscode-extension
 npm install
-npm run compile
+npx @vscode/vsce package   # compiles, then writes layerlens-vscode-0.1.0.vsix
 code --install-extension ./layerlens-vscode-0.1.0.vsix
 ```
+
+`npm run compile` alone only builds `out/`; it doesn't produce the `.vsix` that
+`code --install-extension` needs.
 
 ## Configuration
 

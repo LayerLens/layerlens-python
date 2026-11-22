@@ -25,7 +25,9 @@ from typing import Any, Dict, List
 import anyio
 import pytest
 
-pytest.importorskip("mcp")
+from tests._optional_deps import importorskip
+
+importorskip("mcp")
 
 from mcp import types  # noqa: E402
 from mcp.client.session import ClientSession  # noqa: E402
@@ -34,6 +36,8 @@ from layerlens.instrument._context import _current_collector  # noqa: E402
 from layerlens.instrument._collector import TraceCollector  # noqa: E402
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 from layerlens.instrument.adapters.protocols.mcp.adapter import MCPProtocolAdapter  # noqa: E402
+
+from ._mcp_support import output_schema  # noqa: E402
 
 # Consent/cost controls belong in the fast Invariant Gates job (shift-left).
 pytestmark = pytest.mark.invariant
@@ -387,7 +391,7 @@ class TestStructuredOutputFailClosed:
         session = _client_session()
         session.call_tool = call_tool  # type: ignore[method-assign]
         # seed the real cache exactly as ClientSession.list_tools does (session.py:537)
-        session._tool_output_schemas["weather"] = weather_tool().outputSchema
+        session._tool_output_schemas["weather"] = output_schema(weather_tool())
         adapter.connect(target=session)
 
         async def go() -> None:
@@ -406,7 +410,7 @@ class TestStructuredOutputFailClosed:
 
         session = _client_session()
         session.call_tool = call_tool  # type: ignore[method-assign]
-        session._tool_output_schemas["weather"] = weather_tool().outputSchema
+        session._tool_output_schemas["weather"] = output_schema(weather_tool())
         adapter.connect(target=session)
 
         async def go() -> None:

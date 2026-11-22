@@ -65,7 +65,7 @@ for _p in (os.path.join(_REPO, "src"), _DATA, _SAMPLES):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402  (re-exported for the seam signature)
+from layerlens import LayerLens  # noqa: E402  (re-exported for the seam signature)
 from layerlens.instrument._capture_config import CaptureConfig  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
@@ -148,7 +148,7 @@ _GRID_SNAPSHOT = (
 )
 
 
-def generate_ms_agent_framework_single(client: Stratix) -> None:
+def generate_ms_agent_framework_single(client: LayerLens) -> None:
     """MS Agent Framework SINGLE (one named ChatCompletionAgent).
 
     A single ``ChatCompletionAgent`` named ``grid-load-forecaster`` assesses an
@@ -220,7 +220,7 @@ _CONTINGENCY = (
 )
 
 
-def generate_ms_agent_framework_multi(client: Stratix) -> None:
+def generate_ms_agent_framework_multi(client: LayerLens) -> None:
     """MS Agent Framework MULTI (genuine multi-agent ``AgentGroupChat``).
 
     Three named ``ChatCompletionAgent``s — ``grid-load-forecaster`` ->
@@ -295,6 +295,6 @@ def generate_ms_agent_framework_multi(client: Stratix) -> None:
 
 
 if __name__ == "__main__":
-    _client = Stratix()
+    _client = LayerLens()
     generate_ms_agent_framework_single(_client)
     generate_ms_agent_framework_multi(_client)

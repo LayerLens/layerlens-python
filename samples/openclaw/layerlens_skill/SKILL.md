@@ -29,13 +29,13 @@ quality judges, run evaluations, and retrieve scored results.
 Install the LayerLens Python SDK:
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 Set your API key:
 
 ```bash
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+export LAYERLENS_API_KEY=your-api-key
 ```
 
 ## What This Skill Does

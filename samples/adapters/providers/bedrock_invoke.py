@@ -29,7 +29,7 @@ def main() -> None:
     try:
         import boto3  # type: ignore[import-not-found]
     except ImportError:
-        print("Install the Bedrock extra: pip install 'layerlens[bedrock]'")
+        print('Install the Bedrock extra: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[bedrock]"')
         return
 
     if not any(os.environ.get(k) for k in ("AWS_ACCESS_KEY_ID", "AWS_PROFILE")):

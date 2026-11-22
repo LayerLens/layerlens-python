@@ -23,10 +23,12 @@ import asyncio
 
 import pytest
 
+from tests._optional_deps import importorskip
+
 if sys.version_info < (3, 11):  # browser-use requires >= 3.11 (dist metadata)
     pytest.skip("browser-use requires Python >= 3.11", allow_module_level=True)
 
-pytest.importorskip("browser_use")
+importorskip("browser_use")
 
 # The real Agent/ChatOpenAI construct offline but ChatOpenAI wants a key present.
 os.environ.setdefault("OPENAI_API_KEY", "sk-browser-use-unit-test-not-real")

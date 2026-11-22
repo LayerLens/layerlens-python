@@ -68,6 +68,9 @@ class LiteLLMProvider(MonkeyPatchProvider):
     name = "litellm"
     capture_params = _CAPTURE_PARAMS
 
+    #: The OpenAI hooks below return tool-call arguments as the JSON string sent.
+    tool_arguments_json = True
+
     @staticmethod
     def extract_output(response: Any) -> Any:
         return OpenAIProvider.extract_output(response)
@@ -75,6 +78,15 @@ class LiteLLMProvider(MonkeyPatchProvider):
     @staticmethod
     def extract_meta(response: Any) -> Dict[str, Any]:
         return OpenAIProvider.extract_meta(response)
+
+    @staticmethod
+    def extract_tool_calls(response: Any) -> list[dict[str, Any]]:
+        # litellm returns OpenAI's shape for every provider it routes to
+        # (choices[0].message.tool_calls[].function.{name, arguments}), and the
+        # stream aggregate below rebuilds the same shape. Without this override the
+        # base hook applied, which returns no tool calls, so no litellm call ever
+        # produced a tool.call.
+        return OpenAIProvider.extract_tool_calls(response)
 
     @staticmethod
     def aggregate_stream(chunks: list[Any]) -> Any:
@@ -120,6 +132,11 @@ class LiteLLMProvider(MonkeyPatchProvider):
 
 
 def instrument_litellm() -> LiteLLMProvider:
+    """Trace every ``litellm.completion`` / ``acompletion`` call in the process; returns the adapter.
+
+    LiteLLM is patched at module level, so one adapter covers every call. Calling it again
+    replaces the adapter; :func:`uninstrument_litellm` restores LiteLLM.
+    """
     from .._registry import get, register
 
     existing = get("litellm")

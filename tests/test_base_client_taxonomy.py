@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from layerlens._exceptions import (
-    StratixError,
+    LayerLensError,
     APITimeoutError,
     APIConnectionError,
     APIResponseValidationError,
@@ -66,18 +66,18 @@ class TestStrictReads:
     # A real 404 already raises NotFoundError (mapped in _base_client). strict
     # surfaces CONTRACT DRIFT — a 200 whose body is empty or unparseable — which
     # the default swallows to None. The resource has no httpx.Response at this
-    # layer (cast_to=dict), so drift surfaces as the SDK-base StratixError.
+    # layer (cast_to=dict), so drift surfaces as the SDK-base LayerLensError.
     def test_get_strict_raises_on_empty_response(self):
         r = _traces_resource()
         r._get.return_value = None
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             r.get("t1", strict=True)
 
     def test_get_strict_raises_on_unparseable_shape(self):
         r = _traces_resource()
         r._get.return_value = {"unexpected": object()}  # Trace(**data) fails to construct
         assert r.get("t1") is None  # default swallows
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             r.get("t1", strict=True)
 
     def test_get_default_is_non_strict_returns_none(self):
@@ -88,7 +88,7 @@ class TestStrictReads:
     def test_get_many_strict_raises_on_empty_response(self):
         r = _traces_resource()
         r._get.return_value = None
-        with pytest.raises(StratixError):
+        with pytest.raises(LayerLensError):
             r.get_many(strict=True)
 
     def test_get_many_default_returns_none(self):

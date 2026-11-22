@@ -59,6 +59,7 @@ from dataclasses import field, dataclass
 from ._utils import truncate, safe_serialize
 from ..._context import _current_collector
 from ..._identity import _API_METHOD_RE, _s, _is_generic
+from ..._error_code import error_category
 from ._base_framework import FrameworkAdapter
 from ..._capture_config import CaptureConfig
 
@@ -757,7 +758,7 @@ class MarvinAdapter(FrameworkAdapter):
         """
         if error is None:
             return
-        payload["error_type"] = type(error).__name__
+        payload.update(error_category(error))
         error_text = str(error)
         if error_text:
             self._set_if_capturing(payload, "error", truncate(error_text, _ARG_LIMIT))

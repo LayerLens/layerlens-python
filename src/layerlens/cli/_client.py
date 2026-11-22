@@ -4,50 +4,149 @@ import re
 import sys
 import functools
 import traceback as tb
-from typing import Any, Callable
+from typing import Any, Tuple, Callable
 
 import click
 
-from .._client import Stratix
-from .._exceptions import StratixError, NotFoundError, AuthenticationError
+from .._env import (
+    API_KEY_ENV,
+    BASE_URL_ENV,
+    LEGACY_API_KEY_ENVS,
+    LEGACY_BASE_URL_ENVS,
+    EnvValue,
+    find_api_key,
+    find_base_url,
+    ignored_legacy,
+    ignored_message,
+)
+from ._notice import notice
+from .._client import LayerLens
+from .._exceptions import NotFoundError, APIStatusError, LayerLensError, AuthenticationError
 
 
-def get_client(ctx: click.Context) -> Stratix:
-    """Create a Stratix client from CLI context options.
+def _env_notice(found: EnvValue, canonical: str, legacy: Tuple[str, ...]) -> None:
+    """Tell the user to rename a legacy variable (LAY-4220), or that the canonical one overrides
+    a legacy one set to another value (R1 F2); on a terminal only (see ``_notice``)."""
+    if found.source != canonical:
+        notice(f"{found.source} is deprecated and will be removed in a future major release; rename it to {canonical}")
+        return
+    for name in ignored_legacy(canonical, legacy):
+        notice(ignored_message(name, canonical))
 
-    Resolution order for the API key:
-    1. ``--api-key`` CLI option
-    2. ``LAYERLENS_STRATIX_API_KEY`` / ``LAYERLENS_ATLAS_API_KEY`` env vars (handled by Stratix)
-    3. ``LAYERLENS_API_KEY`` env var
-    4. Stored OAuth token from ``layerlens login``
+
+def resolve_api_key(ctx: click.Context) -> EnvValue | None:
+    """The API key to use and where it came from, or ``None``.
+
+    ``--api-key-file`` comes first, then ``--api-key`` and ``LAYERLENS_API_KEY``
+    (through click); the legacy ``LAYERLENS_STRATIX_API_KEY`` /
+    ``LAYERLENS_ATLAS_API_KEY`` still work, with a notice. An API key is always
+    sent as ``x-api-key``, never as a Bearer token: the login (``/dgklmnr``)
+    router only accepts Cognito tokens.
     """
-    import os
-
     api_key = ctx.obj.get("api_key")
-    use_bearer_auth = False
+    key_file = ctx.obj.get("api_key_file")
+    if key_file is not None:
+        if api_key and ctx.obj.get("api_key_source") == "--api-key":
+            raise click.UsageError("pass --api-key or --api-key-file, not both")
+        return EnvValue(_read_key_file(key_file), "--api-key-file")
+    if api_key:
+        given = EnvValue(api_key, ctx.obj.get("api_key_source", "--api-key"))
+        if given.source == API_KEY_ENV:
+            _env_notice(given, API_KEY_ENV, LEGACY_API_KEY_ENVS)
+        return given
+    found = find_api_key()
+    if found is not None:
+        _env_notice(found, API_KEY_ENV, LEGACY_API_KEY_ENVS)
+    return found
 
-    # Fall back to LAYERLENS_API_KEY env var, then stored credentials
-    if (
-        not api_key
-        and not os.environ.get("LAYERLENS_STRATIX_API_KEY")
-        and not os.environ.get("LAYERLENS_ATLAS_API_KEY")
-    ):
-        from ._auth import get_valid_token
 
-        token = get_valid_token()
-        if token:
-            api_key = token
-            use_bearer_auth = True
-
+def _read_key_file(path: str) -> str:
+    if not path:
+        raise click.UsageError("--api-key-file needs a path, or - to read the key from standard input")
     try:
-        return Stratix(
-            api_key=api_key,
-            base_url=ctx.obj.get("base_url"),
-            use_bearer_auth=use_bearer_auth,
-        )
-    except StratixError as e:
+        if path == "-":
+            text = sys.stdin.read()
+        else:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+    except (OSError, UnicodeDecodeError) as err:
+        raise click.UsageError(f"--api-key-file {path}: the key could not be read: {err}") from None
+    key = text.strip()
+    if not key:
+        raise click.UsageError(f"--api-key-file {path} holds no key")
+    return key
+
+
+def resolve_base_url(ctx: click.Context) -> str | None:
+    """``--host``/``--port`` first, then ``LAYERLENS_BASE_URL`` (or a legacy name)."""
+    base_url: str | None = ctx.obj.get("base_url")
+    if base_url:
+        return base_url
+    found = find_base_url()
+    if found is None:
+        return None
+    _env_notice(found, BASE_URL_ENV, LEGACY_BASE_URL_ENVS)
+    return found.value
+
+
+def api_error_text(err: APIStatusError) -> str:
+    """The API's own sentence: the envelope's ``error``, or API Gateway's ``message``."""
+    body = err.body
+    if isinstance(body, str) and body:
+        text = body
+    elif isinstance(body, dict) and isinstance(body.get("message"), str):
+        text = body["message"]
+    else:
+        text = err.message
+    return f"{text} (HTTP {err.status_code})"
+
+
+def build_client(ctx: click.Context, api_key: str, *, use_bearer_auth: bool) -> LayerLens:
+    """Construct the client and verify the credential, or exit with the error.
+
+    The library reads the organization on first use, so an instrumented program starts while
+    LayerLens is down (BUG-03); a CLI command reads it here, so a bad key or an unreachable
+    API fails at once in the API's own words.
+    """
+    try:
+        client = LayerLens(api_key=api_key, base_url=resolve_base_url(ctx), use_bearer_auth=use_bearer_auth)
+        client.organization_id  # noqa: B018 - reads the organization, verifying the credential
+        return client
+    except APIStatusError as e:
+        click.echo(f"Error: {api_error_text(e)}", err=True)
+        sys.exit(1)
+    except LayerLensError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+def get_client(ctx: click.Context) -> LayerLens:
+    """Create a LayerLens client from CLI context options.
+
+    Credential order:
+    1. ``--api-key`` / ``LAYERLENS_API_KEY``, sent as ``x-api-key``
+    2. ``LAYERLENS_STRATIX_API_KEY`` / ``LAYERLENS_ATLAS_API_KEY`` (deprecated), sent as ``x-api-key``
+    3. The stored token from ``layerlens login``, sent as a Bearer token
+    """
+    resolved = resolve_api_key(ctx)
+    if resolved is not None:
+        return build_client(ctx, resolved.value, use_bearer_auth=False)
+
+    from ._auth import SessionError, get_valid_token
+
+    try:
+        token = get_valid_token()
+    except SessionError as err:
+        click.echo(f"Error: {err}", err=True)
+        sys.exit(1)
+    if token:
+        return build_client(ctx, token, use_bearer_auth=True)
+
+    click.echo(
+        "Error: no credentials found. Pass --api-key, set LAYERLENS_API_KEY, or run `layerlens login`.",
+        err=True,
+    )
+    sys.exit(1)
 
 
 def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -61,13 +160,16 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
         except AuthenticationError:
             click.echo("Error: Invalid or missing API key.", err=True)
             sys.exit(1)
-        except NotFoundError as e:
-            click.echo(f"Error: Resource not found. {e}", err=True)
+        except APIStatusError as e:
+            # The API's own sentence, as the env commands print it, not the exception's repr:
+            # a 404 too, which printed the raw envelope after "Resource not found." (R4 F8).
+            click.echo(f"Error: {api_error_text(e)}", err=True)
             sys.exit(1)
-        except StratixError as e:
+        except LayerLensError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-        except click.exceptions.Exit:
+        except (click.exceptions.Exit, click.ClickException, click.Abort):
+            # A usage error raised by the command is click's to report, with its exit code.
             raise
         except Exception as e:
             if ctx.obj.get("verbose"):
@@ -79,17 +181,35 @@ def handle_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
 
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+# LayerLens ids are MongoDB ObjectIds: 24 hex digits.
+_OBJECT_ID_RE = re.compile(r"^[0-9a-f]{24}$", re.IGNORECASE)
 
 
 def _is_uuid(value: str) -> bool:
     return bool(_UUID_RE.match(value))
 
 
-def resolve_model(client: Stratix, identifier: str) -> Any:
-    """Resolve a model by ID, key, or name."""
-    # Try by ID first if it looks like a UUID
-    if _is_uuid(identifier):
-        model = client.models.get_by_id(identifier)
+def _looks_like_an_id(value: str) -> bool:
+    return bool(_OBJECT_ID_RE.match(value)) or _is_uuid(value)
+
+
+def _by_id(lookup: Any, identifier: str) -> Any:
+    """``lookup(identifier)``, or None when nothing has that id: a key or a name may still match."""
+    try:
+        return lookup(identifier)
+    except NotFoundError:
+        return None
+
+
+def resolve_model(client: LayerLens, identifier: str) -> Any:
+    """Resolve a model by ID, key, or name.
+
+    A value shaped like an id (24 hex digits, as LayerLens ids are, or a UUID) is looked up as an
+    id first, in the whole catalog; when nothing has that id, it is tried as a key, then a name.
+    Keys and names are looked up among the project's models.
+    """
+    if _looks_like_an_id(identifier):
+        model = _by_id(client.models.get_by_id, identifier)
         if model:
             return model
 
@@ -106,11 +226,10 @@ def resolve_model(client: Stratix, identifier: str) -> Any:
     return None
 
 
-def resolve_benchmark(client: Stratix, identifier: str) -> Any:
-    """Resolve a benchmark by ID, key, or name."""
-    # Try by ID first if it looks like a UUID
-    if _is_uuid(identifier):
-        benchmark = client.benchmarks.get_by_id(identifier)
+def resolve_benchmark(client: LayerLens, identifier: str) -> Any:
+    """Resolve a benchmark by ID, key, or name, as :func:`resolve_model` resolves a model."""
+    if _looks_like_an_id(identifier):
+        benchmark = _by_id(client.benchmarks.get_by_id, identifier)
         if benchmark:
             return benchmark
 

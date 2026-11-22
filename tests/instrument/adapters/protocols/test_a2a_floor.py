@@ -45,7 +45,9 @@ from typing import Any, Dict, List, Tuple, Callable
 
 import pytest
 
-pytest.importorskip("a2a")
+from tests._optional_deps import importorskip
+
+importorskip("a2a")
 
 from a2a.types import (
     Task as A2ATask,  # noqa: E402
@@ -210,6 +212,53 @@ class TestRealErrorShape:
         assert updated, "no a2a.task.updated emitted for the failed send"
         assert updated[-1]["status"] == "failed"
         assert updated[-1]["status"] != "completed"
+
+    @pytest.mark.parametrize("surface", ["client", "server"])
+    def test_an_error_with_a_provider_reason_keeps_it_and_reraises_the_original(
+        self, mock_client: Any, capture_trace: Dict[str, Any], surface: str
+    ) -> None:
+        # error_category() adds error_code when the error, or one that caused it, carries a
+        # provider's reason (LAY-4454). Both a2a failure paths pass it on: one that did not
+        # take it raised TypeError over the caller's own exception and emitted no agent.error.
+        class ProviderError(Exception):
+            code = "rate_limit_exceeded"
+
+        def build(config: CaptureConfig) -> Tuple[Any, Callable[[], None]]:
+            adapter = A2AProtocolAdapter(capture_config=config)
+            if surface == "client":
+
+                def _boom(**kw: Any) -> Any:
+                    raise ProviderError("slow down")
+
+                target = type("Cli", (), {"send_task": staticmethod(_boom)})()
+                adapter.connect(target=target)
+
+                def call() -> Any:
+                    return target.send_task(task_id="t1", from_agent=DELEGATOR, to_agent=DELEGATEE)
+
+            else:
+
+                def handler(task: Any) -> Any:
+                    raise ProviderError("slow down")
+
+                on_task = adapter._wrap_server_handler(handler)
+
+                def call() -> Any:
+                    return on_task({"id": "t1"})
+
+            def go() -> None:
+                with pytest.raises(ProviderError):
+                    call()
+
+            return adapter, go
+
+        _drive(mock_client, build, CaptureConfig.standard())
+
+        errors = _events_of(capture_trace, "agent.error")
+        assert len(errors) == 1, f"expected one agent.error, saw {[e['event_type'] for e in capture_trace['events']]}"
+        assert errors[0]["error_code"] == "rate_limit_exceeded"
+        assert errors[0]["error_type"] == "ProviderError"
+        assert errors[0]["source"] == "a2a"
 
 
 # ---------------------------------------------------------------------------

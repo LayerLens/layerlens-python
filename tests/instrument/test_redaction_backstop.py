@@ -25,11 +25,16 @@ the fix redacts without going blind.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Callable, Optional
+
+import pytest
 
 from layerlens.instrument._context import _current_collector
 from layerlens.instrument._collector import TraceCollector
+from layerlens.instrument._secret_scrub import DEPTH_REDACTION, MAX_SCRUB_DEPTH
 from layerlens.instrument._capture_config import CaptureConfig
+
+from .conftest import find_event
 
 SENTINEL = "SENTINEL-leak-canary-4111111111111111"
 NO_CONTENT = CaptureConfig(capture_content=False)
@@ -525,3 +530,113 @@ def test_an_empty_content_key_still_goes_under_capture_content_true_untouched() 
     # because redaction never ran.
     payload = _emit("agent.input", {"agent_id": "a1", "input_text": ""}, CaptureConfig.full())
     assert payload.get("input_text") == ""
+
+
+# ---------------------------------------------------------------------------
+# Nesting depth (LAY-4267). Both walkers recursed once per level (twice for a list
+# or tuple level on CPython <= 3.11: the call and its comprehension), so a value
+# ~500 levels deep raised RecursionError out of collector.emit under
+# capture_content=False, before the secret scrubber and its own bound ran. They now
+# cut where the scrubber cuts, with its marker: the payload is level 0, and a
+# container at level MAX_SCRUB_DEPTH or deeper is replaced, unread.
+# ---------------------------------------------------------------------------
+
+
+def _nested(leaf: Any, levels: int, wrap: Callable[[Any], Any]) -> Any:
+    for _ in range(levels):
+        leaf = wrap(leaf)
+    return leaf
+
+
+def _as_list(value: Any) -> Any:
+    return [value]
+
+
+_WRAPPERS: Dict[str, Callable[[Any], Any]] = {
+    "list": _as_list,
+    "tuple": lambda v: (v,),
+    # "child_id" is neither a content key nor unsafe metadata, so both walkers keep it.
+    "dict": lambda v: {"child_id": v},
+}
+# A registered type goes through _strip_content_keys, an unregistered one through
+# _keep_safe_metadata. "related_id" is kept by both, so each walker has to descend.
+_WALKERS = {"strip_content_keys": "tool.call", "keep_safe_metadata": "custom.acme.deep"}
+
+
+def test_a_900_deep_non_content_value_does_not_fail_emit(mock_client, capture_trace) -> None:
+    """The reported shape: a tool.call whose non-content ``extra`` is a list nested 900
+    levels, under capture_content=False. RecursionError came out of collector.emit,
+    from _strip_content_keys."""
+    collector = TraceCollector(mock_client, NO_CONTENT)
+    extra = _nested(SENTINEL, 900, _as_list)
+    collector.emit("tool.call", {"provider": "openai", "tool_name": "lookup", "extra": extra}, span_id="span-1")
+    collector.flush()
+
+    payload = find_event(capture_trace["events"], "tool.call")["payload"]
+    assert payload["tool_name"] == "lookup"
+    assert payload["extra"] == _nested(DEPTH_REDACTION, MAX_SCRUB_DEPTH - 1, _as_list)
+    assert SENTINEL not in json.dumps(capture_trace["events"])
+
+
+@pytest.mark.parametrize("event_type", _WALKERS.values(), ids=_WALKERS.keys())
+@pytest.mark.parametrize("wrap", _WRAPPERS.values(), ids=_WRAPPERS.keys())
+def test_neither_walker_recurses_past_the_bound(event_type: str, wrap: Callable[[Any], Any]) -> None:
+    payload = _emit(event_type, {"related_id": _nested(SENTINEL, 900, wrap)})
+    assert payload["related_id"] == _nested(DEPTH_REDACTION, MAX_SCRUB_DEPTH - 1, wrap)
+    assert SENTINEL not in _blob(payload)
+
+
+@pytest.mark.parametrize("event_type", _WALKERS.values(), ids=_WALKERS.keys())
+@pytest.mark.parametrize("wrap", _WRAPPERS.values(), ids=_WRAPPERS.keys())
+@pytest.mark.parametrize("level", [MAX_SCRUB_DEPTH - 1, MAX_SCRUB_DEPTH, MAX_SCRUB_DEPTH + 1])
+def test_both_walkers_cut_where_the_scrubber_cuts(event_type: str, wrap: Callable[[Any], Any], level: int) -> None:
+    # redact_payload alone, so the scrubber cannot do the cut for the walker. Lists
+    # down to ``level - 1``, then the container under test at ``level``.
+    payload = {"related_id": _nested(wrap("leaf"), level - 1, _as_list)}
+    redacted = NO_CONTENT.redact_payload(event_type, payload)
+    if level < MAX_SCRUB_DEPTH:
+        assert redacted == payload, "a payload inside the bound must come back as before"
+    else:
+        assert redacted == {"related_id": _nested(DEPTH_REDACTION, MAX_SCRUB_DEPTH - 1, _as_list)}
+
+
+# ---------------------------------------------------------------------------
+# Tuples on an unregistered type (LAY-4267). _keep_safe_metadata walked lists but
+# returned a tuple as it was, so every field inside a tuple-valued key was uploaded
+# under capture_content=False. An unregistered type cannot be flushed here (the
+# schema lock rejects it at teardown), so these read the collector's events, which
+# are what flush uploads, serialized the way the upload serializes them.
+# ---------------------------------------------------------------------------
+
+
+def test_unregistered_type_content_inside_a_tuple_is_not_uploaded() -> None:
+    collector = TraceCollector(object(), NO_CONTENT)
+    payload = {"related_id": ({"span_id": "a", "notes": "PRIVATE-NOTES"},)}
+    collector.emit("custom.acme.reasoning", payload, span_id="span-1")
+
+    assert "PRIVATE-NOTES" not in json.dumps(collector.events, default=str)
+    assert collector.events[0]["payload"]["related_id"] == ({"span_id": "a"},)
+
+
+def test_a_tuple_is_filtered_exactly_like_a_list_and_stays_a_tuple() -> None:
+    def redact(value: Any) -> Any:
+        return NO_CONTENT.redact_payload("custom.acme.reasoning", {"related_id": value})["related_id"]
+
+    elements = [{"span_id": "a", "notes": SENTINEL}, "plain", 3, {"child_id": ({"step": 1, "secret_notes": SENTINEL},)}]
+    assert redact(list(elements)) == [{"span_id": "a"}, "plain", 3, {"child_id": ({"step": 1},)}]
+    from_tuple = redact(tuple(elements))
+    assert type(from_tuple) is tuple
+    assert from_tuple == ({"span_id": "a"}, "plain", 3, {"child_id": ({"step": 1},)})
+
+
+@pytest.mark.parametrize("level", [MAX_SCRUB_DEPTH - 1, MAX_SCRUB_DEPTH, MAX_SCRUB_DEPTH + 1])
+def test_keep_safe_metadata_walks_a_tuple_chain_to_the_bound(level: int) -> None:
+    # Tuples all the way down, the dict under test at ``level``: walked and filtered
+    # inside the bound, replaced by the marker from MAX_SCRUB_DEPTH on.
+    tuple_of = _WRAPPERS["tuple"]
+    payload = {"related_id": _nested({"span_id": "a", "notes": SENTINEL}, level - 1, tuple_of)}
+    redacted = NO_CONTENT.redact_payload("custom.acme.reasoning", payload)
+    if level < MAX_SCRUB_DEPTH:
+        assert redacted == {"related_id": _nested({"span_id": "a"}, level - 1, tuple_of)}
+    else:
+        assert redacted == {"related_id": _nested(DEPTH_REDACTION, MAX_SCRUB_DEPTH - 1, tuple_of)}

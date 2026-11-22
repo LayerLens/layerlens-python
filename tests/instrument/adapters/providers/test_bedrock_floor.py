@@ -30,9 +30,9 @@ import io
 import json
 from typing import Any, Dict, Tuple
 
-import pytest
+from tests._optional_deps import importorskip
 
-boto3 = pytest.importorskip("boto3")
+boto3 = importorskip("boto3")
 from botocore.stub import ANY, Stubber  # noqa: E402
 from botocore.response import StreamingBody  # noqa: E402
 

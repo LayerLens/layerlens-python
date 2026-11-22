@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, FrozenSet, cast
 from dataclasses import dataclass
 
+from ._secret_scrub import DEPTH_REDACTION, beyond_scrub_depth
+
 # Maps event type strings to CaptureConfig field names. EVERY content-bearing
 # event type MUST appear here (or in _ALWAYS_ENABLED) so that disabling its
 # L-layer actually suppresses it — an unmapped type fails OPEN (LAY-3578 / L2).
@@ -475,7 +477,7 @@ def _is_content_free(value: Any) -> bool:
     return value == "" and isinstance(value, str)
 
 
-def _strip_content_keys(value: Any, content_keys: FrozenSet[str]) -> Any:
+def _strip_content_keys(value: Any, content_keys: FrozenSet[str], depth: int = 0) -> Any:
     """Recursively drop any key in *content_keys* from dicts anywhere in *value*.
 
     Returns a redacted copy; non-dict/list scalars pass through unchanged.
@@ -485,17 +487,24 @@ def _strip_content_keys(value: Any, content_keys: FrozenSet[str]) -> Any:
     A content key whose value is already content-free (:func:`_is_content_free`) is
     KEPT — see that function. Applies at every depth, for the same reason the strip
     itself does.
+
+    *depth* counts the containers above *value*, the payload being 0. A container
+    the secret scrubber would not walk (``beyond_scrub_depth``) comes back as
+    ``DEPTH_REDACTION``, unread: recursing into it raised ``RecursionError`` out of
+    ``emit`` for a value ~500 levels deep, before the scrubber ran (LAY-4267).
     """
+    if beyond_scrub_depth(value, depth):
+        return DEPTH_REDACTION
     if isinstance(value, dict):
         return {
-            k: _strip_content_keys(v, content_keys)
+            k: _strip_content_keys(v, content_keys, depth + 1)
             for k, v in value.items()
             if k not in content_keys or _is_content_free(v)
         }
     if isinstance(value, list):
-        return [_strip_content_keys(v, content_keys) for v in value]
+        return [_strip_content_keys(v, content_keys, depth + 1) for v in value]
     if isinstance(value, tuple):
-        return tuple(_strip_content_keys(v, content_keys) for v in value)
+        return tuple(_strip_content_keys(v, content_keys, depth + 1) for v in value)
     return value
 
 
@@ -610,6 +619,7 @@ _SAFE_METADATA_KEYS = frozenset(
         "completion_tokens",
         "total_tokens",
         "cached_tokens",
+        "cache_write_tokens",
         "latency_ms",
         "duration_ms",
         "ttft_ms",
@@ -641,15 +651,22 @@ def _is_safe_metadata_key(key: str) -> bool:
     return key in _SAFE_METADATA_KEYS or key.endswith(_SAFE_METADATA_SUFFIXES)
 
 
-def _keep_safe_metadata(value: Any) -> Any:
+def _keep_safe_metadata(value: Any, depth: int = 0) -> Any:
     """Deny-by-default for an UNREGISTERED event type (F2): recursively keep ONLY
     :func:`_is_safe_metadata_key` keys at every level, dropping every other field
     (and the sub-tree beneath it). Mirrors :func:`_keep_safe_params` but for the
-    whole payload of a type with no curated content-key set."""
+    whole payload of a type with no curated content-key set. A tuple is walked like a
+    list and stays a tuple: it used to be returned as it was, so every field inside
+    one was uploaded under ``capture_content=False`` (LAY-4267). *depth* and the cut
+    at ``beyond_scrub_depth`` are as in :func:`_strip_content_keys`."""
+    if beyond_scrub_depth(value, depth):
+        return DEPTH_REDACTION
     if isinstance(value, dict):
-        return {k: _keep_safe_metadata(v) for k, v in value.items() if _is_safe_metadata_key(k)}
+        return {k: _keep_safe_metadata(v, depth + 1) for k, v in value.items() if _is_safe_metadata_key(k)}
     if isinstance(value, list):
-        return [_keep_safe_metadata(x) for x in value]
+        return [_keep_safe_metadata(x, depth + 1) for x in value]
+    if isinstance(value, tuple):
+        return tuple(_keep_safe_metadata(x, depth + 1) for x in value)
     return value
 
 

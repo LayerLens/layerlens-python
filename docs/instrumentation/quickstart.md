@@ -1,35 +1,38 @@
 # Instrumentation Quick Start
 
-This guide covers the core instrumentation API: the `@trace` decorator and the `span()` context manager.
+This guide covers the core instrumentation API: the `@trace` decorator, the `span()` context
+manager, and `emit()`.
 
 ## Installation
 
 The instrumentation module is included in the base SDK — no extra dependencies needed:
 
 ```bash
-pip install layerlens --extra-index-url https://sdk.layerlens.ai/package
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 Provider adapters require their respective SDK as an optional dependency:
 
 ```bash
-pip install layerlens[openai]      # OpenAI
-pip install layerlens[anthropic]   # Anthropic
-pip install layerlens[litellm]     # LiteLLM (100+ providers)
-pip install layerlens[langchain]   # LangChain / LangGraph
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[openai]"      # OpenAI
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[anthropic]"   # Anthropic
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"     # LiteLLM (100+ providers)
+uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[langchain]"   # LangChain / LangGraph
 ```
 
 ## The `@trace` Decorator
 
-`@trace(client)` marks a function as the root of a trace. When the function returns (or raises), the complete span tree is serialized and uploaded.
+`@trace(client)` records one trace per call of a function. It records the function's arguments as
+`agent.input`, its return value as `agent.output` (or what it raised as `agent.error`), and every
+event emitted while it runs. When the call ends, the trace is sealed and uploaded in the background.
 
 ### Using Synchronous Client
 
 ```python
-from layerlens import Stratix
-from layerlens.instrument import trace
+from layerlens import LayerLens
+from layerlens.instrument import flush, trace
 
-client = Stratix()
+client = LayerLens()
 
 @trace(client)
 def my_agent(query: str):
@@ -37,17 +40,22 @@ def my_agent(query: str):
     return process(query)
 
 my_agent("Hello")
-# → Trace uploaded automatically on return
+# → the trace is uploaded in the background
+
+# At the end of a script or CI job: wait for every trace to upload
+flush(timeout=120)
 ```
+
+See [Before a Script or CI Job Exits](#before-a-script-or-ci-job-exits).
 
 ### Using Async Client
 
 ```python
 import asyncio
-from layerlens import AsyncStratix
+from layerlens import AsyncLayerLens
 from layerlens.instrument import trace
 
-client = AsyncStratix()
+client = AsyncLayerLens()
 
 @trace(client)
 async def my_agent(query: str):
@@ -56,55 +64,49 @@ async def my_agent(query: str):
 asyncio.run(my_agent("Hello"))
 ```
 
-### Custom Trace Names
+### Custom Names and Metadata
 
-By default the trace is named after the function. Override with the `name` parameter:
+By default the root span is named after the function. Override it with `name`, and add keys to the
+trace's `agent.input` event with `metadata`:
 
 ```python
-@trace(client, name="qa-pipeline")
+@trace(client, name="qa-pipeline", metadata={"release": "2026.11"})
 def run_pipeline(query: str):
+    ...
+```
+
+### What Is Recorded
+
+A trace records no content by default: `CaptureConfig.standard()` keeps the structure, models,
+token counts, costs, latencies and error categories, and leaves out prompts, outputs and error
+text. To record content too, pass a capture config:
+
+```python
+from layerlens.instrument import CaptureConfig
+
+@trace(client, capture_config=CaptureConfig.full())
+def my_agent(query: str):
     ...
 ```
 
 ## The `span()` Context Manager
 
-Use `span()` inside a traced function to create child spans:
+Use `span()` inside a traced function to group the events of one step under a child span. It
+yields the span's id; what the step did is the events emitted inside it, by you or by an adapter:
 
 ```python
-from layerlens.instrument import trace, span
+from layerlens.instrument import emit, span, trace
 
 @trace(client)
 def my_agent(query: str):
-    with span("retrieve", kind="retriever") as s:
+    with span("retrieve"):
         docs = search(query)
-        s.output = docs
+        emit("retrieval.query", {"query": query, "result_count": len(docs)})
 
-    with span("generate", kind="llm") as s:
-        answer = call_llm(query, docs)
-        s.output = answer
+    with span("generate"):
+        answer = call_llm(query, docs)  # an instrumented provider records model.invoke here
 
     return answer
-```
-
-### Span Parameters
-
-| Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
-| `name` | `str` | (required) | Display name for the span |
-| `kind` | `str` | `"internal"` | Span type: `internal`, `llm`, `retriever`, `tool`, `chain` |
-| `input` | `Any` | `None` | Input data for the span |
-| `metadata` | `dict \| None` | `None` | Arbitrary metadata attached to the span |
-
-### Setting Span Data
-
-Inside the `with` block, you can set properties on the span object:
-
-```python
-with span("my-step", kind="tool") as s:
-    s.input = {"query": query}
-    result = do_work(query)
-    s.output = result
-    s.metadata["custom_key"] = "custom_value"
 ```
 
 ### Nesting Spans
@@ -114,8 +116,8 @@ Spans nest automatically — the parent-child relationship is tracked via `conte
 ```python
 @trace(client)
 def my_agent(query: str):
-    with span("outer") as outer:
-        with span("inner") as inner:
+    with span("outer"):
+        with span("inner"):
             # inner is a child of outer
             ...
     with span("sibling"):
@@ -132,38 +134,71 @@ my_agent (root)
 └── sibling
 ```
 
-## Span Data Model
+## Recording Your Own Events
 
-Each span captures:
+`emit(event_type, payload)` records an event in the current span:
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `name` | `str` | Span name |
-| `span_id` | `str` | Unique identifier (auto-generated) |
-| `parent_id` | `str \| None` | Parent span ID |
-| `start_time` | `float` | Unix timestamp when span started |
-| `end_time` | `float \| None` | Unix timestamp when span ended |
-| `status` | `str` | `"ok"` or `"error"` |
-| `kind` | `str` | `"internal"`, `"llm"`, `"retriever"`, `"tool"`, `"chain"` |
-| `input` | `Any` | Input data (set manually or captured by adapters) |
-| `output` | `Any` | Output data |
-| `error` | `str \| None` | Error message if status is `"error"` |
-| `metadata` | `dict` | Arbitrary metadata (model name, token usage, etc.) |
-| `children` | `list` | Child spans |
+```python
+from layerlens.instrument import emit
+
+emit("tool.call", {"tool_name": "lookup_order", "input": {"order_id": "A-4471"}})
+emit("agent.step", {"step": "plan", "count": 3})
+```
+
+Content keys (such as `input`, `output`, `query` and `error`) are dropped unless the trace's capture
+config records content, and values shaped like API keys and tokens are scrubbed either way.
 
 ## Error Handling
 
-Errors are captured automatically. If an exception is raised inside a traced function or span, the span's status is set to `"error"` and the error message is recorded. The exception still propagates normally.
+Errors are captured automatically. If an exception escapes a traced function, the trace records it as
+`agent.error` and still uploads; the exception propagates normally.
 
 ```python
 @trace(client)
 def my_agent(query: str):
-    with span("risky-step") as s:
+    with span("risky-step"):
         raise ValueError("something broke")
-    # → span status="error", error="something broke"
-    # → trace still uploads with the error recorded
-    # → ValueError propagates to caller
+    # → agent.error: error_type="ValueError", status="error"
+    #   (and error="something broke" when the trace records content)
+    # → the trace still uploads
+    # → ValueError propagates to the caller
 ```
+
+An error from an LLM provider also carries the provider's reason code as `error_code` (for example
+`rate_limit_exceeded` or `invalid_api_key`), even when a framework wrapped it in an error of its own.
+Like `error_type`, it is kept when content is not, so a trace always says why a call failed. See
+[Error events](../api-reference/instrumentation.md#error-events).
+
+## Before a Script or CI Job Exits
+
+Traces upload in the background, one at a time, a second or two each. When the process exits,
+the SDK waits at most 5 seconds for the uploads still queued; what is left then is lost, with a
+warning on stderr:
+
+```
+layerlens: 8 trace(s) not sent: the process exited before their upload ended (waited 5s; set LAYERLENS_EXIT_TIMEOUT to wait longer, or call layerlens.instrument.flush() before exiting)
+```
+
+So a script or a CI job that records more than a trace or two calls `flush()` at its end:
+
+```python
+from layerlens.instrument import flush, trace
+
+@trace(client)
+def my_agent(query: str):
+    ...
+
+for question in questions:
+    my_agent(question)
+
+if not flush(timeout=120):
+    print("some traces were still uploading after 120 s")
+```
+
+`flush(timeout)` waits until every queued trace is sent, or `timeout` seconds pass (`None` waits
+as long as it takes), and returns whether nothing is left to send. To wait at exit without a
+code change, set `LAYERLENS_EXIT_TIMEOUT` (seconds) instead. A service that keeps running needs
+neither. See [Uploading](../api-reference/instrumentation.md#uploading).
 
 ## Next Steps
 

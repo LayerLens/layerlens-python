@@ -5,8 +5,8 @@ Evaluates AI trading advisor for SOX compliance: suitability assessment,
 disclosure requirements, and fiduciary duty evaluation.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python financial_trading.py
@@ -18,7 +18,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -80,7 +80,8 @@ def main() -> None:
     print("=== LayerLens Financial Services: Trading Compliance (SOX) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -148,6 +149,10 @@ def main() -> None:
                     score = r.score
                     passed = r.passed
                     reasoning = r.reasoning
+                if not results:
+                    # The evaluation failed or did not finish (the helper logged why): no verdict to show.
+                    print(f"  {label}: no verdict (the evaluation failed or did not finish)")
+                    continue
                 verdict = "pass" if passed else "fail"
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(

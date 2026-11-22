@@ -18,7 +18,7 @@ import tempfile
 from abc import ABC, abstractmethod
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import get_default_model_id, poll_evaluation_results
@@ -61,7 +61,7 @@ class DemoRunner(ABC):
     Abstract base for all OpenClaw + LayerLens evaluation demo scripts.
 
     Subclasses implement ``run()`` with demo-specific logic.  The base class
-    provides both a ``Stratix`` SDK client (LayerLens) and an optional
+    provides both a ``LayerLens`` SDK client (LayerLens) and an optional
     ``openclaw_client`` (OpenClaw), along with CLI argument parsing and
     shared helpers.
     """
@@ -73,7 +73,7 @@ class DemoRunner(ABC):
 
     def __init__(self) -> None:
         self.args: argparse.Namespace | None = None
-        self.client: Stratix | None = None
+        self.client: LayerLens | None = None
         self.openclaw_client: Any = None
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -107,18 +107,20 @@ class DemoRunner(ABC):
         ...
 
     def _init_sdk(self) -> None:
-        """Initialize the Stratix SDK client and OpenClaw client."""
+        """Initialize the LayerLens SDK client and OpenClaw client."""
         if self.args and self.args.no_sdk:
             self.logger.info("SDK disabled (--no-sdk). Running in offline mode.")
             self.client = None
             self.openclaw_client = None
             return
         try:
-            self.client = Stratix()
-            self.logger.info("Stratix SDK client initialized.")
+            self.client = LayerLens()
+            # The client reads its organization on first use; reading it here checks the key
+            # and that LayerLens answers, so a demo that cannot reach it runs offline instead.
+            self.logger.info("LayerLens SDK client initialized (organization %s).", self.client.organization_id)
         except Exception as exc:
             self.logger.warning(
-                "Could not initialize Stratix SDK (%s). Running in offline mode.",
+                "Could not initialize LayerLens SDK (%s). Running in offline mode.",
                 exc,
             )
             self.client = None

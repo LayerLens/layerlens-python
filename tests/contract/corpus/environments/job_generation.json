@@ -1,0 +1,31 @@
+{
+  "_recorded": {
+    "method": "GET",
+    "route": "/api/v1/env/organizations/{id}/projects/{id}/environments/{id}/jobs/{id}",
+    "status": 200
+  },
+  "response": {
+    "status": "success",
+    "data": {
+      "id": "6af30fbc280c73a1bc845618",
+      "kind": "generate_tasks",
+      "status": "success",
+      "stop_reason": "finished",
+      "created_at": "2026-11-10T12:36:12.456Z",
+      "finished_at": "2026-11-10T12:39:28.91Z",
+      "progress": {
+        "completed": 3,
+        "total": 3
+      },
+      "cost_usd": 0.000404625,
+      "error": null,
+      "result": {
+        "set_name": "sdk-generated",
+        "target": "discriminating",
+        "written": 3,
+        "dropped": [],
+        "unprobed": "nothing has been run in this environment yet, so no model's ability is known here and no difficulty could be measured"
+      }
+    }
+  }
+}

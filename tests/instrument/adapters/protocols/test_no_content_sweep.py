@@ -24,6 +24,7 @@ from typing import Any, List, Tuple, Callable
 
 import pytest
 
+from tests._optional_deps import importorskip
 from layerlens.instrument._context import _current_collector
 from layerlens.instrument._collector import TraceCollector
 from layerlens.instrument._capture_config import CaptureConfig
@@ -40,7 +41,7 @@ def _build_ap2(cfg: CaptureConfig) -> Tuple[Any, Callable[[], None]]:
     # Real ap2 pydantic fixtures (LAY-3625) — skips in the base py3.9 venv where
     # the pinned ap2 SDK is absent; the other adapters in this parametrized sweep
     # still run there.
-    pytest.importorskip("ap2")
+    importorskip("ap2")
     from ap2.models.mandate import CartMandate, CartContents, IntentMandate
     from ap2.models.payment_request import (
         PaymentItem,

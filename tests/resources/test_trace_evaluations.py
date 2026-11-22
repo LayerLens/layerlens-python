@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from layerlens.models import (
     TraceEvaluationsResponse,
     TraceEvaluationResultsResponse,
 )
-from layerlens._constants import DEFAULT_TIMEOUT
+from layerlens._constants import NOT_GIVEN
 from layerlens._exceptions import NotFoundError
 from layerlens.resources.trace_evaluations.trace_evaluations import TraceEvaluations
 
@@ -19,7 +20,7 @@ class TestTraceEvaluations:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -112,7 +113,7 @@ class TestTraceEvaluations:
         trace_evals_resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations",
             body={"trace_id": "trace-456", "judge_id": "judge-789"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -135,6 +136,39 @@ class TestTraceEvaluations:
         assert result.judge_snapshot.version == 1
         assert result.judge_snapshot.evaluation_goal == "Evaluate output quality"
 
+    def test_get_reads_the_judge_snapshot_and_failure_reason_as_atlas_sends_them(self, trace_evals_resource):
+        """atlas-app sends `judgeSnapshot` (camelCase) holding snake_case fields, and `status_description`."""
+        trace_evals_resource._get.return_value = {
+            "status": "success",
+            "data": {
+                "id": "te-123",
+                "organization_id": "org-123",
+                "project_id": "proj-456",
+                "trace_id": "trace-456",
+                "judge_id": "judge-789",
+                "user_id": "someone@example.com",
+                "status": "failure",
+                "status_description": "the judge model timed out after 120s",
+                "judgeSnapshot": {
+                    "name": "Quality Judge",
+                    "version": 2,
+                    "evaluation_goal": "Evaluate output quality",
+                    "model_id": "model-1",
+                    "model_name": "Claude Sonnet 4.5",
+                    "model_company": "Anthropic",
+                },
+                "created_at": "2026-11-04T12:00:00Z",
+            },
+        }
+
+        result = trace_evals_resource.get("te-123")
+
+        assert result.status_description == "the judge model timed out after 120s"
+        assert result.judge_snapshot is not None
+        assert (result.judge_snapshot.name, result.judge_snapshot.version) == ("Quality Judge", 2)
+        assert result.judge_snapshot.evaluation_goal == "Evaluate output quality"
+        assert result.judge_snapshot.model_name == "Claude Sonnet 4.5"
+
     def test_get_trace_evaluation_success(self, trace_evals_resource, sample_trace_eval_data):
         """get method returns TraceEvaluation on success."""
         trace_evals_resource._get.return_value = sample_trace_eval_data
@@ -152,7 +186,7 @@ class TestTraceEvaluations:
 
         trace_evals_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations/te-123",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -258,7 +292,7 @@ class TestTraceEvaluations:
 
         trace_evals_resource._get.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations/te-123/results",
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -315,7 +349,7 @@ class TestTraceEvaluations:
         trace_evals_resource._post.assert_called_once_with(
             "/organizations/org-123/projects/proj-456/trace-evaluations/estimate",
             body={"trace_ids": ["t1", "t2"], "judge_id": "judge-789"},
-            timeout=DEFAULT_TIMEOUT,
+            timeout=NOT_GIVEN,
             cast_to=dict,
         )
 
@@ -333,7 +367,7 @@ class TestTraceEvaluationsErrorHandling:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "org-123"
         client.project_id = "proj-456"
@@ -397,7 +431,7 @@ class TestTraceEvaluationsURLConstruction:
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Stratix client."""
+        """Mock LayerLens client."""
         client = Mock()
         client.organization_id = "custom-org"
         client.project_id = "custom-proj"
@@ -512,7 +546,7 @@ class TestWaitForCompletion:
             "created_at": "2024-01-01T00:00:05Z",
         }
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_returns_results_on_success(self, mock_sleep, trace_evals_resource, sample_result_data):
         """wait_for_completion returns results when evaluation succeeds."""
         pending = {
@@ -541,7 +575,7 @@ class TestWaitForCompletion:
         assert result.passed is True
         assert mock_sleep.call_count == 1
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_returns_none_on_failure(self, mock_sleep, trace_evals_resource):
         """wait_for_completion returns None when evaluation fails (no results)."""
         failure = {
@@ -565,15 +599,11 @@ class TestWaitForCompletion:
         assert result is None
         assert mock_sleep.call_count == 0
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.time")
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
-    def test_wait_raises_timeout(self, _mock_sleep, mock_time, trace_evals_resource):
+    def test_wait_raises_timeout(self, trace_evals_resource, monkeypatch):
         """wait_for_completion raises TimeoutError when timeout exceeded."""
-        mock_time.side_effect = [
-            0,
-            0,
-            301,
-        ]  # start, first check ok, second check exceeds 300s
+        clock = SimpleNamespace(now=0.0)
+        monkeypatch.setattr("layerlens._polling.time", SimpleNamespace(monotonic=lambda: clock.now))
+        monkeypatch.setattr(trace_evals_resource, "_sleep", lambda seconds: setattr(clock, "now", clock.now + seconds))
 
         pending = {
             "id": "te-123",
@@ -586,7 +616,7 @@ class TestWaitForCompletion:
         with pytest.raises(TimeoutError, match="did not complete within 300 seconds"):
             trace_evals_resource.wait_for_completion("te-123", timeout_seconds=300)
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_polls_through_in_progress(self, mock_sleep, trace_evals_resource, sample_result_data):
         """wait_for_completion polls through pending and in_progress states."""
         pending = {
@@ -620,7 +650,7 @@ class TestWaitForCompletion:
         assert isinstance(result, TraceEvaluationResultsResponse)
         assert mock_sleep.call_count == 2
 
-    @patch("layerlens.resources.trace_evaluations.trace_evaluations.time.sleep")
+    @patch("layerlens._resource.time.sleep")
     def test_wait_no_timeout_when_none(self, _mock_sleep, trace_evals_resource, sample_result_data):
         """wait_for_completion runs indefinitely when timeout_seconds=None."""
         success = {

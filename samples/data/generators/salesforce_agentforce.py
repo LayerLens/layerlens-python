@@ -68,7 +68,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -243,7 +243,7 @@ def _make_transport(instance_url: str, *, sessions: list, participants: list,
     return httpx.MockTransport(handler)
 
 
-def _capture_import(client: Stratix, *, instance_url: str, rows: dict) -> dict:
+def _capture_import(client: LayerLens, *, instance_url: str, rows: dict) -> dict:
     """Drive the REAL AgentforceAdapter over a sealed MockTransport and capture
     the single flushed trace via the shared observer seam."""
     import httpx
@@ -317,7 +317,7 @@ _CHANNEL = "MessagingForWeb"
 # --------------------------------------------------------------------------
 # Single: an order-status Service-Cloud session (one topic, one turn).
 # --------------------------------------------------------------------------
-def generate_salesforce_agentforce_single(client: Stratix) -> dict:
+def generate_salesforce_agentforce_single(client: LayerLens) -> dict:
     """Record a sealed single-topic Agentforce order-status support session."""
     session_uuid = "019f0a11-3c4d-7a2b-9e10-2b7c1d4e5f60"
     interaction_uuid = "7a1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d"
@@ -458,7 +458,7 @@ def generate_salesforce_agentforce_single(client: Stratix) -> dict:
 # NOT genuinely multi-agent — the same service agent across two turns, with an
 # honest single-agent handoff origin (to_agent absent; STDM has no target field).
 # --------------------------------------------------------------------------
-def generate_salesforce_agentforce_multi(client: Stratix) -> dict:
+def generate_salesforce_agentforce_multi(client: LayerLens) -> dict:
     """Record a sealed multi-topic Agentforce session with a billing escalation
     (agent.handoff ORIGIN — to_agent honestly absent, single-agent)."""
     session_uuid = "019f0a22-8b7c-7d6e-a1f2-3c4d5e6f7a80"
@@ -633,6 +633,6 @@ def generate_salesforce_agentforce_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_salesforce_agentforce_single(_client)
     generate_salesforce_agentforce_multi(_client)

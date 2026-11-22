@@ -5,8 +5,8 @@ The LayerLens Python SDK ships with 70+ runnable samples covering every API reso
 ## Quick Start
 
 ```bash
-pip install layerlens --index-url https://sdk.layerlens.ai/package
-export LAYERLENS_STRATIX_API_KEY=your-api-key
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+export LAYERLENS_API_KEY=your-api-key
 python samples/core/quickstart.py
 ```
 
@@ -23,7 +23,7 @@ Key samples:
 - [`trace_evaluation.py`](../samples/core/trace_evaluation.py) -- Full trace evaluation lifecycle
 - [`judge_optimization.py`](../samples/core/judge_optimization.py) -- Optimize judge accuracy via automated prompt engineering
 - [`evaluation_pipeline.py`](../samples/core/evaluation_pipeline.py) -- Chain judges, traces, and results into an automated pipeline
-- [`async_workflow.py`](../samples/core/async_workflow.py) -- Concurrent operations with AsyncStratix
+- [`async_workflow.py`](../samples/core/async_workflow.py) -- Concurrent operations with AsyncLayerLens
 
 See the [Core SDK README](../samples/core/README.md) for the full list.
 
@@ -56,6 +56,8 @@ Located in [`samples/cicd/`](../samples/cicd/). Embed evaluation quality gates i
 - [`quality_gate.py`](../samples/cicd/quality_gate.py) -- Gate deployments on evaluation pass rates
 - [`pre_commit_hook.py`](../samples/cicd/pre_commit_hook.py) -- Catch regressions at commit time
 - [`github_actions_gate.yml`](../samples/cicd/github_actions_gate.yml) -- Drop-in GitHub Actions workflow
+- [`agent_eval.yml`](../samples/cicd/agent_eval.yml) -- Grade your own agent against an environment with `layerlens env run exec`
+- [`environments/external_run.py`](../samples/environments/external_run.py) -- The same loop from Python with `client.environments`
 
 See the [CI/CD README](../samples/cicd/README.md) for details.
 
@@ -95,7 +97,7 @@ Located in [`samples/copilotkit/`](../samples/copilotkit/). A full-stack canvas 
 - [`agents/evaluator_agent.py`](../samples/copilotkit/agents/evaluator_agent.py) -- LangGraph agent with four backend tools (`list_recent_traces`, `list_judges`, `run_trace_evaluation`, `get_evaluation_result`) and a frontend HITL tool (`confirm_judge`) for picking which judge to apply. The picker is a real React widget registered via `useCopilotAction({ renderAndWaitForResponse })`, bridged into the LLM's toolbelt by `CopilotKitMiddleware` -- no `interrupt()` call.
 - [`agents/investigator_agent.py`](../samples/copilotkit/agents/investigator_agent.py) -- Standalone procedural `StateGraph` for trace investigation (errors / latency / cost hot spots). No HITL, no LLM. Reference for non-conversational agents.
 - [`components/*.tsx`](../samples/copilotkit/components/) -- Five reusable SDK card components (`EvaluationCard`, `TraceCard`, `JudgeVerdictCard`, `MetricCard`, `ComplianceCard`) plus `MarkdownLite`, re-exported as `@layerlens/copilotkit-cards`.
-- [`app/`](../samples/copilotkit/app/) -- Runnable Next.js + FastAPI demo. Real LayerLens only -- a missing `LAYERLENS_STRATIX_API_KEY` is a hard error at startup.
+- [`app/`](../samples/copilotkit/app/) -- Runnable Next.js + FastAPI demo. Real LayerLens only -- a missing `LAYERLENS_API_KEY` is a hard error at startup.
 
 > **Checkpointer note:** The evaluator graph is compiled with `InMemorySaver` so `ag_ui_langgraph`'s endpoint can call `graph.aget_state(config)` per request -- without it the AG-UI handler errors with "No checkpointer set" before any tool runs. The sample ships `InMemorySaver` for zero-setup local development; production deployments should swap to a durable saver (Postgres / SQLite / Redis / LangGraph Platform). See the sample's [README](../samples/copilotkit/README.md) for the full architecture walkthrough.
 

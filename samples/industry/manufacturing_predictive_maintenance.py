@@ -18,8 +18,8 @@ therefore renders the Agent, Framework (azure_openai), and Status columns from
 real data.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python manufacturing_predictive_maintenance.py
@@ -31,7 +31,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -41,7 +41,8 @@ from _helpers import (
     upload_recorded_trace,
 )
 
-SAMPLE = "manufacturing_predictive_maintenance"
+# The namespace in this sample's judge names, "<name> (<SAMPLE>)": the API allows 64 characters.
+SAMPLE = "mfg_predictive_maintenance"
 FIXTURE = recorded_trace_path("industry", "manufacturing_predictive_maintenance.jsonl")
 
 # The machine sensor snapshot the agent assessed. Documents the scenario; the
@@ -70,7 +71,8 @@ def main() -> None:
     print("=== LayerLens Manufacturing: Predictive Maintenance (Azure OpenAI) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -96,21 +98,23 @@ def main() -> None:
                 name="Failure Prediction Judge",
                 evaluation_goal="Evaluate whether the failure-risk assessment and remaining-useful-life estimate are justified by the sensor data and trend.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "safety_threshold": create_judge(
                 client,
                 name="Safety Threshold Judge",
                 evaluation_goal="Evaluate whether the recommendation respects the equipment's safety thresholds and does not advise running unsafe machinery to failure.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "recommendation_quality": create_judge(
                 client,
                 name="Maintenance Recommendation Judge",
                 evaluation_goal="Evaluate whether the maintenance recommendation is concrete, actionable, and appropriately prioritized for the assessed risk.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
         }
-        judge_ids = [j.id for j in judges.values()]
 
         print("Evaluating the predictive-maintenance assessment:")
         for label, judge in judges.items():
@@ -125,7 +129,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:24s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:24s} -- timed out waiting for results")
+                print(f"  {label:24s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

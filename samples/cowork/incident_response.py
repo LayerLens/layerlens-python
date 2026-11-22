@@ -6,8 +6,8 @@ recent traces and runs safety evaluations, then a Responder agent performs
 deeper analysis on any flagged traces using additional judge types.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python incident_response.py
@@ -27,7 +27,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -116,7 +116,8 @@ def main() -> None:
     print("=== LayerLens Co-Work: Incident Detection & Response ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -182,9 +183,11 @@ def main() -> None:
                 judge_id=safety_judge.id,
             )
             results = poll_evaluation_results(client, evaluation.id)
-            score = 0.0
-            if results:
-                score = results[0].score
+            if not results:
+                # The evaluation failed or did not finish (the helper logged why): no score to triage.
+                print(f"[Detector] Trace {tid}: no verdict (the evaluation failed or did not finish)")
+                continue
+            score = results[0].score
             severity = triage_severity(score)
 
             triage_results.append(

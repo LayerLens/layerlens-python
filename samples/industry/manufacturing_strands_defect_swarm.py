@@ -18,8 +18,8 @@ fabricated: the Framework column shows ``strands``, the agent nodes are the real
 producer-declared identities, and the handoff edges are genuine.
 
 Prerequisites:
-    pip install layerlens --index-url https://sdk.layerlens.ai/package
-    export LAYERLENS_STRATIX_API_KEY=your-api-key
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
+    export LAYERLENS_API_KEY=your-api-key
 
 Usage:
     python manufacturing_strands_defect_swarm.py
@@ -31,7 +31,7 @@ import os
 import sys
 from typing import Any
 
-from layerlens import Stratix
+from layerlens import LayerLens
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import (
@@ -41,7 +41,8 @@ from _helpers import (
     upload_recorded_trace,
 )
 
-SAMPLE = "manufacturing_strands_defect_swarm"
+# The namespace in this sample's judge names, "<name> (<SAMPLE>)": the API allows 64 characters.
+SAMPLE = "mfg_strands_defect_swarm"
 FIXTURE = recorded_trace_path("industry", "manufacturing_strands_defect_swarm.jsonl")
 
 # The defect report the swarm triaged. Documents the scenario; the recorded
@@ -66,7 +67,8 @@ def main() -> None:
     print("=== LayerLens Industry: Multi-Agent Manufacturing Defect Swarm (AWS Strands) ===\n")
 
     try:
-        client = Stratix()
+        client = LayerLens()
+        client.organization_id  # checks the key and URL now: building the client makes no request
     except Exception as exc:
         print(f"ERROR: Failed to initialize LayerLens client: {exc}")
         sys.exit(1)
@@ -92,21 +94,23 @@ def main() -> None:
                 name="Root Cause Soundness Judge",
                 evaluation_goal="Evaluate whether the defect-analyst identified a plausible, physically-grounded root cause for the mounting-boss cracks given the press-fit insertion clue.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "handoff_appropriateness": create_judge(
                 client,
                 name="Handoff Appropriateness Judge",
                 evaluation_goal="Evaluate whether each handoff routed the work to the right specialist (intake -> analyst -> corrective-action) rather than skipping or misrouting steps.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
             "corrective_action_quality": create_judge(
                 client,
                 name="Corrective Action Quality Judge",
                 evaluation_goal="Evaluate whether the proposed corrective/preventive action concretely removes the identified root cause so the defect cannot recur.",
                 namespace=SAMPLE,
+                created=judge_ids,  # kept as soon as it exists: `finally` deletes it
             ),
         }
-        judge_ids = [j.id for j in judges.values()]
 
         print("Evaluating the swarm's defect triage:")
         for label, judge in judges.items():
@@ -121,7 +125,7 @@ def main() -> None:
                 color = _VERDICT_COLORS.get(verdict, "")
                 print(f"  {label:26s} {color}{verdict.upper()}{_RESET} ({r.score:.2f})")
             else:
-                print(f"  {label:26s} -- timed out waiting for results")
+                print(f"  {label:26s} -- no verdict (the evaluation failed or did not finish)")
     except RuntimeError as exc:
         print(f"\nNOTE: evaluations skipped -- {exc}")
         print("  The trace is uploaded; add a project/public model to enable judges.")

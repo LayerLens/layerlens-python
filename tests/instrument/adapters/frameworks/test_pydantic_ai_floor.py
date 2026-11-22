@@ -6,15 +6,16 @@ fails in plain CI with no credentials and no network:
 
 * Error-paths — a REAL provider HTTP failure driven through the instrumented
                 ``_InstrumentedModel.request`` seam surfaces as ``agent.error``
-                with the REAL ``pydantic_ai.exceptions.ModelHTTPError`` class name
-                and the real error text verbatim. The existing suite only fires a
+                with the REAL class name of the ``pydantic_ai.exceptions.ModelHTTPError``
+                raised (``ModelNotFoundError`` from 2.64, which subclasses it) and
+                the real error text verbatim. The existing suite only fires a
                 synthetic tool ``ValueError`` and never asserts ``error_type``,
                 and the model-level ``_emit_model_error`` path (the except branch
                 inside ``_InstrumentedModel.request``) was untested offline. We
                 isolate the model-level ``agent.error`` (the one WITHOUT an
                 ``agent_name`` — the run-level ``_finish_run_error`` adds it) so
                 the assertion bites that specific handler.
-* Attestation — a REAL ``pydantic_ai.Agent`` (real ``OpenAIModel`` over a mocked
+* Attestation — a REAL ``pydantic_ai.Agent`` (real ``OpenAIChatModel`` over a mocked
                 transport serving the recorded OpenAI body) flushes a trace whose
                 attestation chain reconstructs and ``verify_chain(...)`` returns
                 valid; a tamper control breaking link 1 proves the check is not
@@ -43,19 +44,26 @@ object, the real agent loop, and the adapter's own parser are real.
 from __future__ import annotations
 
 import os
+import copy
 import json
 import asyncio
 from dataclasses import dataclass
 
 import pytest
 
-pydantic_ai = pytest.importorskip("pydantic_ai")
+from tests._optional_deps import importorskip
+
+pydantic_ai = importorskip("pydantic_ai")
 
 import httpx  # noqa: E402
 from pydantic_ai import Agent  # noqa: E402
 from pydantic_ai.exceptions import ModelHTTPError  # noqa: E402
 from pydantic_ai.models.test import TestModel  # noqa: E402
-from pydantic_ai.models.openai import OpenAIModel  # noqa: E402
+
+# ``OpenAIChatModel`` is the Chat Completions model, the API the recorded body comes
+# from. pydantic-ai 0.8.1 (the extra's floor) already has it, with ``OpenAIModel`` as
+# its deprecated alias; 2.0 removed ``OpenAIModel``.
+from pydantic_ai.models.openai import OpenAIChatModel  # noqa: E402
 from pydantic_ai.providers.openai import OpenAIProvider  # noqa: E402
 
 from layerlens.attestation._verify import verify_chain  # noqa: E402
@@ -73,12 +81,12 @@ SENTINEL = "LL-SENTINEL-7f3a9c2e"
 # Helpers
 # ---------------------------------------------------------------------------
 def _recorded_agent(fixture, name: str) -> Agent:
-    """A real ``Agent`` whose real ``OpenAIModel`` is backed by a MockTransport
+    """A real ``Agent`` whose real ``OpenAIChatModel`` is backed by a MockTransport
     serving the recorded OpenAI ChatCompletion — the proven seam from
     ``test_pydantic_ai_recorded.py`` (no key, no network)."""
     transport, _ = mock_transport(fixture)
     provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-    model = OpenAIModel("gpt-4o-mini", provider=provider)
+    model = OpenAIChatModel("gpt-4o-mini", provider=provider)
     return Agent(model, name=name)
 
 
@@ -92,7 +100,7 @@ def _sentinel_tool(city: str) -> str:
 # ---------------------------------------------------------------------------
 class TestRealErrorShape:
     def test_real_model_http_error_surfaces_as_agent_error(self, mock_client):
-        # A real 404 from the provider makes the REAL pydantic-ai OpenAIModel raise
+        # A real 404 from the provider makes the REAL pydantic-ai OpenAIChatModel raise
         # a REAL ``ModelHTTPError`` inside ``super().request(...)`` — caught by the
         # instrumented ``_InstrumentedModel.request`` except branch. NOT a synthetic
         # string, NOT a hand-built exception.
@@ -110,13 +118,13 @@ class TestRealErrorShape:
 
         transport = httpx.MockTransport(handler)
         provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-        model = OpenAIModel("gpt-4o-mini", provider=provider)
+        model = OpenAIChatModel("gpt-4o-mini", provider=provider)
         agent = Agent(model, name="billing_agent")
 
         uploaded = capture_framework_trace(mock_client)
         adapter = PydanticAIAdapter(mock_client, capture_config=CaptureConfig.full())
         adapter.connect(target=agent)
-        with pytest.raises(ModelHTTPError):
+        with pytest.raises(ModelHTTPError) as raised:
             agent.run_sync("hi")
         adapter.disconnect()
 
@@ -134,10 +142,16 @@ class TestRealErrorShape:
         )
         payload = model_level[0]["payload"]
 
-        # The REAL SDK exception class name — not a synthetic RuntimeError/str.
-        assert payload["error_type"] == ModelHTTPError.__name__ == "ModelHTTPError"
+        # The REAL SDK exception class name — not a synthetic RuntimeError/str. From
+        # pydantic-ai 2.64 a 404 raises a private ModelHTTPError subclass that also
+        # subclasses the error's category, ModelNotFoundError, and takes its name, so
+        # tracebacks and spans read as the category (LAY-4454, drift canary #72).
+        assert payload["error_type"] == type(raised.value).__name__
+        assert payload["error_type"] in {"ModelHTTPError", "ModelNotFoundError"}
         assert payload["framework"] == "pydantic-ai"
         assert "latency_ms" in payload
+        # The provider's reason, read off the error, not its text (LAY-4454).
+        assert payload["error_code"] == "model_not_found"
         # The real exception text flows through verbatim (bite: dropped/mangled
         # error text fails here). Tied to the real HTTP status the class carries.
         assert "status_code: 404" in payload["error"]
@@ -221,6 +235,40 @@ class TestCostFloor:
         # 12 prompt + 1 completion at the gpt-4o-mini rate.
         assert payload["cost_usd"] == pytest.approx(2.4e-06, rel=1e-3)
 
+    def test_no_cost_record_when_the_run_reports_no_tokens(self, mock_client):
+        """A run whose model reports no token usage emits no cost.record (LAY-4241).
+
+        pydantic-ai still counts the request, so the run's usage is
+        ``RunUsage(requests=1)`` with zero tokens. pydantic-ai 1.9-1.94 reports
+        exactly that for EVERY call once genai-prices >= 0.1 is installed: its
+        usage extraction raises TypeError on the new ``output_reasoning_tokens``
+        field and pydantic-ai swallows it. A response that simply omits
+        ``usage`` (optional on ChatCompletion, and omitted by some
+        OpenAI-compatible servers) produces the same usage on every version,
+        so that is the shape driven here. The adapter used to ship
+        ``{"model": ..., "model_requests": 1}`` as a cost.record: a cost event
+        with no token counts and nothing to price.
+        """
+        os.environ.pop("OPENAI_API_KEY", None)
+        fixture = copy.deepcopy(load_recorded("openai", "default"))
+        del fixture["interactions"][0]["response"]["json"]["usage"]
+        uploaded = capture_framework_trace(mock_client)
+
+        agent = _recorded_agent(fixture, "tokenless_agent")
+        adapter = PydanticAIAdapter(mock_client, capture_config=CaptureConfig.full())
+        adapter.connect(target=agent)
+        result = agent.run_sync("Reply with exactly: pong")
+        adapter.disconnect()
+
+        assert result.output == "pong"
+        events = uploaded["events"]
+        assert find_events(events, "cost.record") == []
+        # The run itself is still reported, with the request count it really made
+        # and no invented token counts.
+        out = find_event(events, "agent.output")
+        assert out["payload"]["model_requests"] == 1
+        assert not {"tokens_prompt", "tokens_completion", "tokens_total"} & set(out["payload"])
+
 
 # ---------------------------------------------------------------------------
 # Redaction content-absence over a real tool-loop run (offline TestModel)
@@ -291,7 +339,7 @@ class TestDepsPrivacyFloor:
 
         transport, _ = mock_transport(fixture)
         provider = OpenAIProvider(api_key="test-key", http_client=httpx.AsyncClient(transport=transport))
-        agent = Agent(OpenAIModel("gpt-4o-mini", provider=provider), name="deps_agent", deps_type=_Deps)
+        agent = Agent(OpenAIChatModel("gpt-4o-mini", provider=provider), name="deps_agent", deps_type=_Deps)
         adapter = PydanticAIAdapter(mock_client, capture_config=CaptureConfig.full())
         adapter.connect(target=agent)
         agent.run_sync("Reply with exactly: pong", deps=_Deps(api_token=SENTINEL, user_id=7))

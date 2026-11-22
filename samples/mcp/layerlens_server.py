@@ -6,12 +6,15 @@ any MCP-compatible AI assistant can invoke.
 
 Prerequisites
 -------------
-    pip install layerlens --index-url https://sdk.layerlens.ai/package mcp
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens mcp
+
+It runs on mcp 1.x (1.2 or later) and 2.x, through the SDK's high-level server: mcp 2
+renamed ``FastMCP`` to ``MCPServer`` and dropped the low-level decorators.
 
 Environment
 -----------
-    LAYERLENS_STRATIX_API_KEY   API key used by the SDK (picked up
-                                automatically by ``Stratix()``).
+    LAYERLENS_API_KEY   API key used by the SDK (picked up
+                                automatically by ``LayerLens()``).
 
 Usage
 -----
@@ -27,11 +30,10 @@ import asyncio
 import threading
 from typing import Any, Optional
 
-from mcp.types import Tool, TextContent
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
+import mcp.server
+from mcp.types import TextContent
 
-from layerlens import Stratix, StratixError, NotFoundError
+from layerlens import LayerLens, LayerLensError, NotFoundError
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import create_judge as _create_judge_helper
@@ -41,16 +43,16 @@ from _helpers import create_judge as _create_judge_helper
 # ---------------------------------------------------------------------------
 
 _client_lock = threading.Lock()
-_client: Optional[Stratix] = None
+_client: Optional[LayerLens] = None
 
 
-def _get_client() -> Stratix:
-    """Return the module-level Stratix client, creating it on first use."""
+def _get_client() -> LayerLens:
+    """Return the module-level LayerLens client, creating it on first use."""
     global _client
     if _client is None:
         with _client_lock:
             if _client is None:  # double-check after acquiring lock
-                _client = Stratix()
+                _client = LayerLens()
     return _client
 
 
@@ -74,9 +76,13 @@ def _error_text(exc: Exception) -> str:
     """Format an exception into a user-friendly error message."""
     if isinstance(exc, NotFoundError):
         return f"Not found: {exc}"
-    if isinstance(exc, StratixError):
+    if isinstance(exc, LayerLensError):
         return f"LayerLens API error: {exc}"
     return f"Error: {exc}"
+
+
+# mcp 2.x calls the high-level server ``MCPServer``; mcp 1.x (1.2 or later) ``FastMCP``.
+MCPServer = getattr(mcp.server, "MCPServer", None) or mcp.server.FastMCP
 
 
 # ---------------------------------------------------------------------------
@@ -84,142 +90,53 @@ def _error_text(exc: Exception) -> str:
 # ---------------------------------------------------------------------------
 
 
-def create_server() -> Server:
-    """Create and return the MCP server with all tool handlers wired up."""
+def create_server() -> Any:
+    """Create and return the MCP server with its six tools."""
 
-    server = Server("layerlens")
+    server = MCPServer("layerlens")
 
-    # ----- tool catalogue ------------------------------------------------
+    @server.tool()
+    async def list_traces(limit: int = 20) -> str:
+        """List traces stored in LayerLens, the most recent first: at most 100 (default 20)."""
+        return await _call(_handle_list_traces, {"limit": limit})
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="list_traces",
-                description=(
-                    "List traces stored in LayerLens. Returns the most recent traces with optional pagination."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of traces to return (default 20, max 500).",
-                        },
-                    },
-                },
-            ),
-            Tool(
-                name="get_trace",
-                description="Retrieve the full details of a single trace by its ID.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "trace_id": {
-                            "type": "string",
-                            "description": "The trace ID.",
-                        },
-                    },
-                    "required": ["trace_id"],
-                },
-            ),
-            Tool(
-                name="run_evaluation",
-                description=(
-                    "Run a judge evaluation against a trace. Returns the "
-                    "created trace-evaluation object (initially in pending state)."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "trace_id": {
-                            "type": "string",
-                            "description": "The trace ID to evaluate.",
-                        },
-                        "judge_id": {
-                            "type": "string",
-                            "description": "The judge ID to use for evaluation.",
-                        },
-                    },
-                    "required": ["trace_id", "judge_id"],
-                },
-            ),
-            Tool(
-                name="get_evaluation",
-                description=(
-                    "Get the status and results of a trace evaluation. "
-                    "If the evaluation has completed, the results are included."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "evaluation_id": {
-                            "type": "string",
-                            "description": "The trace-evaluation ID.",
-                        },
-                    },
-                    "required": ["evaluation_id"],
-                },
-            ),
-            Tool(
-                name="create_judge",
-                description="Create a new evaluation judge with a name and goal.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Display name for the judge.",
-                        },
-                        "goal": {
-                            "type": "string",
-                            "description": "The evaluation goal / criteria the judge should assess.",
-                        },
-                    },
-                    "required": ["name", "goal"],
-                },
-            ),
-            Tool(
-                name="list_judges",
-                description="List all judges configured in the current project.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                },
-            ),
-        ]
+    @server.tool()
+    async def get_trace(trace_id: str) -> str:
+        """Retrieve the full details of a single trace by its ID."""
+        return await _call(_handle_get_trace, {"trace_id": trace_id})
 
-    # ----- tool dispatcher -----------------------------------------------
+    @server.tool()
+    async def run_evaluation(trace_id: str, judge_id: str) -> str:
+        """Run a judge evaluation against a trace. Returns the created trace-evaluation
+        object (initially in pending state)."""
+        return await _call(_handle_run_evaluation, {"trace_id": trace_id, "judge_id": judge_id})
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-        try:
-            client = _get_client()
+    @server.tool()
+    async def get_evaluation(evaluation_id: str) -> str:
+        """Get the status and results of a trace evaluation. If the evaluation has
+        completed, the results are included."""
+        return await _call(_handle_get_evaluation, {"evaluation_id": evaluation_id})
 
-            if name == "list_traces":
-                return await _handle_list_traces(client, arguments)
+    @server.tool()
+    async def create_judge(name: str, goal: str) -> str:
+        """Create a new evaluation judge with a name and goal (the criteria it assesses)."""
+        return await _call(_handle_create_judge, {"name": name, "goal": goal})
 
-            if name == "get_trace":
-                return await _handle_get_trace(client, arguments)
-
-            if name == "run_evaluation":
-                return await _handle_run_evaluation(client, arguments)
-
-            if name == "get_evaluation":
-                return await _handle_get_evaluation(client, arguments)
-
-            if name == "create_judge":
-                return await _handle_create_judge(client, arguments)
-
-            if name == "list_judges":
-                return await _handle_list_judges(client, arguments)
-
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
-
-        except Exception as exc:
-            return [TextContent(type="text", text=_error_text(exc))]
+    @server.tool()
+    async def list_judges() -> str:
+        """List the judges configured in the current project."""
+        return await _call(_handle_list_judges, {})
 
     return server
+
+
+async def _call(handler: Any, arguments: dict) -> str:
+    """Run a tool's handler. An error is answered as text, and the server keeps serving."""
+    try:
+        contents = await handler(_get_client(), arguments)
+    except Exception as exc:
+        return _error_text(exc)
+    return "\n".join(c.text for c in contents)
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +147,7 @@ def create_server() -> Server:
 # ---------------------------------------------------------------------------
 
 
-async def _handle_list_traces(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_list_traces(client: LayerLens, arguments: dict) -> list[TextContent]:
     limit = arguments.get("limit", 20)
     resp = await asyncio.to_thread(
         client.traces.get_many, page_size=limit, sort_by="created_at", sort_order="desc"
@@ -249,7 +166,7 @@ async def _handle_list_traces(client: Stratix, arguments: dict) -> list[TextCont
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-async def _handle_get_trace(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_get_trace(client: LayerLens, arguments: dict) -> list[TextContent]:
     trace_id: str = arguments["trace_id"]
     trace = await asyncio.to_thread(client.traces.get, trace_id)
     if trace is None:
@@ -257,7 +174,7 @@ async def _handle_get_trace(client: Stratix, arguments: dict) -> list[TextConten
     return [TextContent(type="text", text=_obj_to_text(trace))]
 
 
-async def _handle_run_evaluation(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_run_evaluation(client: LayerLens, arguments: dict) -> list[TextContent]:
     trace_id: str = arguments["trace_id"]
     judge_id: str = arguments["judge_id"]
     evaluation = await asyncio.to_thread(
@@ -279,7 +196,7 @@ async def _handle_run_evaluation(client: Stratix, arguments: dict) -> list[TextC
     ]
 
 
-async def _handle_get_evaluation(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_get_evaluation(client: LayerLens, arguments: dict) -> list[TextContent]:
     eid: str = arguments["evaluation_id"]
     evaluation = await asyncio.to_thread(client.trace_evaluations.get, eid)
     if evaluation is None:
@@ -312,7 +229,7 @@ async def _handle_get_evaluation(client: Stratix, arguments: dict) -> list[TextC
     return [TextContent(type="text", text="\n".join(parts))]
 
 
-async def _handle_create_judge(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_create_judge(client: LayerLens, arguments: dict) -> list[TextContent]:
     name: str = arguments["name"]
     goal: str = arguments["goal"]
     judge = await asyncio.to_thread(
@@ -328,7 +245,7 @@ async def _handle_create_judge(client: Stratix, arguments: dict) -> list[TextCon
     ]
 
 
-async def _handle_list_judges(client: Stratix, arguments: dict) -> list[TextContent]:
+async def _handle_list_judges(client: LayerLens, arguments: dict) -> list[TextContent]:
     resp = await asyncio.to_thread(client.judges.get_many)
     if resp is None or not resp.judges:
         return [TextContent(type="text", text="No judges found.")]
@@ -344,16 +261,9 @@ async def _handle_list_judges(client: Stratix, arguments: dict) -> list[TextCont
 # ---------------------------------------------------------------------------
 
 
-async def _run() -> None:
-    server = create_server()
-    options = server.create_initialization_options()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, options)
-
-
 def main() -> None:
     """Run the MCP server over stdio."""
-    asyncio.run(_run())
+    create_server().run()
 
 
 if __name__ == "__main__":

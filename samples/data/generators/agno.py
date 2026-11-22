@@ -72,7 +72,7 @@ for _p in (os.path.join(_REPO, "src"), _SAMPLES, _DATA):
 # since the package dir is not on the path then).
 sys.path[:] = [_p for _p in sys.path if os.path.abspath(_p or ".") != _HERE]
 
-from layerlens import Stratix  # noqa: E402
+from layerlens import LayerLens  # noqa: E402
 import layerlens.instrument._collector as _collector_mod  # noqa: E402
 from layerlens.instrument._collector import set_trace_observer  # noqa: E402
 
@@ -119,7 +119,7 @@ _POLICY_BOOK = {
 # collector that flushes on run-end; we register it (plus any Team members),
 # drive a REAL ``.run(...)``, and observe the flushed payload.
 # --------------------------------------------------------------------------
-def _capture_agno(client: Stratix, target, task: str, *, members=()) -> dict:
+def _capture_agno(client: LayerLens, target, task: str, *, members=()) -> dict:
     from layerlens.instrument.adapters.frameworks.agno import AgnoAdapter
 
     captured: dict = {}
@@ -151,7 +151,7 @@ def _capture_agno(client: Stratix, target, task: str, *, members=()) -> dict:
 # --------------------------------------------------------------------------
 # Single agent + a real ``lookup_policy`` tool turn (insurance claims intake)
 # --------------------------------------------------------------------------
-def generate_agno_single(client: Stratix) -> dict:
+def generate_agno_single(client: LayerLens) -> dict:
     """Record a single ``claims-intake-agent`` running a real tool-use turn."""
     from agno.agent import Agent
     from agno.models.openai import OpenAIChat
@@ -213,7 +213,7 @@ def generate_agno_single(client: Stratix) -> dict:
 # --------------------------------------------------------------------------
 # Multi-agent: an agno Team leader delegates to two named members (underwriting)
 # --------------------------------------------------------------------------
-def generate_agno_multi(client: Stratix) -> dict:
+def generate_agno_multi(client: LayerLens) -> dict:
     """Record a genuine multi-agent agno Team: an ``underwriting-team`` leader
     delegates risk assessment to ``risk-analyst`` and the compliance check to
     ``compliance-checker`` (real ``delegate_task_to_member`` -> real member runs
@@ -310,6 +310,6 @@ def generate_agno_multi(client: Stratix) -> dict:
 
 
 if __name__ == "__main__":  # pragma: no cover - manual regeneration entrypoint
-    _client = Stratix()
+    _client = LayerLens()
     generate_agno_single(_client)
     generate_agno_multi(_client)

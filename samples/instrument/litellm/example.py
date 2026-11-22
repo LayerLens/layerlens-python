@@ -2,7 +2,7 @@
 
 Run with::
 
-    pip install layerlens[litellm]
+    uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"
     python samples/instrument/litellm/example.py
 
 See ``docs/adapters/providers/litellm.md`` for how routing works — LiteLLM
@@ -21,7 +21,7 @@ def main() -> int:
         from layerlens.instrument.adapters.providers import LiteLLMProvider
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install LiteLLM deps with: pip install layerlens[litellm]")
+        print('Install LiteLLM deps with: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"')
         return 0
 
     print("LiteLLMProvider available.")
@@ -29,7 +29,7 @@ def main() -> int:
         import litellm  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         print(f"[skipped] {exc}")
-        print("Install LiteLLM: pip install layerlens[litellm]")
+        print('Install LiteLLM: uv pip install --extra-index-url https://sdk.layerlens.ai/package "layerlens[litellm]"')
         return 0
 
     print("Wiring against litellm.completion / litellm.acompletion")

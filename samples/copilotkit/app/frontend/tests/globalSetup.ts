@@ -81,8 +81,8 @@ export default async function globalSetup(): Promise<void> {
     env: {
       ...process.env,
       PYTHONUNBUFFERED: "1",
-      LAYERLENS_STRATIX_API_KEY:
-        process.env.LAYERLENS_STRATIX_API_KEY || "test-key",
+      LAYERLENS_API_KEY:
+        process.env.LAYERLENS_API_KEY || "test-key",
     },
     // ``detached: false`` keeps the backend as a child of the Playwright
     // runner so it dies with the runner if teardown is skipped.

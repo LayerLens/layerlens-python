@@ -1,23 +1,23 @@
-# Stratix Python API library
+# LayerLens Python API library
 
-The Stratix Python library provides convenient access to the Stratix REST API from any Python 3.8+ application. The library offers synchronous clients powered by [httpx](https://github.com/encode/httpx).
+The LayerLens Python library provides convenient access to the LayerLens REST API from any Python 3.8+ application. The library offers synchronous clients powered by [httpx](https://github.com/encode/httpx).
 
 ## Installation
 
 ```sh
 # Install from PyPI
-pip install stratix --index-url https://sdk.layerlens.ai
+uv pip install --extra-index-url https://sdk.layerlens.ai/package layerlens
 ```
 
 ## Usage
 
 ```python
 import os
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix(
+client = LayerLens(
     # This is the default and can be omitted
-    api_key=os.environ.get("LAYERLENS_STRATIX_API_KEY"),
+    api_key=os.environ.get("LAYERLENS_API_KEY"),
 )
 
 evaluation = client.evaluations.create(
@@ -38,9 +38,9 @@ All errors inherit from `layerlens.APIError`.
 
 ```python
 import layerlens
-from layerlens import Stratix
+from layerlens import LayerLens
 
-client = Stratix()
+client = LayerLens()
 
 try:
     client.evaluations.create(
@@ -76,16 +76,16 @@ Error codes are as follows:
 By default requests time out after 10 minutes. You can configure this with a `timeout` option, which accepts a float or an [`httpx.Timeout`](https://www.python-httpx.org/advanced/timeouts/#fine-tuning-the-configuration) object:
 
 ```python
-from layerlens import Stratix
+from layerlens import LayerLens
 
 # Configure the default for all requests:
-client = Stratix(
+client = LayerLens(
     # 20 seconds (default is 10 minutes)
     timeout=20.0,
 )
 
 # More granular control:
-client = Stratix(
+client = LayerLens(
     timeout=httpx.Timeout(60.0, read=5.0, write=10.0, connect=2.0),
 )
 
