@@ -77,7 +77,7 @@ jobs:
       # Uploaded before the next run, which starts from an empty cache.
       - name: Upload mutmut cache, uv.lock environment (surviving-mutant detail)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutmut-cache
           path: .mutmut-cache
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload mutmut cache, ap2 row environment (surviving-mutant detail)
         if: ${{ always() && steps.ap2_score.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutmut-cache-ap2
           path: .mutmut-cache
