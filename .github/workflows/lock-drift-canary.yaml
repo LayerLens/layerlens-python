@@ -70,7 +70,7 @@ jobs:
     outputs:
       outcome: ${{ steps.relock.outcome }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -143,7 +143,7 @@ jobs:
     env:
       UV_MANAGED_PYTHON: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
@@ -210,7 +210,7 @@ jobs:
       contents: read
       issues: write # open or comment on the tracking issue
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download the row results
         # One directory per row under results/. A failed download leaves results/

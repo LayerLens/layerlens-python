@@ -46,7 +46,7 @@ jobs:
               exit 1
               ;;
           esac
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The tag being released, never the ref a dispatch ran from, so the
           # version and scripts validated are those of the commit that ships.
@@ -87,7 +87,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Build the commit validate checked, not the ref a dispatch ran from.
           ref: ${{ needs.validate.outputs.release_sha }}

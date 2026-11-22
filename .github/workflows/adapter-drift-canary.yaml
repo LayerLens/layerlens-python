@@ -36,7 +36,7 @@ jobs:
     outputs:
       frameworks: ${{ steps.list.outputs.frameworks }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: List rows
         id: list
         env:
@@ -58,7 +58,7 @@ jobs:
       matrix:
         framework: ${{ fromJSON(needs.plan.outputs.frameworks) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
         # A forced row runs no uv, and setup-uv's cache save fails on a cache it never filled.
@@ -96,7 +96,7 @@ jobs:
       contents: read
       issues: write # open or comment on the tracking issue
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download the row results
         # One directory per row under results/. A failed download leaves results/
